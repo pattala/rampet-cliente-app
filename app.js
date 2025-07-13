@@ -111,7 +111,7 @@ function requestNotificationPermission() {
     Notification.requestPermission().then((permission) => {
         if (permission === 'granted') {
             console.log('Permiso de notificación concedido.');
-            const vapidKey = "PEGA_AQUÍ_TU_CLAVE_VAPID_DE_FIREBASE"; // ¡Importante!
+            const vapidKey = BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA; // ¡Importante!
             
             messaging.getToken({ vapidKey: vapidKey }).then((currentToken) => {
                 if (!currentToken) {
@@ -336,6 +336,6 @@ function main() {
     }
 }
 
-document.addEventListener('DOMContentLoaded', main);```
+document.addEventListener('DOMContentLoaded', main);
 
 
