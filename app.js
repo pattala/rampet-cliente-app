@@ -1,4 +1,4 @@
-// app.js de la Aplicación del Cliente (VERSIÓN FINAL CORREGIDA)
+// app.js de la Aplicación del Cliente (VERSIÓN FINAL CON TOKEN INTELIGENTE)
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -99,7 +99,6 @@ function getPuntosEnProximoVencimiento(cliente) {
     return puntosAVencer;
 }
 
-// --- INICIO DE LA LÓGICA DE NOTIFICACIÓN CORREGIDA Y ROBUSTA ---
 function requestNotificationPermission() {
     console.log('Verificando estado de notificaciones...');
     
@@ -111,7 +110,7 @@ function requestNotificationPermission() {
     Notification.requestPermission().then((permission) => {
         if (permission === 'granted') {
             console.log('Permiso de notificación concedido.');
-            const vapidKey = `BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA` // ¡Importante!
+            const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
             
             messaging.getToken({ vapidKey: vapidKey }).then((currentToken) => {
                 if (!currentToken) {
@@ -121,7 +120,6 @@ function requestNotificationPermission() {
 
                 console.log('Token del dispositivo actual:', currentToken);
 
-                // Verificamos que los datos del cliente estén cargados antes de continuar
                 if (!clienteData || !clienteData.id) {
                     console.error("Error: Se intentó guardar un token pero los datos del cliente no están cargados.");
                     return;
@@ -138,7 +136,7 @@ function requestNotificationPermission() {
                     })
                     .then(() => {
                         console.log('Token añadido con éxito a Firestore.');
-                        clienteData.fcmTokens.push(currentToken); // Actualiza la data en memoria
+                        clienteData.fcmTokens.push(currentToken);
                     })
                     .catch(err => console.error('Error al guardar el FCM token en Firestore:', err));
                 } else {
@@ -151,7 +149,6 @@ function requestNotificationPermission() {
         }
     });
 }
-// --- FIN DE LA LÓGICA DE NOTIFICACIÓN CORREGIDA Y ROBUSTA ---
 
 async function loadClientData(user) {
     showScreen('loading-screen');
@@ -337,5 +334,3 @@ function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
-
