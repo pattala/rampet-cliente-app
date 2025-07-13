@@ -105,33 +105,29 @@ function requestNotificationPermission() {
     Notification.requestPermission().then((permission) => {
         if (permission === 'granted') {
             console.log('Permiso de notificación concedido.');
-            
             messaging.getToken().then((currentToken) => {
                 if (currentToken) {
-                    console.log('FCM Token obtenido:', currentToken);
-                    
+                    console.log('FCM Token:', currentToken);
                     if (clienteData && clienteData.id) {
                         const clienteDocRef = db.collection('clientes').doc(clienteData.id);
                         
-                        console.log(`Añadiendo token al documento del cliente con ID: ${clienteData.id}`);
-                        
-                        // CAMBIO CLAVE: Usamos FieldValue.arrayUnion para añadir el token a una lista
-                        // llamada 'fcmTokens' (en plural).
+                        // Usamos FieldValue.arrayUnion para añadir el token a una lista sin duplicarlo.
                         clienteDocRef.update({
                             fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken)
                         })
-                        .then(() => {
-                            console.log('¡ÉXITO! FCM Token añadido a la lista en Firestore.');
-                        })
+                        .then(() => console.log('FCM Token añadido a la lista en Firestore.'))
                         .catch(err => {
-                            console.error('Error al guardar el FCM token en Firestore:', err);
+                             // Si el update falla (posiblemente porque el campo no existe), usamos set con merge.
+                            if (err.code === "not-found") {
+                                clienteDocRef.set({ fcmTokens: [currentToken] }, { merge: true })
+                                    .then(() => console.log('Campo fcmTokens creado y token guardado.'))
+                                    .catch(err2 => console.error('Error al crear fcmTokens:', err2));
+                            } else {
+                                console.error('Error al guardar el FCM token:', err);
+                            }
                         });
                     }
-                } else {
-                    console.log('No se pudo obtener el token de registro.');
                 }
-            }).catch((err) => {
-                console.log('Ocurrió un error al obtener el token.', err);
             });
         }
     });
@@ -242,7 +238,8 @@ async function registerAndLinkAccount() {
 
         await clienteDoc.ref.update({ 
             authUID: user.uid,
-            email: email
+            email: email,
+            fcmTokens: [] // Inicializamos la lista de tokens vacía
         });
 
     } catch (error) {
@@ -309,7 +306,6 @@ function main() {
         }
     });
 
-    // Listener para mensajes recibidos en primer plano
     if (messaging) {
         messaging.onMessage((payload) => {
             console.log('¡Mensaje recibido en primer plano!', payload);
