@@ -105,21 +105,33 @@ function requestNotificationPermission() {
     Notification.requestPermission().then((permission) => {
         if (permission === 'granted') {
             console.log('Permiso de notificación concedido.');
+            
             messaging.getToken().then((currentToken) => {
                 if (currentToken) {
                     console.log('FCM Token obtenido:', currentToken);
+                    
                     if (clienteData && clienteData.id) {
                         const clienteDocRef = db.collection('clientes').doc(clienteData.id);
                         
-                        // CAMBIO: Usamos FieldValue.arrayUnion para añadir el token a una lista
-                        // sin duplicarlo si ya existe.
+                        console.log(`Añadiendo token al documento del cliente con ID: ${clienteData.id}`);
+                        
+                        // CAMBIO CLAVE: Usamos FieldValue.arrayUnion para añadir el token a una lista
+                        // llamada 'fcmTokens' (en plural).
                         clienteDocRef.update({
                             fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken)
                         })
-                        .then(() => console.log('FCM Token añadido a la lista en Firestore.'))
-                        .catch(err => console.error('Error al guardar el FCM token:', err));
+                        .then(() => {
+                            console.log('¡ÉXITO! FCM Token añadido a la lista en Firestore.');
+                        })
+                        .catch(err => {
+                            console.error('Error al guardar el FCM token en Firestore:', err);
+                        });
                     }
+                } else {
+                    console.log('No se pudo obtener el token de registro.');
                 }
+            }).catch((err) => {
+                console.log('Ocurrió un error al obtener el token.', err);
             });
         }
     });
