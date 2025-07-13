@@ -1,4 +1,4 @@
-// firebase-messaging-sw.js (VERSIÓN FINAL Y ROBUSTA)
+// firebase-messaging-sw.js (VERSIÓN FINAL Y DEFINITIVA)
 
 // 1. Importar los scripts de Firebase
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
@@ -20,22 +20,19 @@ const messaging = firebase.messaging();
 
 // 4. Configurar el manejador de mensajes en segundo plano
 messaging.onBackgroundMessage((payload) => {
-  console.log('[SW] Mensaje de datos recibido en segundo plano:', payload);
+  console.log('[SW] Mensaje de datos recibido:', payload);
 
-  // --- INICIO DE LA CORRECCIÓN CLAVE ---
-  // Extraemos los datos enviados desde el servidor. El payload contiene un objeto "data".
+  // Extraemos los datos enviados desde el servidor. Es la única fuente de verdad.
   const notificationTitle = payload.data.title;
   const notificationBody = payload.data.body;
-  const notificationIcon = 'https://i.postimg.cc/tJgqS2sW/mi-logo.png'; // URL completa y pública de tu logo
+  const notificationIcon = payload.data.icon; // Usamos el ícono que nos manda el servidor
 
   const notificationOptions = {
     body: notificationBody,
     icon: notificationIcon,
-    badge: notificationIcon // Opcional: para notificaciones en Android
+    badge: notificationIcon // El badge es para Android
   };
-  // --- FIN DE LA CORRECCIÓN CLAVE ---
 
-  // El Service Worker es el único responsable de mostrar la notificación.
-  // Esto devuelve una promesa, lo que le indica al navegador que no cierre el SW hasta que termine.
+  // El Service Worker muestra la notificación con los datos recibidos.
   return self.registration.showNotification(notificationTitle, notificationOptions);
 });
