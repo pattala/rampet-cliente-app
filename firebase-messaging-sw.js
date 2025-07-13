@@ -1,4 +1,4 @@
-// firebase-messaging-sw.js (VERSIÓN CORREGIDA Y DEFINITIVA)
+// firebase-messaging-sw.js (VERSIÓN DEFINITIVA Y CORRECTA)
 
 // 1. Importar los scripts de Firebase
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
@@ -18,15 +18,19 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-// 4. Configurar el manejador de mensajes en segundo plano (LA PARTE CLAVE)
-// Este bloque es necesario para que las notificaciones se reciban cuando la app está cerrada.
-// Sin embargo, lo dejamos SIN la línea `self.registration.showNotification`.
-// De esta forma, el navegador mostrará la notificación que ya viene del servidor.
+// 4. Configurar el manejador de mensajes en segundo plano
+// Esta es la forma más robusta de manejar notificaciones.
 messaging.onBackgroundMessage((payload) => {
-  console.log(
-    '[firebase-messaging-sw.js] Mensaje recibido en segundo plano. El navegador lo mostrará automáticamente.',
-    payload
-  );
+  console.log('[firebase-messaging-sw.js] Mensaje de datos recibido en segundo plano:', payload);
   
-  // ¡NO HAY NADA MÁS QUE HACER AQUÍ!
+  // Extraemos los datos enviados desde el servidor
+  const notificationTitle = payload.data.title;
+  const notificationOptions = {
+    body: payload.data.body,
+    icon: payload.data.icon // Usamos el ícono que nos manda el servidor
+  };
+
+  // El Service Worker AHORA SÍ es responsable de mostrar la notificación
+  // usando los datos que recibió.
+  self.registration.showNotification(notificationTitle, notificationOptions);
 });
