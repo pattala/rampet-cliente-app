@@ -107,7 +107,7 @@ function requestNotificationPermission() {
     Notification.requestPermission().then((permission) => {
         if (permission === 'granted') {
             console.log('Permiso de notificación concedido.');
-            messaging.getToken({ vapidKey: 'BMQJ2U8h1l4f7r_d4D0l-J2R8K5s5F0d2v6G7J9j-R1t2U5k0l8i4u7X4z1V0w3P4y6Q9p8J3o2H1k' }).then((currentToken) => { // Reemplaza con tu VAPID key
+            messaging.getToken({ vapidKey: 'BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA' }).then((currentToken) => { // Reemplaza con tu VAPID key
                 if (currentToken) {
                     console.log('FCM Token:', currentToken);
                     if (clienteData && clienteData.id) {
