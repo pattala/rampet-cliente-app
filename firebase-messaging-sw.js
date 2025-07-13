@@ -1,4 +1,4 @@
-// firebase-messaging-sw.js (VERSIÓN DEFINITIVA Y CORRECTA)
+// firebase-messaging-sw.js (VERSIÓN FINAL Y ROBUSTA)
 
 // 1. Importar los scripts de Firebase
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
@@ -19,18 +19,23 @@ firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
 // 4. Configurar el manejador de mensajes en segundo plano
-// Esta es la forma más robusta de manejar notificaciones.
 messaging.onBackgroundMessage((payload) => {
-  console.log('[firebase-messaging-sw.js] Mensaje de datos recibido en segundo plano:', payload);
-  
-  // Extraemos los datos enviados desde el servidor
-  const notificationTitle = payload.data.title;
-  const notificationOptions = {
-    body: payload.data.body,
-    icon: payload.data.icon // Usamos el ícono que nos manda el servidor
-  };
+  console.log('[SW] Mensaje de datos recibido en segundo plano:', payload);
 
-  // El Service Worker AHORA SÍ es responsable de mostrar la notificación
-  // usando los datos que recibió.
-  self.registration.showNotification(notificationTitle, notificationOptions);
+  // --- INICIO DE LA CORRECCIÓN CLAVE ---
+  // Extraemos los datos enviados desde el servidor. El payload contiene un objeto "data".
+  const notificationTitle = payload.data.title;
+  const notificationBody = payload.data.body;
+  const notificationIcon = 'https://i.postimg.cc/tJgqS2sW/mi-logo.png'; // URL completa y pública de tu logo
+
+  const notificationOptions = {
+    body: notificationBody,
+    icon: notificationIcon,
+    badge: notificationIcon // Opcional: para notificaciones en Android
+  };
+  // --- FIN DE LA CORRECCIÓN CLAVE ---
+
+  // El Service Worker es el único responsable de mostrar la notificación.
+  // Esto devuelve una promesa, lo que le indica al navegador que no cierre el SW hasta que termine.
+  return self.registration.showNotification(notificationTitle, notificationOptions);
 });
