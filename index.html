@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Club RAMPET - Mis Puntos</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js"></script>
+</head>
+<body>
+    <div id="toast-container"></div>
+    <div class="container">
+        <header>
+            <img src="images/mi_logo.png" alt="Logo RAMPET" class="logo">
+            <h1>Club RAMPET</h1>
+        </header>
+
+        <div id="loading-screen" class="screen active">
+            <p>Cargando...</p>
+        </div>
+        
+        <div id="login-screen" class="screen">
+            <h2>Bienvenido</h2>
+            <p>Ingresa para consultar tus puntos y beneficios.</p>
+            <div class="form-group">
+                <input type="email" id="login-email" placeholder="Tu Email" autocomplete="email">
+                <input type="password" id="login-password" placeholder="Tu Contraseña">
+                <button id="login-btn" class="primary-btn">Ingresar</button>
+            </div>
+            <p class="toggle-link">¿Primera vez aquí? <a href="#" id="show-register-link">Crea tu cuenta</a></p>
+        </div>
+
+        <div id="register-screen" class="screen">
+            <h2>Crea tu acceso</h2>
+            <p>Usa los datos con los que te registraste en la tienda para vincular tu cuenta.</p>
+            <div class="form-group">
+                <input type="text" id="register-dni" placeholder="Tu DNI" required>
+                <input type="email" id="register-email" placeholder="Tu Email" required autocomplete="email">
+                <input type="password" id="register-password" placeholder="Crea una Contraseña (mín. 6 caracteres)" required>
+                <button id="register-btn" class="primary-btn">Crear y Vincular Cuenta</button>
+            </div>
+            <p class="toggle-link">¿Ya tienes cuenta? <a href="#" id="show-login-link">Ingresa aquí</a></p>
+        </div>
+
+        <div id="main-app-screen" class="screen">
+            <div class="user-header">
+                <h3>Hola, <span id="cliente-nombre">--</span></h3>
+                <button id="logout-btn" class="secondary-btn">Salir</button>
+            </div>
+            <div class="card puntos-card">
+                <p>Tus Puntos Disponibles</p>
+                <h2 id="cliente-puntos">--</h2>
+            </div>
+
+            <div id="vencimiento-card" class="card vencimiento-card" style="display: none;">
+                <p>⚠️ Puntos por Vencer</p>
+                <h2><span id="cliente-puntos-vencimiento">--</span> Puntos</h2>
+                <p>Vencen el: <strong id="cliente-fecha-vencimiento">--</strong></p>
+            </div>
+
+            <div id="historial-container" class="card">
+                <h3>Historial Reciente</h3>
+                <ul id="lista-historial"></ul>
+            </div>
+            <div id="premios-container" class="card">
+                <h3>Premios que puedes canjear</h3>
+                <ul id="lista-premios-cliente"></ul>
+            </div>
+        </div>
+
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
