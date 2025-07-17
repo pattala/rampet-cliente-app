@@ -50,6 +50,25 @@
                 <h3>Hola, <span id="cliente-nombre">--</span></h3>
                 <button id="logout-btn" class="secondary-btn">Salir</button>
             </div>
+
+            <!-- ===== NUEVO: Pre-Permiso Modal (Oculto por defecto) ===== -->
+            <div id="pre-permiso-overlay" class="pre-permiso-overlay" style="display: none;">
+                <div class="pre-permiso-content card">
+                    <h3>¡No te pierdas de nada!</h3>
+                    <p>Activa las notificaciones para enterarte cuando:</p>
+                    <ul>
+                        <li>🎁 Haya nuevos premios disponibles.</li>
+                        <li>🎂 Sea tu cumpleaños y recibas un bono.</li>
+                        <li>🔥 Tus puntos estén por vencer.</li>
+                    </ul>
+                    <div class="pre-permiso-actions">
+                        <button id="btn-activar-permiso" class="primary-btn">Sí, activar</button>
+                        <button id="btn-ahora-no" class="secondary-btn">Ahora no</button>
+                    </div>
+                </div>
+            </div>
+            <!-- ===== FIN DEL NUEVO CÓDIGO ===== -->
+
             <div class="card puntos-card">
                 <p>Tus Puntos Disponibles</p>
                 <h2 id="cliente-puntos">--</h2>
@@ -60,6 +79,22 @@
                 <h2><span id="cliente-puntos-vencimiento">--</span> Puntos</h2>
                 <p>Vencen el: <strong id="cliente-fecha-vencimiento">--</strong></p>
             </div>
+
+            <!-- ===== NUEVO: Tarjeta de Notificaciones con Switch (Oculto por defecto) ===== -->
+            <div id="notif-card" class="card" style="display: none;">
+                <h3>Notificaciones</h3>
+                <div class="notif-setting">
+                    <p>Recibir avisos de beneficios y premios.</p>
+                    <label class="switch">
+                        <input type="checkbox" id="notif-switch">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+                <p id="notif-manual-guide" class="manual-guide" style="display: none;">
+                    Para recibir notificaciones, necesitas permitirlo manualmente. Haz clic en el candado 🔒 de la barra de direcciones de tu navegador y activa los permisos.
+                </p>
+            </div>
+            <!-- ===== FIN DEL NUEVO CÓDIGO ===== -->
 
             <div id="historial-container" class="card">
                 <h3>Historial Reciente</h3>
