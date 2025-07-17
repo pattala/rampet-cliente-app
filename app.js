@@ -1,4 +1,4 @@
-// app.js de la Aplicación del Cliente (VERSIÓN FINAL CON MEMORIA DE USUARIO)
+// app.js de la Aplicación del Cliente (VERSIÓN FINAL CON UI LIMPIA)
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -23,7 +23,7 @@ if (isMessagingSupported) {
 let clienteData = null; 
 let premiosData = [];   
 
-// ========== FUNCIONES DE AYUDA ==========
+// ... (Todas las funciones de ayuda como showToast, showScreen, etc. se mantienen igual)
 function showToast(message, type = 'info', duration = 5000) {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
@@ -55,7 +55,8 @@ function formatearFecha(isoDateString) {
     return `${dia}/${mes}/${anio}`;
 }
 
-// ========== LÓGICA DE NOTIFICACIONES ==========
+
+// ========== LÓGICA DE NOTIFICACIONES (VERSIÓN LIMPIA) ==========
 
 function obtenerYGuardarToken() {
     if (!isMessagingSupported || !messaging) return;
@@ -87,34 +88,32 @@ function gestionarPermisoNotificaciones() {
     const notifCard = document.getElementById('notif-card');
     const notifSwitch = document.getElementById('notif-switch');
     const prePermisoOverlay = document.getElementById('pre-permiso-overlay');
-    const manualGuide = document.getElementById('notif-manual-guide');
-
+    
     prePermisoOverlay.style.display = 'none';
     notifCard.style.display = 'none';
-    manualGuide.style.display = 'none';
-
-    console.log(`CHECK: Permiso=${permiso}, popUpYaMostrado=${popUpYaMostrado}`);
 
     if (permiso === 'granted') {
-        notifCard.style.display = 'block';
-        notifSwitch.checked = true;
-        notifSwitch.disabled = true; 
+        // ** CAMBIO CLAVE: Si el permiso está concedido, no hacemos nada en la UI. **
+        // Simplemente nos aseguramos de que el token esté guardado.
+        console.log("UI_ACTION: Permiso concedido. No se muestra ninguna tarjeta.");
         obtenerYGuardarToken();
     } else if (permiso === 'denied') {
+        // Mostramos la tarjeta pasiva para que pueda intentar reactivar.
         notifCard.style.display = 'block';
         notifSwitch.checked = false;
-        notifSwitch.disabled = false;
     } else { // 'default'
-        notifSwitch.disabled = false;
         if (!popUpYaMostrado) {
+            // El pop-up solo se muestra si el permiso es 'default' Y nunca antes lo hemos mostrado.
             prePermisoOverlay.style.display = 'flex';
         } else {
+            // Si ya lo mostramos y no respondieron, mostramos la tarjeta pasiva.
             notifCard.style.display = 'block';
             notifSwitch.checked = false;
         }
     }
 }
 
+// ... (El resto del código es idéntico al de la versión anterior)
 // ========== LÓGICA DE DATOS Y UI ==========
 function getFechaProximoVencimiento(cliente) {
     if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
