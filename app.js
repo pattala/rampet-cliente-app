@@ -1,4 +1,4 @@
-// app.js de la Aplicación del Cliente (VERSIÓN CORREGIDA Y CON MEJOR DEPURACIÓN)
+// app.js de la Aplicación del Cliente (VERSIÓN FINAL CORREGIDA)
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -15,7 +15,8 @@ const app = firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
 let messaging;
-if (firebase.messaging.isSupported()) {
+const isMessagingSupported = firebase.messaging.isSupported();
+if (isMessagingSupported) {
     messaging = firebase.messaging();
 }
 
@@ -56,11 +57,8 @@ function formatearFecha(isoDateString) {
 
 // ========== LÓGICA DE DATOS Y NOTIFICACIONES (REFACTORIZADO) ==========
 
-/**
- * Obtiene y guarda el token de FCM en Firestore si es necesario.
- */
 function obtenerYGuardarToken() {
-    if (!messaging) return;
+    if (!isMessagingSupported) return;
     console.log("==> GRANTED: Intentando obtener y guardar token.");
     const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
     
@@ -77,12 +75,16 @@ function obtenerYGuardarToken() {
             const tokensEnDb = clienteData.fcmTokens || [];
             if (!tokensEnDb.includes(currentToken)) {
                 console.log('TOKEN_ACTION: Token nuevo. Actualizando Firestore...');
-                const clienteDocRef = db.collection('clientes').doc(clienteData.id.toString()); // Asegurar que el ID es string
+                const clienteDocRef = db.collection('clientes').doc(clienteData.id.toString());
                 clienteDocRef.update({
                     fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken)
                 }).then(() => {
                     console.log('TOKEN_SUCCESS: Token añadido con éxito a Firestore.');
-                    clienteData.fcmTokens.push(currentToken);
+                    if(clienteData.fcmTokens) {
+                        clienteData.fcmTokens.push(currentToken);
+                    } else {
+                        clienteData.fcmTokens = [currentToken];
+                    }
                     showToast("¡Notificaciones activadas!", "success");
                 }).catch(err => console.error('FIRESTORE_ERROR: Error al guardar el FCM token:', err));
             } else {
@@ -92,30 +94,12 @@ function obtenerYGuardarToken() {
         .catch(err => console.error('GET_TOKEN_ERROR: Error al obtener token:', err));
 }
 
-/**
- * Solicita el permiso real del navegador y maneja la respuesta.
- */
-function solicitarPermiso() {
-    if (!messaging) return;
-    console.log("==> ACTION: Solicitando permiso real del navegador...");
-    
-    messaging.requestPermission()
-        .then(() => {
-            const nuevoEstado = Notification.permission;
-            console.log(`==> RESULT: El usuario interactuó. Nuevo estado: ${nuevoEstado}`);
-            gestionarPermisoNotificaciones(); // Re-evaluar el estado con la nueva información
-        })
-        .catch(err => {
-            console.error('==> ERROR: El usuario denegó o cerró el permiso.', err);
-            gestionarPermisoNotificaciones(); // Re-evaluar de todas formas para mostrar la UI correcta
-        });
-}
 
 /**
  * Gestiona qué UI mostrar al usuario basado en el estado del permiso.
  */
 function gestionarPermisoNotificaciones() {
-    if (!messaging) {
+    if (!isMessagingSupported) {
         console.log('COMPAT_ERROR: Este navegador no es compatible con las notificaciones.');
         return;
     }
@@ -146,7 +130,7 @@ function gestionarPermisoNotificaciones() {
     }
 }
 
-// ... (El resto de las funciones de la app como getFechaProximoVencimiento, loadClientData, etc., se mantienen igual)
+
 function getFechaProximoVencimiento(cliente) {
     if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
     let fechaMasProxima = null;
@@ -211,9 +195,9 @@ async function loadClientData(user) {
         const vencimientoCard = document.getElementById('vencimiento-card');
 
         if (puntosPorVencer > 0 && fechaVencimiento) {
+            vencimientoCard.style.display = 'block';
             document.getElementById('cliente-puntos-vencimiento').textContent = puntosPorVencer;
             document.getElementById('cliente-fecha-vencimiento').textContent = formatearFecha(fechaVencimiento.toISOString());
-            vencimientoCard.style.display = 'block';
         } else {
             vencimientoCard.style.display = 'none';
         }
@@ -266,33 +250,22 @@ async function registerAndLinkAccount() {
         showToast("Por favor, completa todos los campos. La contraseña debe tener al menos 6 caracteres.", "error");
         return;
     }
-
     registerButton.disabled = true;
     registerButton.textContent = 'Procesando...';
-
     try {
         const clientesRef = db.collection('clientes');
         const snapshot = await clientesRef.where("dni", "==", dni).get();
-
         if (snapshot.empty) {
             throw new Error("No se encontró ningún cliente con ese DNI. Verifica que sea el mismo con el que te registraste en la tienda.");
         }
-
         const clienteDoc = snapshot.docs[0];
         const clienteActual = clienteDoc.data();
-
         if (clienteActual.authUID) {
             throw new Error("Este cliente ya tiene una cuenta de acceso creada. Por favor, intenta iniciar sesión.");
         }
-
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
         const user = userCredential.user;
-
-        await clienteDoc.ref.update({ 
-            authUID: user.uid,
-            email: email
-        });
-
+        await clienteDoc.ref.update({ authUID: user.uid, email: email });
     } catch (error) {
         if (error.code === 'auth/email-already-in-use') {
             showToast("Este correo electrónico ya está en uso por otro usuario.", "error");
@@ -309,12 +282,10 @@ async function registerAndLinkAccount() {
 async function login() {
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
-
     if (!email || !password) {
         showToast("Por favor, ingresa tu email y contraseña.", "error");
         return;
     }
-
     try {
         await auth.signInWithEmailAndPassword(email, password);
     } catch (error) {
@@ -340,39 +311,54 @@ function main() {
     document.getElementById('login-btn').addEventListener('click', login);
     document.getElementById('logout-btn').addEventListener('click', logout);
 
-    document.getElementById('btn-activar-permiso').addEventListener('click', () => {
-        document.getElementById('pre-permiso-overlay').style.display = 'none';
-        solicitarPermiso();
-    });
+    // Solo agregar listeners si messaging es compatible
+    if (isMessagingSupported) {
+        document.getElementById('btn-activar-permiso').addEventListener('click', () => {
+            document.getElementById('pre-permiso-overlay').style.display = 'none';
+            // CORRECCIÓN: Se usa Notification.requestPermission directamente.
+            Notification.requestPermission().then(permission => {
+                console.log(`==> RESULT: El usuario interactuó. Nuevo estado: ${permission}`);
+                gestionarPermisoNotificaciones();
+            });
+        });
 
-    document.getElementById('btn-ahora-no').addEventListener('click', () => {
-        document.getElementById('pre-permiso-overlay').style.display = 'none';
-        showToast("Entendido. Puedes cambiar de opinión cuando quieras.", "info");
-        document.getElementById('notif-card').style.display = 'block';
-        document.getElementById('notif-switch').checked = false;
-    });
+        document.getElementById('btn-ahora-no').addEventListener('click', () => {
+            document.getElementById('pre-permiso-overlay').style.display = 'none';
+            showToast("Entendido. Puedes cambiar de opinión cuando quieras.", "info");
+            document.getElementById('notif-card').style.display = 'block';
+            document.getElementById('notif-switch').checked = false;
+        });
 
-    document.getElementById('notif-switch').addEventListener('change', (event) => {
-        const manualGuide = document.getElementById('notif-manual-guide');
-        if (event.target.checked) {
-            if (Notification.permission === 'denied') {
-                manualGuide.style.display = 'block';
-                event.target.checked = false; 
+        document.getElementById('notif-switch').addEventListener('change', (event) => {
+            const manualGuide = document.getElementById('notif-manual-guide');
+            if (event.target.checked) {
+                if (Notification.permission === 'denied') {
+                    manualGuide.style.display = 'block';
+                    event.target.checked = false; 
+                } else {
+                    manualGuide.style.display = 'none';
+                    Notification.requestPermission().then(permission => {
+                        gestionarPermisoNotificaciones();
+                    });
+                }
             } else {
-                 manualGuide.style.display = 'none';
-                 solicitarPermiso();
+                manualGuide.style.display = 'none';
             }
-        } else {
-            manualGuide.style.display = 'none';
-        }
-    });
+        });
 
-    document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible' && auth.currentUser) {
-            console.log("==> EVENT: La pestaña ahora es visible, re-evaluando permisos...");
-            gestionarPermisoNotificaciones();
-        }
-    });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && auth.currentUser) {
+                console.log("==> EVENT: La pestaña ahora es visible, re-evaluando permisos...");
+                gestionarPermisoNotificaciones();
+            }
+        });
+
+        messaging.onMessage((payload) => {
+            console.log('¡Mensaje recibido en primer plano!', payload);
+            const notificacion = payload.data || payload.notification; 
+            showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000);
+        });
+    }
 
     auth.onAuthStateChanged(user => {
         console.log("==> AUTH: Cambio de estado. Usuario:", user ? user.email : 'null');
@@ -383,14 +369,6 @@ function main() {
             showScreen('login-screen');
         }
     });
-
-    if (messaging) {
-        messaging.onMessage((payload) => {
-            console.log('¡Mensaje recibido en primer plano!', payload);
-            const notificacion = payload.data || payload.notification; 
-            showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000);
-        });
-    }
 }
 
 document.addEventListener('DOMContentLoaded', main);
