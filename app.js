@@ -1,4 +1,4 @@
-// app.js de la Aplicación del Cliente (VERSIÓN FINAL CON TOKEN INTELIGENTE)
+// app.js de la Aplicación del Cliente (VERSIÓN CORREGIDA Y CON MEJOR DEPURACIÓN)
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -61,34 +61,35 @@ function formatearFecha(isoDateString) {
  */
 function obtenerYGuardarToken() {
     if (!messaging) return;
+    console.log("==> GRANTED: Intentando obtener y guardar token.");
     const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
     
     messaging.getToken({ vapidKey })
         .then(currentToken => {
             if (!currentToken) {
-                console.log('No se pudo generar un token.');
+                console.error('TOKEN_ERROR: No se pudo generar un token.');
                 return;
             }
             if (!clienteData || !clienteData.id) {
-                console.error("Error: Se intentó guardar un token pero los datos del cliente no están cargados.");
+                console.error("TOKEN_ERROR: Datos del cliente no cargados al intentar guardar token.");
                 return;
             }
             const tokensEnDb = clienteData.fcmTokens || [];
             if (!tokensEnDb.includes(currentToken)) {
-                console.log('Token no encontrado en la BD. Actualizando...');
-                const clienteDocRef = db.collection('clientes').doc(clienteData.id);
+                console.log('TOKEN_ACTION: Token nuevo. Actualizando Firestore...');
+                const clienteDocRef = db.collection('clientes').doc(clienteData.id.toString()); // Asegurar que el ID es string
                 clienteDocRef.update({
                     fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken)
                 }).then(() => {
-                    console.log('Token añadido con éxito a Firestore.');
+                    console.log('TOKEN_SUCCESS: Token añadido con éxito a Firestore.');
                     clienteData.fcmTokens.push(currentToken);
                     showToast("¡Notificaciones activadas!", "success");
-                }).catch(err => console.error('Error al guardar el FCM token en Firestore:', err));
+                }).catch(err => console.error('FIRESTORE_ERROR: Error al guardar el FCM token:', err));
             } else {
-                console.log('El token de este dispositivo ya está registrado.');
+                console.log('TOKEN_INFO: El token de este dispositivo ya está registrado.');
             }
         })
-        .catch(err => console.error('Error al obtener token de Firebase Messaging:', err));
+        .catch(err => console.error('GET_TOKEN_ERROR: Error al obtener token:', err));
 }
 
 /**
@@ -96,26 +97,26 @@ function obtenerYGuardarToken() {
  */
 function solicitarPermiso() {
     if (!messaging) return;
-    console.log('Solicitando permiso real del navegador...');
+    console.log("==> ACTION: Solicitando permiso real del navegador...");
     
     messaging.requestPermission()
         .then(() => {
-            console.log('Permiso de notificación concedido.');
-            gestionarPermisoNotificaciones(); // Re-evaluar el estado
+            const nuevoEstado = Notification.permission;
+            console.log(`==> RESULT: El usuario interactuó. Nuevo estado: ${nuevoEstado}`);
+            gestionarPermisoNotificaciones(); // Re-evaluar el estado con la nueva información
         })
         .catch(err => {
-            console.error('El usuario denegó el permiso.', err);
-            gestionarPermisoNotificaciones(); // Re-evaluar el estado
+            console.error('==> ERROR: El usuario denegó o cerró el permiso.', err);
+            gestionarPermisoNotificaciones(); // Re-evaluar de todas formas para mostrar la UI correcta
         });
 }
 
 /**
  * Gestiona qué UI mostrar al usuario basado en el estado del permiso.
- * Esta es la función principal de la lógica de notificaciones.
  */
 function gestionarPermisoNotificaciones() {
     if (!messaging) {
-        console.log('Este navegador no es compatible con las notificaciones.');
+        console.log('COMPAT_ERROR: Este navegador no es compatible con las notificaciones.');
         return;
     }
     const permiso = Notification.permission;
@@ -124,31 +125,29 @@ function gestionarPermisoNotificaciones() {
     const prePermisoOverlay = document.getElementById('pre-permiso-overlay');
     const manualGuide = document.getElementById('notif-manual-guide');
 
-    console.log(`Estado del permiso de notificaciones: ${permiso}`);
+    console.log(`==> CHECK: Estado actual del permiso: ${permiso}`);
 
-    // Ocultar todo por defecto
     prePermisoOverlay.style.display = 'none';
     notifCard.style.display = 'none';
     manualGuide.style.display = 'none';
 
     if (permiso === 'granted') {
-        // PERMISO CONCEDIDO: Obtener token y asegurarse que el switch esté activado.
+        console.log("UI_ACTION: Permiso es 'granted'. Mostrando switch activado.");
         notifCard.style.display = 'block';
         notifSwitch.checked = true;
         obtenerYGuardarToken();
     } else if (permiso === 'denied') {
-        // PERMISO DENEGADO: Mostrar la tarjeta con el switch pasivo.
+        console.log("UI_ACTION: Permiso es 'denied'. Mostrando switch desactivado.");
         notifCard.style.display = 'block';
         notifSwitch.checked = false;
-    } else {
-        // ESTADO POR DEFECTO: Mostrar el pre-permiso para persuadir al usuario.
+    } else { // 'default'
+        console.log("UI_ACTION: Permiso es 'default'. Mostrando pre-permiso modal.");
         prePermisoOverlay.style.display = 'flex';
     }
 }
 
-
+// ... (El resto de las funciones de la app como getFechaProximoVencimiento, loadClientData, etc., se mantienen igual)
 function getFechaProximoVencimiento(cliente) {
-    // ... (código sin cambios)
     if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
     let fechaMasProxima = null;
     const hoy = new Date();
@@ -171,7 +170,6 @@ function getFechaProximoVencimiento(cliente) {
 }
 
 function getPuntosEnProximoVencimiento(cliente) {
-    // ... (código sin cambios)
     const fechaProximoVencimiento = getFechaProximoVencimiento(cliente);
     if (!fechaProximoVencimiento) return 0;
 
@@ -205,7 +203,6 @@ async function loadClientData(user) {
         const premiosSnapshot = await db.collection('premios').get();
         premiosData = premiosSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
         
-        // Rellenar UI con datos del cliente
         document.getElementById('cliente-nombre').textContent = clienteData.nombre.split(' ')[0];
         document.getElementById('cliente-puntos').textContent = clienteData.puntos || 0;
         
@@ -250,7 +247,6 @@ async function loadClientData(user) {
 
         showScreen('main-app-screen');
         
-        // ** PUNTO CLAVE: Llamar a la nueva lógica de gestión de permisos **
         gestionarPermisoNotificaciones();
 
     } catch (error) {
@@ -260,10 +256,7 @@ async function loadClientData(user) {
     }
 }
 
-// ========== LÓGICA DE AUTENTICACIÓN (sin cambios) ==========
-
 async function registerAndLinkAccount() {
-    // ... (código sin cambios)
     const dni = document.getElementById('register-dni').value.trim();
     const email = document.getElementById('register-email').value.trim();
     const password = document.getElementById('register-password').value;
@@ -297,8 +290,7 @@ async function registerAndLinkAccount() {
 
         await clienteDoc.ref.update({ 
             authUID: user.uid,
-            email: email,
-            fcmTokens: []
+            email: email
         });
 
     } catch (error) {
@@ -315,7 +307,6 @@ async function registerAndLinkAccount() {
 }
 
 async function login() {
-    // ... (código sin cambios)
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
 
@@ -333,7 +324,6 @@ async function login() {
 }
 
 async function logout() {
-    // ... (código sin cambios)
     try {
         await auth.signOut();
     } catch (error) {
@@ -344,14 +334,12 @@ async function logout() {
 // ========== PUNTO DE ENTRADA DE LA APLICACIÓN ==========
 
 function main() {
-    // Event listeners para navegación y autenticación
     document.getElementById('show-register-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('register-screen'); });
     document.getElementById('show-login-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('login-screen'); });
     document.getElementById('register-btn').addEventListener('click', registerAndLinkAccount);
     document.getElementById('login-btn').addEventListener('click', login);
     document.getElementById('logout-btn').addEventListener('click', logout);
 
-    // ===== NUEVO: Event Listeners para la lógica de notificaciones =====
     document.getElementById('btn-activar-permiso').addEventListener('click', () => {
         document.getElementById('pre-permiso-overlay').style.display = 'none';
         solicitarPermiso();
@@ -359,38 +347,35 @@ function main() {
 
     document.getElementById('btn-ahora-no').addEventListener('click', () => {
         document.getElementById('pre-permiso-overlay').style.display = 'none';
-        showToast("Entendido. Puedes activar las notificaciones más tarde.", "info");
-        // Mostramos la tarjeta pasiva para que tengan la opción a mano
+        showToast("Entendido. Puedes cambiar de opinión cuando quieras.", "info");
         document.getElementById('notif-card').style.display = 'block';
         document.getElementById('notif-switch').checked = false;
     });
 
     document.getElementById('notif-switch').addEventListener('change', (event) => {
+        const manualGuide = document.getElementById('notif-manual-guide');
         if (event.target.checked) {
-            // El usuario quiere activar las notificaciones
             if (Notification.permission === 'denied') {
-                // Si está denegado, no podemos pedirlo, solo guiar.
-                document.getElementById('notif-manual-guide').style.display = 'block';
-                // Devolvemos el switch a 'off' porque el permiso real no ha cambiado.
+                manualGuide.style.display = 'block';
                 event.target.checked = false; 
             } else {
+                 manualGuide.style.display = 'none';
                  solicitarPermiso();
             }
+        } else {
+            manualGuide.style.display = 'none';
         }
-        // No manejamos el caso 'off' porque el usuario puede desactivar desde el navegador
     });
 
-    // Listener de visibilidad de la pestaña para re-evaluar permisos
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && auth.currentUser) {
-            console.log("La pestaña ahora es visible, re-evaluando permisos...");
+            console.log("==> EVENT: La pestaña ahora es visible, re-evaluando permisos...");
             gestionarPermisoNotificaciones();
         }
     });
-    // ====================================================================
 
     auth.onAuthStateChanged(user => {
-        console.log("Cambio de estado de autenticación. Usuario:", user ? user.email : 'null');
+        console.log("==> AUTH: Cambio de estado. Usuario:", user ? user.email : 'null');
         if (user) {
             loadClientData(user);
         } else {
