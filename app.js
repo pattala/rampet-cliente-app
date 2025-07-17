@@ -1,4 +1,4 @@
-// app.js de la Aplicación del Cliente (VERSIÓN CON FLUJO LÓGICO CORREGIDO)
+// app.js de la Aplicación del Cliente (VERSIÓN FINAL CON MEMORIA DE USUARIO)
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -58,56 +58,64 @@ function formatearFecha(isoDateString) {
 // ========== LÓGICA DE NOTIFICACIONES ==========
 
 function obtenerYGuardarToken() {
-    if (!isMessagingSupported) return;
+    if (!isMessagingSupported || !messaging) return;
     const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
     
     messaging.getToken({ vapidKey })
         .then(currentToken => {
             if (!currentToken || !clienteData || !clienteData.id) return;
-            
             const tokensEnDb = clienteData.fcmTokens || [];
             if (!tokensEnDb.includes(currentToken)) {
                 const clienteDocRef = db.collection('clientes').doc(clienteData.id.toString());
-                clienteDocRef.update({
-                    fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken)
-                }).then(() => {
-                    if (clienteData.fcmTokens) {
-                        clienteData.fcmTokens.push(currentToken);
-                    } else {
-                        clienteData.fcmTokens = [currentToken];
-                    }
-                    showToast("¡Notificaciones activadas!", "success");
-                });
+                clienteDocRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) })
+                    .then(() => {
+                        if (clienteData.fcmTokens) clienteData.fcmTokens.push(currentToken);
+                        else clienteData.fcmTokens = [currentToken];
+                    });
             }
-        })
-        .catch(err => console.error('GET_TOKEN_ERROR:', err));
+        }).catch(err => console.error('GET_TOKEN_ERROR:', err));
 }
 
 function gestionarPermisoNotificaciones() {
-    if (!isMessagingSupported) return;
+    if (!isMessagingSupported || !auth.currentUser) return;
 
     const permiso = Notification.permission;
+    const uid = auth.currentUser.uid;
+    const storageKey = `popUpPermisoMostrado_${uid}`;
+    const popUpYaMostrado = localStorage.getItem(storageKey);
+
     const notifCard = document.getElementById('notif-card');
     const notifSwitch = document.getElementById('notif-switch');
     const prePermisoOverlay = document.getElementById('pre-permiso-overlay');
+    const manualGuide = document.getElementById('notif-manual-guide');
 
     prePermisoOverlay.style.display = 'none';
     notifCard.style.display = 'none';
+    manualGuide.style.display = 'none';
+
+    console.log(`CHECK: Permiso=${permiso}, popUpYaMostrado=${popUpYaMostrado}`);
 
     if (permiso === 'granted') {
         notifCard.style.display = 'block';
         notifSwitch.checked = true;
+        notifSwitch.disabled = true; 
         obtenerYGuardarToken();
     } else if (permiso === 'denied') {
         notifCard.style.display = 'block';
         notifSwitch.checked = false;
+        notifSwitch.disabled = false;
     } else { // 'default'
-        prePermisoOverlay.style.display = 'flex';
+        notifSwitch.disabled = false;
+        if (!popUpYaMostrado) {
+            prePermisoOverlay.style.display = 'flex';
+        } else {
+            notifCard.style.display = 'block';
+            notifSwitch.checked = false;
+        }
     }
 }
 
 // ========== LÓGICA DE DATOS Y UI ==========
-
 function getFechaProximoVencimiento(cliente) {
     if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
     let fechaMasProxima = null;
@@ -122,7 +130,7 @@ function getFechaProximoVencimiento(cliente) {
             fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
             if (fechaCaducidad >= hoy) {
                 if (fechaMasProxima === null || fechaCaducidad < fechaMasProxima) {
-                    fechaMasProxima = fechaMasProxima;
+                    fechaMasProxima = fechaCaducidad;
                 }
             }
         }
@@ -204,8 +212,6 @@ async function loadClientData(user) {
         }
 
         showScreen('main-app-screen');
-        
-        // ** PUNTO CLAVE: La lógica de notificaciones SÓLO se llama aquí **
         gestionarPermisoNotificaciones();
 
     } catch (error) {
@@ -216,14 +222,13 @@ async function loadClientData(user) {
 }
 
 // ========== LÓGICA DE AUTENTICACIÓN ==========
-
 async function registerAndLinkAccount() {
     const dni = document.getElementById('register-dni').value.trim();
     const email = document.getElementById('register-email').value.trim();
     const password = document.getElementById('register-password').value;
     const registerButton = document.getElementById('register-btn');
     if (!dni || !email || password.length < 6) {
-        showToast("Por favor, completa todos los campos. La contraseña debe tener al menos 6 caracteres.", "error");
+        showToast("Por favor, completa todos los campos...", "error");
         return;
     }
     registerButton.disabled = true;
@@ -231,23 +236,15 @@ async function registerAndLinkAccount() {
     try {
         const clientesRef = db.collection('clientes');
         const snapshot = await clientesRef.where("dni", "==", dni).get();
-        if (snapshot.empty) {
-            throw new Error("No se encontró ningún cliente con ese DNI. Verifica que sea el mismo con el que te registraste en la tienda.");
-        }
+        if (snapshot.empty) throw new Error("No se encontró cliente con ese DNI.");
         const clienteDoc = snapshot.docs[0];
         const clienteActual = clienteDoc.data();
-        if (clienteActual.authUID) {
-            throw new Error("Este cliente ya tiene una cuenta de acceso creada. Por favor, intenta iniciar sesión.");
-        }
+        if (clienteActual.authUID) throw new Error("Este cliente ya tiene una cuenta.");
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-        const user = userCredential.user;
-        await clienteDoc.ref.update({ authUID: user.uid, email: email, fcmTokens: [] });
+        await clienteDoc.ref.update({ authUID: userCredential.user.uid, email: email, fcmTokens: [] });
     } catch (error) {
-        if (error.code === 'auth/email-already-in-use') {
-            showToast("Este correo electrónico ya está en uso por otro usuario.", "error");
-        } else {
-            showToast(error.message, "error");
-        }
+        if (error.code === 'auth/email-already-in-use') showToast("Este email ya está en uso.", "error");
+        else showToast(error.message, "error");
     } finally {
         registerButton.disabled = false;
         registerButton.textContent = 'Crear y Vincular Cuenta';
@@ -257,10 +254,7 @@ async function registerAndLinkAccount() {
 async function login() {
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
-    if (!email || !password) {
-        showToast("Por favor, ingresa tu email y contraseña.", "error");
-        return;
-    }
+    if (!email || !password) return showToast("Por favor, ingresa tu email y contraseña.", "error");
     try {
         await auth.signInWithEmailAndPassword(email, password);
     } catch (error) {
@@ -269,37 +263,35 @@ async function login() {
 }
 
 async function logout() {
-    try {
-        await auth.signOut();
-    } catch (error) {
-        showToast("Error al cerrar sesión.", "error");
-    }
+    try { await auth.signOut(); } 
+    catch (error) { showToast("Error al cerrar sesión.", "error"); }
 }
 
 // ========== PUNTO DE ENTRADA DE LA APLICACIÓN ==========
-
 function main() {
-    // Listeners de navegación entre pantallas
     document.getElementById('show-register-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('register-screen'); });
     document.getElementById('show-login-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('login-screen'); });
-    
-    // Listeners de acciones de autenticación
     document.getElementById('register-btn').addEventListener('click', registerAndLinkAccount);
     document.getElementById('login-btn').addEventListener('click', login);
     document.getElementById('logout-btn').addEventListener('click', logout);
 
-    // Listeners de notificaciones (solo si el navegador es compatible)
     if (isMessagingSupported) {
-        document.getElementById('btn-activar-permiso').addEventListener('click', () => {
+        const handleUserDecision = () => {
+            if (!auth.currentUser) return;
+            const storageKey = `popUpPermisoMostrado_${auth.currentUser.uid}`;
+            localStorage.setItem(storageKey, 'true');
             document.getElementById('pre-permiso-overlay').style.display = 'none';
+        };
+
+        document.getElementById('btn-activar-permiso').addEventListener('click', () => {
+            handleUserDecision();
             Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
         });
 
         document.getElementById('btn-ahora-no').addEventListener('click', () => {
-            document.getElementById('pre-permiso-overlay').style.display = 'none';
+            handleUserDecision();
             showToast("Entendido. Puedes cambiar de opinión cuando quieras.", "info");
-            document.getElementById('notif-card').style.display = 'block';
-            document.getElementById('notif-switch').checked = false;
+            gestionarPermisoNotificaciones();
         });
 
         document.getElementById('notif-switch').addEventListener('change', (event) => {
@@ -312,8 +304,6 @@ function main() {
                     manualGuide.style.display = 'none';
                     Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
                 }
-            } else {
-                manualGuide.style.display = 'none';
             }
         });
 
@@ -329,7 +319,6 @@ function main() {
         });
     }
 
-    // Listener principal de autenticación que dispara el flujo de la app
     auth.onAuthStateChanged(user => {
         if (user) {
             loadClientData(user);
@@ -340,5 +329,4 @@ function main() {
     });
 }
 
-// Iniciar la aplicación cuando el DOM esté listo
 document.addEventListener('DOMContentLoaded', main);
