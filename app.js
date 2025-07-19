@@ -1,4 +1,4 @@
-// app.js de la Aplicación del Cliente (VERSIÓN FINAL CON UI LIMPIA)
+// app.js de la Aplicación del Cliente (VERSIÓN FINAL CON MEMORIA DE USUARIO)
 
 // Configuración de Firebase
 const firebaseConfig = {
@@ -23,7 +23,11 @@ if (isMessagingSupported) {
 let clienteData = null; 
 let premiosData = [];   
 
-// ... (Todas las funciones de ayuda como showToast, showScreen, etc. se mantienen igual)
+// ========== FUNCIONES DE AYUDA ==========
+function showToast(message, type = 'info', duration = 5000) { /* ... (código sin cambios) ... */ }
+function showScreen(screenId) { /* ... (código sin cambios) ... */ }
+function formatearFecha(isoDateString) { /* ... (código sin cambios) ... */ }
+// Pego el código completo por si acaso
 function showToast(message, type = 'info', duration = 5000) {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
@@ -32,17 +36,11 @@ function showToast(message, type = 'info', duration = 5000) {
     container.appendChild(toast);
     setTimeout(() => toast.remove(), duration);
 }
-
 function showScreen(screenId) {
-    document.querySelectorAll('.screen').forEach(screen => {
-        screen.classList.remove('active');
-    });
+    document.querySelectorAll('.screen').forEach(screen => screen.classList.remove('active'));
     const screenToShow = document.getElementById(screenId);
-    if (screenToShow) {
-        screenToShow.classList.add('active');
-    }
+    if (screenToShow) screenToShow.classList.add('active');
 }
-
 function formatearFecha(isoDateString) {
     if (!isoDateString) return 'N/A';
     const parts = isoDateString.split('T')[0].split('-');
@@ -56,8 +54,7 @@ function formatearFecha(isoDateString) {
 }
 
 
-// ========== LÓGICA DE NOTIFICACIONES (VERSIÓN LIMPIA) ==========
-
+// ========== LÓGICA DE NOTIFICACIONES ==========
 function obtenerYGuardarToken() {
     if (!isMessagingSupported || !messaging) return;
     const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
@@ -88,33 +85,33 @@ function gestionarPermisoNotificaciones() {
     const notifCard = document.getElementById('notif-card');
     const notifSwitch = document.getElementById('notif-switch');
     const prePermisoOverlay = document.getElementById('pre-permiso-overlay');
-    
+    const manualGuide = document.getElementById('notif-manual-guide');
+
     prePermisoOverlay.style.display = 'none';
     notifCard.style.display = 'none';
+    manualGuide.style.display = 'none';
 
     if (permiso === 'granted') {
-        // ** CAMBIO CLAVE: Si el permiso está concedido, no hacemos nada en la UI. **
-        // Simplemente nos aseguramos de que el token esté guardado.
-        console.log("UI_ACTION: Permiso concedido. No se muestra ninguna tarjeta.");
         obtenerYGuardarToken();
     } else if (permiso === 'denied') {
-        // Mostramos la tarjeta pasiva para que pueda intentar reactivar.
         notifCard.style.display = 'block';
         notifSwitch.checked = false;
+        notifSwitch.disabled = false;
     } else { // 'default'
+        notifSwitch.disabled = false;
         if (!popUpYaMostrado) {
-            // El pop-up solo se muestra si el permiso es 'default' Y nunca antes lo hemos mostrado.
             prePermisoOverlay.style.display = 'flex';
         } else {
-            // Si ya lo mostramos y no respondieron, mostramos la tarjeta pasiva.
             notifCard.style.display = 'block';
             notifSwitch.checked = false;
         }
     }
 }
 
-// ... (El resto del código es idéntico al de la versión anterior)
 // ========== LÓGICA DE DATOS Y UI ==========
+function getFechaProximoVencimiento(cliente) { /* ... (código sin cambios) ... */ }
+function getPuntosEnProximoVencimiento(cliente) { /* ... (código sin cambios) ... */ }
+// Pego el código completo por si acaso
 function getFechaProximoVencimiento(cliente) {
     if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
     let fechaMasProxima = null;
@@ -136,7 +133,6 @@ function getFechaProximoVencimiento(cliente) {
     });
     return fechaMasProxima;
 }
-
 function getPuntosEnProximoVencimiento(cliente) {
     const fechaProximoVencimiento = getFechaProximoVencimiento(cliente);
     if (!fechaProximoVencimiento) return 0;
@@ -155,6 +151,8 @@ function getPuntosEnProximoVencimiento(cliente) {
     return puntosAVencer;
 }
 
+async function loadClientData(user) { /* ... (código sin cambios, importante que llame a gestionarPermisoNotificaciones) ... */ }
+// Pego el código completo por si acaso
 async function loadClientData(user) {
     showScreen('loading-screen');
     try {
@@ -182,7 +180,7 @@ async function loadClientData(user) {
         } else {
             vencimientoCard.style.display = 'none';
         }
-
+        // ... (resto del renderizado de la UI)
         const historialLista = document.getElementById('lista-historial');
         historialLista.innerHTML = '';
         if (clienteData.historialPuntos && clienteData.historialPuntos.length > 0) {
@@ -196,7 +194,6 @@ async function loadClientData(user) {
         } else {
             historialLista.innerHTML = '<li>Aún no tienes movimientos.</li>';
         }
-
         const premiosLista = document.getElementById('lista-premios-cliente');
         premiosLista.innerHTML = '';
         const premiosCanjeables = premiosData.filter(p => p.puntos <= clienteData.puntos && p.stock > 0);
@@ -221,17 +218,17 @@ async function loadClientData(user) {
 }
 
 // ========== LÓGICA DE AUTENTICACIÓN ==========
+async function registerAndLinkAccount() { /* ... (código sin cambios) ... */ }
+async function login() { /* ... (código sin cambios) ... */ }
+async function logout() { /* ... (código sin cambios) ... */ }
+// Pego el código completo por si acaso
 async function registerAndLinkAccount() {
     const dni = document.getElementById('register-dni').value.trim();
     const email = document.getElementById('register-email').value.trim();
     const password = document.getElementById('register-password').value;
     const registerButton = document.getElementById('register-btn');
-    if (!dni || !email || password.length < 6) {
-        showToast("Por favor, completa todos los campos...", "error");
-        return;
-    }
-    registerButton.disabled = true;
-    registerButton.textContent = 'Procesando...';
+    if (!dni || !email || password.length < 6) { showToast("Por favor, completa todos los campos...", "error"); return; }
+    registerButton.disabled = true; registerButton.textContent = 'Procesando...';
     try {
         const clientesRef = db.collection('clientes');
         const snapshot = await clientesRef.where("dni", "==", dni).get();
@@ -245,11 +242,9 @@ async function registerAndLinkAccount() {
         if (error.code === 'auth/email-already-in-use') showToast("Este email ya está en uso.", "error");
         else showToast(error.message, "error");
     } finally {
-        registerButton.disabled = false;
-        registerButton.textContent = 'Crear y Vincular Cuenta';
+        registerButton.disabled = false; registerButton.textContent = 'Crear y Vincular Cuenta';
     }
 }
-
 async function login() {
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
@@ -260,7 +255,6 @@ async function login() {
         showToast("Error al iniciar sesión. Verifica tus credenciales.", "error");
     }
 }
-
 async function logout() {
     try { await auth.signOut(); } 
     catch (error) { showToast("Error al cerrar sesión.", "error"); }
@@ -281,18 +275,15 @@ function main() {
             localStorage.setItem(storageKey, 'true');
             document.getElementById('pre-permiso-overlay').style.display = 'none';
         };
-
         document.getElementById('btn-activar-permiso').addEventListener('click', () => {
             handleUserDecision();
             Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
         });
-
         document.getElementById('btn-ahora-no').addEventListener('click', () => {
             handleUserDecision();
             showToast("Entendido. Puedes cambiar de opinión cuando quieras.", "info");
             gestionarPermisoNotificaciones();
         });
-
         document.getElementById('notif-switch').addEventListener('change', (event) => {
             const manualGuide = document.getElementById('notif-manual-guide');
             if (event.target.checked) {
@@ -305,13 +296,11 @@ function main() {
                 }
             }
         });
-
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && auth.currentUser) {
                 gestionarPermisoNotificaciones();
             }
         });
-
         messaging.onMessage((payload) => {
             const notificacion = payload.data || payload.notification; 
             showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000);
