@@ -1,4 +1,3 @@
-//A
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js');
 
@@ -14,4 +13,20 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-console.log('Service Worker de Firebase inicializado.');
+messaging.onBackgroundMessage(function(payload) {
+  console.log('[SW] Mensaje de datos recibido:', payload);
+
+  // ===== CAMBIO CLAVE: Leemos desde "payload.data" y definimos el ícono =====
+  const notificationTitle = payload.data.title;
+  const notificationBody = payload.data.body;
+  const notificationIcon = 'https://i.postimg.cc/tJgqS2sW/mi_logo.png'; // URL pública y directa
+  // =======================================================================
+
+  const notificationOptions = {
+    body: notificationBody,
+    icon: notificationIcon,
+    badge: notificationIcon // El badge es para Android
+  };
+
+  return self.registration.showNotification(notificationTitle, notificationOptions);
+});
