@@ -1,5 +1,4 @@
-// firebase-messaging-sw.js (VERSIÓN MINIMALISTA)
-
+//A
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js');
 
@@ -15,6 +14,4 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-// No añadimos el listener 'onBackgroundMessage' para dejar
-// que el navegador muestre la notificación por defecto.
 console.log('Service Worker de Firebase inicializado.');
