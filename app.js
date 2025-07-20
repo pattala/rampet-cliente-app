@@ -1,4 +1,4 @@
-// AA app.js de la Aplicación del Cliente (VERSIÓN CON REGISTRO EXPLÍCITO DE SW)
+// app.js de la Aplicación del Cliente (VERSIÓN CON REGISTRO EXPLÍCITO DE SW Y CORRECCIÓN DE SINTAXIS)
 
 const firebaseConfig = {
   apiKey: "AIzaSyAvBw_Cc-t8lfip_FtQ1w_w3DrPDYpxINs",
@@ -49,12 +49,9 @@ function formatearFecha(isoDateString) {
 }
 
 // ========== LÓGICA DE SERVICE WORKER Y NOTIFICACIONES ==========
-
-// ===== NUEVA FUNCIÓN DE REGISTRO EXPLÍCITO =====
 async function registerServiceWorker() {
     if ('serviceWorker' in navigator && isMessagingSupported) {
         try {
-            // Registramos nuestro service worker, especificando el scope a la raíz.
             const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
             console.log('Service Worker registrado con éxito. Scope:', registration.scope);
         } catch (error) {
@@ -65,9 +62,7 @@ async function registerServiceWorker() {
 
 async function obtenerYGuardarToken() {
     if (!isMessagingSupported || !messaging || !clienteData || !clienteData.id) return;
-
     try {
-        // Ahora que lo registramos explícitamente, 'navigator.serviceWorker.ready' será más fiable.
         const registration = await navigator.serviceWorker.ready;
         console.log("Service Worker está listo y activo para obtener el token.");
         
@@ -88,7 +83,6 @@ async function obtenerYGuardarToken() {
         } else {
             console.warn('No se pudo generar un token de FCM. El permiso puede no estar concedido.');
         }
-
     } catch (err) {
         console.error('ERROR FINAL en obtenerYGuardarToken:', err);
         showToast("No se pudieron activar las notificaciones. Inténtalo más tarde.", "error");
@@ -96,7 +90,6 @@ async function obtenerYGuardarToken() {
 }
 
 function gestionarPermisoNotificaciones() {
-    // ... (Esta función se mantiene igual)
     if (!isMessagingSupported || !auth.currentUser) return;
     const permiso = Notification.permission;
     const uid = auth.currentUser.uid;
@@ -123,8 +116,46 @@ function gestionarPermisoNotificaciones() {
 }
 
 // ========== LÓGICA DE DATOS Y UI ==========
+function getFechaProximoVencimiento(cliente) {
+    if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
+    let fechaMasProxima = null;
+    const hoy = new Date();
+    hoy.setUTCHours(0, 0, 0, 0);
+    cliente.historialPuntos.forEach(grupo => {
+        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
+            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
+            const fechaCaducidad = new Date(fechaObtencion);
+            const diasDeValidez = grupo.diasCaducidad || 90; 
+            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
+            if (fechaCaducidad >= hoy) {
+                if (fechaMasProxima === null || fechaCaducidad < fechaMasProxima) {
+                    fechaMasProxima = fechaCaducidad;
+                }
+            }
+        }
+    });
+    return fechaMasProxima;
+}
+
+function getPuntosEnProximoVencimiento(cliente) {
+    const fechaProximoVencimiento = getFechaProximoVencimiento(cliente);
+    if (!fechaProximoVencimiento) return 0;
+    let puntosAVencer = 0;
+    cliente.historialPuntos.forEach(grupo => {
+        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
+            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
+            const fechaCaducidad = new Date(fechaObtencion);
+            const diasDeValidez = grupo.diasCaducidad || 90;
+            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
+            if (fechaCaducidad.getTime() === fechaProximoVencimiento.getTime()) {
+                puntosAVencer += grupo.puntosDisponibles;
+            }
+        }
+    });
+    return puntosAVencer;
+}
+
 async function loadClientData(user) {
-    // ... (Esta función se mantiene igual)
     showScreen('loading-screen');
     try {
         const clientesRef = db.collection('clientes');
@@ -143,7 +174,6 @@ async function loadClientData(user) {
         const puntosPorVencer = getPuntosEnProximoVencimiento(clienteData);
         const fechaVencimiento = getFechaProximoVencimiento(clienteData);
         const vencimientoCard = document.getElementById('vencimiento-card');
-
         if (puntosPorVencer > 0 && fechaVencimiento) {
             vencimientoCard.style.display = 'block';
             document.getElementById('cliente-puntos-vencimiento').textContent = puntosPorVencer;
@@ -181,7 +211,6 @@ async function loadClientData(user) {
 
         showScreen('main-app-screen');
         gestionarPermisoNotificaciones();
-
     } catch (error) {
         console.error("Error FATAL en loadClientData:", error);
         showToast(error.message, "error");
@@ -189,44 +218,7 @@ async function loadClientData(user) {
     }
 }
 
-// ... (El resto de funciones como getFechaProximoVencimiento, login, etc., se mantienen sin cambios)
-function getFechaProximoVencimiento(cliente) {
-    if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
-    let fechaMasProxima = null;
-    const hoy = new Date();
-    hoy.setUTCHours(0, 0, 0, 0);
-    cliente.historialPuntos.forEach(grupo => {
-        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
-            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
-            const fechaCaducidad = new Date(fechaObtencion);
-            const diasDeValidez = grupo.diasCaducidad || 90; 
-            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
-            if (fechaCaducidad >= hoy) {
-                if (fechaMasProxima === null || fechaCaducidad < fechaMasProxima) {
-                    fechaMasProxima = fechaCaducidad;
-                }
-            }
-        }
-    });
-    return fechaMasProxima;
-}
-function getPuntosEnProximoVencimiento(cliente) {
-    const fechaProximoVencimiento = getFechaProximoVencimiento(cliente);
-    if (!fechaProximoVencimiento) return 0;
-    let puntosAVencer = 0;
-    cliente.historialPuntos.forEach(grupo => {
-        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
-            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
-            const fechaCaducidad = new Date(fechaObtencion);
-            const diasDeValidez = grupo.diasCaducidad || 90;
-            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
-            if (fechaCaducidad.getTime() === fechaProximoVencimiento.getTime()) {
-                puntosAVencer += grupo.puntosDisponibles;
-            }
-        }
-    });
-    return puntosAVencer;
-}
+// ========== LÓGICA DE AUTENTICACIÓN ==========
 async function registerAndLinkAccount() {
     const dni = document.getElementById('register-dni').value.trim();
     const email = document.getElementById('register-email').value.trim();
@@ -250,6 +242,7 @@ async function registerAndLinkAccount() {
         registerButton.disabled = false; registerButton.textContent = 'Crear y Vincular Cuenta';
     }
 }
+
 async function login() {
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
@@ -257,6 +250,7 @@ async function login() {
     try { await auth.signInWithEmailAndPassword(email, password); } 
     catch (error) { showToast("Error al iniciar sesión. Verifica tus credenciales.", "error"); }
 }
+
 async function logout() {
     try { await auth.signOut(); } 
     catch (error) { showToast("Error al cerrar sesión.", "error"); }
@@ -264,7 +258,6 @@ async function logout() {
 
 // ========== PUNTO DE ENTRADA DE LA APLICACIÓN ==========
 function main() {
-    // ===== LLAMADA A LA NUEVA FUNCIÓN DE REGISTRO =====
     registerServiceWorker();
 
     document.getElementById('show-register-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('register-screen'); });
@@ -274,14 +267,47 @@ function main() {
     document.getElementById('logout-btn').addEventListener('click', logout);
 
     if (isMessagingSupported) {
-        const handleUserDecision = () => { /* ... */ };
-        // ... (resto de los listeners de notificación sin cambios)
-        const handleUserDecision = () => { if (!auth.currentUser) return; const storageKey = `popUpPermisoMostrado_${auth.currentUser.uid}`; localStorage.setItem(storageKey, 'true'); document.getElementById('pre-permiso-overlay').style.display = 'none'; };
-        document.getElementById('btn-activar-permiso').addEventListener('click', () => { handleUserDecision(); Notification.requestPermission().then(() => gestionarPermisoNotificaciones()); });
-        document.getElementById('btn-ahora-no').addEventListener('click', () => { handleUserDecision(); showToast("Entendido. Puedes cambiar de opinión cuando quieras.", "info"); gestionarPermisoNotificaciones(); });
-        document.getElementById('notif-switch').addEventListener('change', (event) => { const manualGuide = document.getElementById('notif-manual-guide'); if (event.target.checked) { if (Notification.permission === 'denied') { manualGuide.style.display = 'block'; event.target.checked = false; } else { manualGuide.style.display = 'none'; Notification.requestPermission().then(() => gestionarPermisoNotificaciones()); } } });
-        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && auth.currentUser) { gestionarPermisoNotificaciones(); } });
-        messaging.onMessage((payload) => { const notificacion = payload.data || payload.notification; showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000); });
+        const handleUserDecision = () => {
+            if (!auth.currentUser) return;
+            const storageKey = `popUpPermisoMostrado_${auth.currentUser.uid}`;
+            localStorage.setItem(storageKey, 'true');
+            document.getElementById('pre-permiso-overlay').style.display = 'none';
+        };
+
+        document.getElementById('btn-activar-permiso').addEventListener('click', () => {
+            handleUserDecision();
+            Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
+        });
+
+        document.getElementById('btn-ahora-no').addEventListener('click', () => {
+            handleUserDecision();
+            showToast("Entendido. Puedes cambiar de opinión cuando quieras.", "info");
+            gestionarPermisoNotificaciones();
+        });
+
+        document.getElementById('notif-switch').addEventListener('change', (event) => {
+            const manualGuide = document.getElementById('notif-manual-guide');
+            if (event.target.checked) {
+                if (Notification.permission === 'denied') {
+                    manualGuide.style.display = 'block';
+                    event.target.checked = false; 
+                } else {
+                    manualGuide.style.display = 'none';
+                    Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
+                }
+            }
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && auth.currentUser) {
+                gestionarPermisoNotificaciones();
+            }
+        });
+
+        messaging.onMessage((payload) => {
+            const notificacion = payload.data || payload.notification; 
+            showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000);
+        });
     }
 
     auth.onAuthStateChanged(user => {
