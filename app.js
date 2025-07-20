@@ -48,21 +48,50 @@ function formatearFecha(isoDateString) {
     return `${dia}/${mes}/${anio}`;
 }
 
-// ========== LÓGICA DE NOTIFICACIONES ==========
-function obtenerYGuardarToken() {
+// ========== LÓGICA DE NOTIFICACIONES (MODIFICADA) ==========
+async function obtenerYGuardarToken() {
     if (!isMessagingSupported || !messaging || !clienteData || !clienteData.id) return;
-    const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
-    messaging.getToken({ vapidKey })
-        .then(currentToken => {
-            if (!currentToken) return;
+
+    try {
+        // 1. Esperamos a que el navegador registre el Service Worker.
+        const serviceWorkerRegistration = await navigator.serviceWorker.ready;
+        console.log("Service Worker está listo:", serviceWorkerRegistration.active);
+        
+        // 2. SOLO DESPUÉS de que esté listo, pedimos el token.
+        const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
+        const currentToken = await messaging.getToken({ 
+            vapidKey: vapidKey, 
+            serviceWorkerRegistration: serviceWorkerRegistration
+        });
+
+        if (currentToken) {
             const tokensEnDb = clienteData.fcmTokens || [];
             if (!tokensEnDb.includes(currentToken)) {
+                console.log("Intentando guardar nuevo token en Firestore...");
                 const clienteDocRef = db.collection('clientes').doc(clienteData.id.toString());
-                return clienteDocRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) });
+                await clienteDocRef.update({
+                    fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken)
+                });
+                console.log("Token guardado con éxito.");
+                // Actualizamos el objeto local para consistencia
+                if(clienteData.fcmTokens) {
+                    clienteData.fcmTokens.push(currentToken);
+                } else {
+                    clienteData.fcmTokens = [currentToken];
+                }
+            } else {
+                console.log("El token ya está registrado.");
             }
-        })
-        .catch(err => console.error('ERROR AL OBTENER O GUARDAR EL TOKEN:', err));
+        } else {
+            console.warn('No se pudo generar el token de FCM. El permiso puede no estar concedido.');
+        }
+
+    } catch (err) {
+        console.error('ERROR AL OBTENER O GUARDAR EL TOKEN (FLUJO ASYNC):', err);
+        showToast("No se pudieron activar las notificaciones. Inténtalo de nuevo.", "error");
+    }
 }
+
 
 function gestionarPermisoNotificaciones() {
     if (!isMessagingSupported || !auth.currentUser) return;
