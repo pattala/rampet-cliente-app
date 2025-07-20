@@ -1,4 +1,4 @@
-// app.js de la Aplicación del Cliente (Versión de Referencia Restaurada)
+// app.js de la Aplicación del Cliente (VERSIÓN FINAL CON ESPERA FORZADA DE SW)
 
 const firebaseConfig = {
   apiKey: "AIzaSyAvBw_Cc-t8lfip_FtQ1w_w3DrPDYpxINs",
@@ -48,26 +48,45 @@ function formatearFecha(isoDateString) {
     return `${dia}/${mes}/${anio}`;
 }
 
-// ========== LÓGICA DE NOTIFICACIONES ==========
-function obtenerYGuardarToken() {
+// ========== LÓGICA DE NOTIFICACIONES (VERSIÓN FINAL Y ROBUSTA) ==========
+
+async function obtenerYGuardarToken() {
     if (!isMessagingSupported || !messaging || !clienteData || !clienteData.id) return;
-    const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
-    messaging.getToken({ vapidKey })
-        .then(currentToken => {
-            if (!currentToken) {
-                console.warn("No se pudo generar el token.");
-                return;
-            };
+
+    try {
+        // --- INICIO DE LA CORRECCIÓN DEFINITIVA ---
+        // 1. Forzamos el registro del Service Worker CADA VEZ.
+        // Si ya está registrado, esta operación es muy rápida. Si no, lo registra.
+        console.log("Forzando registro del Service Worker...");
+        const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+        
+        // 2. Esperamos a que el Service Worker esté ACTIVO y listo.
+        await navigator.serviceWorker.ready;
+        console.log("Service Worker está activo y listo.");
+
+        // 3. Ahora, y solo ahora, pedimos el token.
+        const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
+        const currentToken = await messaging.getToken({ 
+            vapidKey: vapidKey, 
+            serviceWorkerRegistration: registration
+        });
+        // --- FIN DE LA CORRECCIÓN DEFINITIVA ---
+
+        if (currentToken) {
             const tokensEnDb = clienteData.fcmTokens || [];
             if (!tokensEnDb.includes(currentToken)) {
-                console.log("Intentando actualizar token en Firestore...");
                 const clienteDocRef = db.collection('clientes').doc(clienteData.id.toString());
-                return clienteDocRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) });
+                await clienteDocRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) });
+                showToast("¡Notificaciones activadas!", "success");
             }
-        })
-        .catch(err => {
-            console.error('ERROR AL OBTENER O GUARDAR EL TOKEN:', err);
-        });
+        } else {
+            showToast("No se pudo obtener el token. Por favor, concede el permiso.", "warning");
+        }
+
+    } catch (err) {
+        console.error('ERROR FINAL en obtenerYGuardarToken:', err);
+        showToast("No se pudieron activar las notificaciones. Error: " + err.message, "error");
+    }
 }
 
 function gestionarPermisoNotificaciones() {
@@ -97,45 +116,6 @@ function gestionarPermisoNotificaciones() {
 }
 
 // ========== LÓGICA DE DATOS Y UI ==========
-function getFechaProximoVencimiento(cliente) {
-    if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
-    let fechaMasProxima = null;
-    const hoy = new Date();
-    hoy.setUTCHours(0, 0, 0, 0);
-    cliente.historialPuntos.forEach(grupo => {
-        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
-            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
-            const fechaCaducidad = new Date(fechaObtencion);
-            const diasDeValidez = grupo.diasCaducidad || 90; 
-            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
-            if (fechaCaducidad >= hoy) {
-                if (fechaMasProxima === null || fechaCaducidad < fechaMasProxima) {
-                    fechaMasProxima = fechaCaducidad;
-                }
-            }
-        }
-    });
-    return fechaMasProxima;
-}
-
-function getPuntosEnProximoVencimiento(cliente) {
-    const fechaProximoVencimiento = getFechaProximoVencimiento(cliente);
-    if (!fechaProximoVencimiento) return 0;
-    let puntosAVencer = 0;
-    cliente.historialPuntos.forEach(grupo => {
-        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
-            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
-            const fechaCaducidad = new Date(fechaObtencion);
-            const diasDeValidez = grupo.diasCaducidad || 90;
-            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
-            if (fechaCaducidad.getTime() === fechaProximoVencimiento.getTime()) {
-                puntosAVencer += grupo.puntosDisponibles;
-            }
-        }
-    });
-    return puntosAVencer;
-}
-
 async function loadClientData(user) {
     showScreen('loading-screen');
     try {
@@ -155,7 +135,6 @@ async function loadClientData(user) {
         const puntosPorVencer = getPuntosEnProximoVencimiento(clienteData);
         const fechaVencimiento = getFechaProximoVencimiento(clienteData);
         const vencimientoCard = document.getElementById('vencimiento-card');
-
         if (puntosPorVencer > 0 && fechaVencimiento) {
             vencimientoCard.style.display = 'block';
             document.getElementById('cliente-puntos-vencimiento').textContent = puntosPorVencer;
@@ -193,7 +172,6 @@ async function loadClientData(user) {
 
         showScreen('main-app-screen');
         gestionarPermisoNotificaciones();
-
     } catch (error) {
         console.error("Error FATAL en loadClientData:", error);
         showToast(error.message, "error");
@@ -201,7 +179,44 @@ async function loadClientData(user) {
     }
 }
 
-// ========== LÓGICA DE AUTENTICACIÓN ==========
+// ... (El resto de funciones se mantienen igual)
+function getFechaProximoVencimiento(cliente) {
+    if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
+    let fechaMasProxima = null;
+    const hoy = new Date();
+    hoy.setUTCHours(0, 0, 0, 0);
+    cliente.historialPuntos.forEach(grupo => {
+        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
+            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
+            const fechaCaducidad = new Date(fechaObtencion);
+            const diasDeValidez = grupo.diasCaducidad || 90; 
+            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
+            if (fechaCaducidad >= hoy) {
+                if (fechaMasProxima === null || fechaCaducidad < fechaMasProxima) {
+                    fechaMasProxima = fechaCaducidad;
+                }
+            }
+        }
+    });
+    return fechaMasProxima;
+}
+function getPuntosEnProximoVencimiento(cliente) {
+    const fechaProximoVencimiento = getFechaProximoVencimiento(cliente);
+    if (!fechaProximoVencimiento) return 0;
+    let puntosAVencer = 0;
+    cliente.historialPuntos.forEach(grupo => {
+        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
+            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
+            const fechaCaducidad = new Date(fechaObtencion);
+            const diasDeValidez = grupo.diasCaducidad || 90;
+            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
+            if (fechaCaducidad.getTime() === fechaProximoVencimiento.getTime()) {
+                puntosAVencer += grupo.puntosDisponibles;
+            }
+        }
+    });
+    return puntosAVencer;
+}
 async function registerAndLinkAccount() {
     const dni = document.getElementById('register-dni').value.trim();
     const email = document.getElementById('register-email').value.trim();
@@ -225,7 +240,6 @@ async function registerAndLinkAccount() {
         registerButton.disabled = false; registerButton.textContent = 'Crear y Vincular Cuenta';
     }
 }
-
 async function login() {
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
@@ -233,7 +247,6 @@ async function login() {
     try { await auth.signInWithEmailAndPassword(email, password); } 
     catch (error) { showToast("Error al iniciar sesión. Verifica tus credenciales.", "error"); }
 }
-
 async function logout() {
     try { await auth.signOut(); } 
     catch (error) { showToast("Error al cerrar sesión.", "error"); }
@@ -241,6 +254,7 @@ async function logout() {
 
 // ========== PUNTO DE ENTRADA DE LA APLICACIÓN ==========
 function main() {
+    // Ya no registramos el SW aquí, se hará dentro de la función que lo necesita.
     document.getElementById('show-register-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('register-screen'); });
     document.getElementById('show-login-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('login-screen'); });
     document.getElementById('register-btn').addEventListener('click', registerAndLinkAccount);
@@ -248,12 +262,7 @@ function main() {
     document.getElementById('logout-btn').addEventListener('click', logout);
 
     if (isMessagingSupported) {
-        const handleUserDecision = () => {
-            if (!auth.currentUser) return;
-            const storageKey = `popUpPermisoMostrado_${auth.currentUser.uid}`;
-            localStorage.setItem(storageKey, 'true');
-            document.getElementById('pre-permiso-overlay').style.display = 'none';
-        };
+        const handleUserDecision = () => { if (!auth.currentUser) return; const storageKey = `popUpPermisoMostrado_${auth.currentUser.uid}`; localStorage.setItem(storageKey, 'true'); document.getElementById('pre-permiso-overlay').style.display = 'none'; };
         document.getElementById('btn-activar-permiso').addEventListener('click', () => {
             handleUserDecision();
             Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
