@@ -1,4 +1,4 @@
-// app.js de la Aplicación del Cliente (VERSIÓN COMPLETA Y VERIFICADA)
+// AA app.js de la Aplicación del Cliente (VERSIÓN CON REGISTRO EXPLÍCITO DE SW)
 
 const firebaseConfig = {
   apiKey: "AIzaSyAvBw_Cc-t8lfip_FtQ1w_w3DrPDYpxINs",
@@ -48,52 +48,55 @@ function formatearFecha(isoDateString) {
     return `${dia}/${mes}/${anio}`;
 }
 
-// ========== LÓGICA DE NOTIFICACIONES (MODIFICADA) ==========
+// ========== LÓGICA DE SERVICE WORKER Y NOTIFICACIONES ==========
+
+// ===== NUEVA FUNCIÓN DE REGISTRO EXPLÍCITO =====
+async function registerServiceWorker() {
+    if ('serviceWorker' in navigator && isMessagingSupported) {
+        try {
+            // Registramos nuestro service worker, especificando el scope a la raíz.
+            const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
+            console.log('Service Worker registrado con éxito. Scope:', registration.scope);
+        } catch (error) {
+            console.error('Error durante el registro del Service Worker:', error);
+        }
+    }
+}
+
 async function obtenerYGuardarToken() {
     if (!isMessagingSupported || !messaging || !clienteData || !clienteData.id) return;
 
     try {
-        // 1. Esperamos a que el navegador registre el Service Worker.
-        const serviceWorkerRegistration = await navigator.serviceWorker.ready;
-        console.log("Service Worker está listo:", serviceWorkerRegistration.active);
+        // Ahora que lo registramos explícitamente, 'navigator.serviceWorker.ready' será más fiable.
+        const registration = await navigator.serviceWorker.ready;
+        console.log("Service Worker está listo y activo para obtener el token.");
         
-        // 2. SOLO DESPUÉS de que esté listo, pedimos el token.
         const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
         const currentToken = await messaging.getToken({ 
             vapidKey: vapidKey, 
-            serviceWorkerRegistration: serviceWorkerRegistration
+            serviceWorkerRegistration: registration
         });
 
         if (currentToken) {
             const tokensEnDb = clienteData.fcmTokens || [];
             if (!tokensEnDb.includes(currentToken)) {
-                console.log("Intentando guardar nuevo token en Firestore...");
                 const clienteDocRef = db.collection('clientes').doc(clienteData.id.toString());
-                await clienteDocRef.update({
-                    fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken)
-                });
-                console.log("Token guardado con éxito.");
-                // Actualizamos el objeto local para consistencia
-                if(clienteData.fcmTokens) {
-                    clienteData.fcmTokens.push(currentToken);
-                } else {
-                    clienteData.fcmTokens = [currentToken];
-                }
-            } else {
-                console.log("El token ya está registrado.");
+                await clienteDocRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) });
+                console.log("Token guardado con éxito en Firestore.");
+                showToast("¡Notificaciones activadas!", "success");
             }
         } else {
-            console.warn('No se pudo generar el token de FCM. El permiso puede no estar concedido.');
+            console.warn('No se pudo generar un token de FCM. El permiso puede no estar concedido.');
         }
 
     } catch (err) {
-        console.error('ERROR AL OBTENER O GUARDAR EL TOKEN (FLUJO ASYNC):', err);
-        showToast("No se pudieron activar las notificaciones. Inténtalo de nuevo.", "error");
+        console.error('ERROR FINAL en obtenerYGuardarToken:', err);
+        showToast("No se pudieron activar las notificaciones. Inténtalo más tarde.", "error");
     }
 }
 
-
 function gestionarPermisoNotificaciones() {
+    // ... (Esta función se mantiene igual)
     if (!isMessagingSupported || !auth.currentUser) return;
     const permiso = Notification.permission;
     const uid = auth.currentUser.uid;
@@ -120,46 +123,8 @@ function gestionarPermisoNotificaciones() {
 }
 
 // ========== LÓGICA DE DATOS Y UI ==========
-function getFechaProximoVencimiento(cliente) {
-    if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
-    let fechaMasProxima = null;
-    const hoy = new Date();
-    hoy.setUTCHours(0, 0, 0, 0);
-    cliente.historialPuntos.forEach(grupo => {
-        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
-            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
-            const fechaCaducidad = new Date(fechaObtencion);
-            const diasDeValidez = grupo.diasCaducidad || 90; 
-            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
-            if (fechaCaducidad >= hoy) {
-                if (fechaMasProxima === null || fechaCaducidad < fechaMasProxima) {
-                    fechaMasProxima = fechaCaducidad;
-                }
-            }
-        }
-    });
-    return fechaMasProxima;
-}
-
-function getPuntosEnProximoVencimiento(cliente) {
-    const fechaProximoVencimiento = getFechaProximoVencimiento(cliente);
-    if (!fechaProximoVencimiento) return 0;
-    let puntosAVencer = 0;
-    cliente.historialPuntos.forEach(grupo => {
-        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
-            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
-            const fechaCaducidad = new Date(fechaObtencion);
-            const diasDeValidez = grupo.diasCaducidad || 90;
-            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
-            if (fechaCaducidad.getTime() === fechaProximoVencimiento.getTime()) {
-                puntosAVencer += grupo.puntosDisponibles;
-            }
-        }
-    });
-    return puntosAVencer;
-}
-
 async function loadClientData(user) {
+    // ... (Esta función se mantiene igual)
     showScreen('loading-screen');
     try {
         const clientesRef = db.collection('clientes');
@@ -224,18 +189,51 @@ async function loadClientData(user) {
     }
 }
 
-// ========== LÓGICA DE AUTENTICACIÓN ==========
+// ... (El resto de funciones como getFechaProximoVencimiento, login, etc., se mantienen sin cambios)
+function getFechaProximoVencimiento(cliente) {
+    if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
+    let fechaMasProxima = null;
+    const hoy = new Date();
+    hoy.setUTCHours(0, 0, 0, 0);
+    cliente.historialPuntos.forEach(grupo => {
+        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
+            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
+            const fechaCaducidad = new Date(fechaObtencion);
+            const diasDeValidez = grupo.diasCaducidad || 90; 
+            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
+            if (fechaCaducidad >= hoy) {
+                if (fechaMasProxima === null || fechaCaducidad < fechaMasProxima) {
+                    fechaMasProxima = fechaCaducidad;
+                }
+            }
+        }
+    });
+    return fechaMasProxima;
+}
+function getPuntosEnProximoVencimiento(cliente) {
+    const fechaProximoVencimiento = getFechaProximoVencimiento(cliente);
+    if (!fechaProximoVencimiento) return 0;
+    let puntosAVencer = 0;
+    cliente.historialPuntos.forEach(grupo => {
+        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
+            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
+            const fechaCaducidad = new Date(fechaObtencion);
+            const diasDeValidez = grupo.diasCaducidad || 90;
+            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
+            if (fechaCaducidad.getTime() === fechaProximoVencimiento.getTime()) {
+                puntosAVencer += grupo.puntosDisponibles;
+            }
+        }
+    });
+    return puntosAVencer;
+}
 async function registerAndLinkAccount() {
     const dni = document.getElementById('register-dni').value.trim();
     const email = document.getElementById('register-email').value.trim();
     const password = document.getElementById('register-password').value;
     const registerButton = document.getElementById('register-btn');
-    if (!dni || !email || password.length < 6) {
-        showToast("Por favor, completa todos los campos...", "error");
-        return;
-    }
-    registerButton.disabled = true;
-    registerButton.textContent = 'Procesando...';
+    if (!dni || !email || password.length < 6) { showToast("Por favor, completa todos los campos...", "error"); return; }
+    registerButton.disabled = true; registerButton.textContent = 'Procesando...';
     try {
         const clientesRef = db.collection('clientes');
         const snapshot = await clientesRef.where("dni", "==", dni).get();
@@ -249,22 +247,16 @@ async function registerAndLinkAccount() {
         if (error.code === 'auth/email-already-in-use') showToast("Este email ya está en uso.", "error");
         else showToast(error.message, "error");
     } finally {
-        registerButton.disabled = false;
-        registerButton.textContent = 'Crear y Vincular Cuenta';
+        registerButton.disabled = false; registerButton.textContent = 'Crear y Vincular Cuenta';
     }
 }
-
 async function login() {
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
     if (!email || !password) return showToast("Por favor, ingresa tu email y contraseña.", "error");
-    try {
-        await auth.signInWithEmailAndPassword(email, password);
-    } catch (error) {
-        showToast("Error al iniciar sesión. Verifica tus credenciales.", "error");
-    }
+    try { await auth.signInWithEmailAndPassword(email, password); } 
+    catch (error) { showToast("Error al iniciar sesión. Verifica tus credenciales.", "error"); }
 }
-
 async function logout() {
     try { await auth.signOut(); } 
     catch (error) { showToast("Error al cerrar sesión.", "error"); }
@@ -272,6 +264,9 @@ async function logout() {
 
 // ========== PUNTO DE ENTRADA DE LA APLICACIÓN ==========
 function main() {
+    // ===== LLAMADA A LA NUEVA FUNCIÓN DE REGISTRO =====
+    registerServiceWorker();
+
     document.getElementById('show-register-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('register-screen'); });
     document.getElementById('show-login-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('login-screen'); });
     document.getElementById('register-btn').addEventListener('click', registerAndLinkAccount);
@@ -279,47 +274,14 @@ function main() {
     document.getElementById('logout-btn').addEventListener('click', logout);
 
     if (isMessagingSupported) {
-        const handleUserDecision = () => {
-            if (!auth.currentUser) return;
-            const storageKey = `popUpPermisoMostrado_${auth.currentUser.uid}`;
-            localStorage.setItem(storageKey, 'true');
-            document.getElementById('pre-permiso-overlay').style.display = 'none';
-        };
-
-        document.getElementById('btn-activar-permiso').addEventListener('click', () => {
-            handleUserDecision();
-            Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
-        });
-
-        document.getElementById('btn-ahora-no').addEventListener('click', () => {
-            handleUserDecision();
-            showToast("Entendido. Puedes cambiar de opinión cuando quieras.", "info");
-            gestionarPermisoNotificaciones();
-        });
-
-        document.getElementById('notif-switch').addEventListener('change', (event) => {
-            const manualGuide = document.getElementById('notif-manual-guide');
-            if (event.target.checked) {
-                if (Notification.permission === 'denied') {
-                    manualGuide.style.display = 'block';
-                    event.target.checked = false; 
-                } else {
-                    manualGuide.style.display = 'none';
-                    Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
-                }
-            }
-        });
-
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && auth.currentUser) {
-                gestionarPermisoNotificaciones();
-            }
-        });
-
-        messaging.onMessage((payload) => {
-            const notificacion = payload.data || payload.notification; 
-            showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000);
-        });
+        const handleUserDecision = () => { /* ... */ };
+        // ... (resto de los listeners de notificación sin cambios)
+        const handleUserDecision = () => { if (!auth.currentUser) return; const storageKey = `popUpPermisoMostrado_${auth.currentUser.uid}`; localStorage.setItem(storageKey, 'true'); document.getElementById('pre-permiso-overlay').style.display = 'none'; };
+        document.getElementById('btn-activar-permiso').addEventListener('click', () => { handleUserDecision(); Notification.requestPermission().then(() => gestionarPermisoNotificaciones()); });
+        document.getElementById('btn-ahora-no').addEventListener('click', () => { handleUserDecision(); showToast("Entendido. Puedes cambiar de opinión cuando quieras.", "info"); gestionarPermisoNotificaciones(); });
+        document.getElementById('notif-switch').addEventListener('change', (event) => { const manualGuide = document.getElementById('notif-manual-guide'); if (event.target.checked) { if (Notification.permission === 'denied') { manualGuide.style.display = 'block'; event.target.checked = false; } else { manualGuide.style.display = 'none'; Notification.requestPermission().then(() => gestionarPermisoNotificaciones()); } } });
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && auth.currentUser) { gestionarPermisoNotificaciones(); } });
+        messaging.onMessage((payload) => { const notificacion = payload.data || payload.notification; showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000); });
     }
 
     auth.onAuthStateChanged(user => {
