@@ -1,4 +1,4 @@
-// app.js de la Aplicación del Cliente (VERSIÓN CON REGISTRO EXPLÍCITO DE SW Y CORRECCIÓN DE SINTAXIS)
+// app.js de la Aplicación del Cliente (Versión de Referencia Restaurada)
 
 const firebaseConfig = {
   apiKey: "AIzaSyAvBw_Cc-t8lfip_FtQ1w_w3DrPDYpxINs",
@@ -48,45 +48,26 @@ function formatearFecha(isoDateString) {
     return `${dia}/${mes}/${anio}`;
 }
 
-// ========== LÓGICA DE SERVICE WORKER Y NOTIFICACIONES ==========
-async function registerServiceWorker() {
-    if ('serviceWorker' in navigator && isMessagingSupported) {
-        try {
-            const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/' });
-            console.log('Service Worker registrado con éxito. Scope:', registration.scope);
-        } catch (error) {
-            console.error('Error durante el registro del Service Worker:', error);
-        }
-    }
-}
-
-async function obtenerYGuardarToken() {
+// ========== LÓGICA DE NOTIFICACIONES ==========
+function obtenerYGuardarToken() {
     if (!isMessagingSupported || !messaging || !clienteData || !clienteData.id) return;
-    try {
-        const registration = await navigator.serviceWorker.ready;
-        console.log("Service Worker está listo y activo para obtener el token.");
-        
-        const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
-        const currentToken = await messaging.getToken({ 
-            vapidKey: vapidKey, 
-            serviceWorkerRegistration: registration
-        });
-
-        if (currentToken) {
+    const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
+    messaging.getToken({ vapidKey })
+        .then(currentToken => {
+            if (!currentToken) {
+                console.warn("No se pudo generar el token.");
+                return;
+            };
             const tokensEnDb = clienteData.fcmTokens || [];
             if (!tokensEnDb.includes(currentToken)) {
+                console.log("Intentando actualizar token en Firestore...");
                 const clienteDocRef = db.collection('clientes').doc(clienteData.id.toString());
-                await clienteDocRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) });
-                console.log("Token guardado con éxito en Firestore.");
-                showToast("¡Notificaciones activadas!", "success");
+                return clienteDocRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) });
             }
-        } else {
-            console.warn('No se pudo generar un token de FCM. El permiso puede no estar concedido.');
-        }
-    } catch (err) {
-        console.error('ERROR FINAL en obtenerYGuardarToken:', err);
-        showToast("No se pudieron activar las notificaciones. Inténtalo más tarde.", "error");
-    }
+        })
+        .catch(err => {
+            console.error('ERROR AL OBTENER O GUARDAR EL TOKEN:', err);
+        });
 }
 
 function gestionarPermisoNotificaciones() {
@@ -174,6 +155,7 @@ async function loadClientData(user) {
         const puntosPorVencer = getPuntosEnProximoVencimiento(clienteData);
         const fechaVencimiento = getFechaProximoVencimiento(clienteData);
         const vencimientoCard = document.getElementById('vencimiento-card');
+
         if (puntosPorVencer > 0 && fechaVencimiento) {
             vencimientoCard.style.display = 'block';
             document.getElementById('cliente-puntos-vencimiento').textContent = puntosPorVencer;
@@ -211,6 +193,7 @@ async function loadClientData(user) {
 
         showScreen('main-app-screen');
         gestionarPermisoNotificaciones();
+
     } catch (error) {
         console.error("Error FATAL en loadClientData:", error);
         showToast(error.message, "error");
@@ -258,8 +241,6 @@ async function logout() {
 
 // ========== PUNTO DE ENTRADA DE LA APLICACIÓN ==========
 function main() {
-    registerServiceWorker();
-
     document.getElementById('show-register-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('register-screen'); });
     document.getElementById('show-login-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('login-screen'); });
     document.getElementById('register-btn').addEventListener('click', registerAndLinkAccount);
@@ -273,18 +254,15 @@ function main() {
             localStorage.setItem(storageKey, 'true');
             document.getElementById('pre-permiso-overlay').style.display = 'none';
         };
-
         document.getElementById('btn-activar-permiso').addEventListener('click', () => {
             handleUserDecision();
             Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
         });
-
         document.getElementById('btn-ahora-no').addEventListener('click', () => {
             handleUserDecision();
             showToast("Entendido. Puedes cambiar de opinión cuando quieras.", "info");
             gestionarPermisoNotificaciones();
         });
-
         document.getElementById('notif-switch').addEventListener('change', (event) => {
             const manualGuide = document.getElementById('notif-manual-guide');
             if (event.target.checked) {
@@ -297,13 +275,11 @@ function main() {
                 }
             }
         });
-
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && auth.currentUser) {
                 gestionarPermisoNotificaciones();
             }
         });
-
         messaging.onMessage((payload) => {
             const notificacion = payload.data || payload.notification; 
             showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000);
