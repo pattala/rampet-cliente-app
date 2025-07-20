@@ -19,7 +19,10 @@ messaging.onBackgroundMessage(function(payload) {
   // ===== CAMBIO CLAVE: Leemos desde "payload.data" y definimos el ícono =====
   const notificationTitle = payload.data.title;
   const notificationBody = payload.data.body;
-  const notificationIcon = 'https://i.postimg.cc/tJgqS2sW/mi_logo.png'; // URL pública y directa
+  const notificationIcon = 'https://raw.githubusercontent.com/pattala/rampet-cliente-app/main/images/mi_logo.png'; // URL pública y directa
+
+   
+
   // =======================================================================
 
   const notificationOptions = {
