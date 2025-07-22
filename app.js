@@ -1,4 +1,4 @@
-// app.js de la PWA (VERSIÓN FINAL CON numeroSocio PENDIENTE Y POP-UP)
+// app.js de la PWA (VERSIÓN FINAL CON APROBACIÓN Y POP-UP)
 
 // ========== CONFIGURACIÓN DE FIREBASE ==========
 const firebaseConfig = {
@@ -13,7 +13,6 @@ const firebaseConfig = {
 const app = firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
-const functions = firebase.functions();
 let messaging;
 const isMessagingSupported = firebase.messaging.isSupported();
 if (isMessagingSupported) {
@@ -21,8 +20,6 @@ if (isMessagingSupported) {
 }
 
 // ========== CONSTANTES Y VARIABLES GLOBALES ==========
-const API_BASE_URL = "https://rampet-notification-server.vercel.app/api";
-const MI_API_SECRET = 'R@mpet@2024@0112#1974#112';
 let clienteData = null; 
 let clienteRef = null;
 let premiosData = [];
@@ -243,7 +240,7 @@ async function registerNewAccount() {
     try {
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
         const authUID = userCredential.user.uid;
-
+        
         const clienteRef = db.collection('clientes').doc(); 
         const nuevoCliente = {
             id: clienteRef.id,
@@ -338,7 +335,7 @@ async function obtenerYGuardarToken() {
                 showToast("¡Notificaciones activadas!", "success");
             }
         } else {
-            showToast("No se pudo obtener el token.", "warning");
+            showToast("No se pudo obtener el token. Por favor, concede el permiso.", "warning");
         }
     } catch (err) {
         console.error('Error en obtenerYGuardarToken:', err);
@@ -406,7 +403,7 @@ function main() {
         });
         
         messaging.onMessage((payload) => {
-            const notificacion = payload.data || payload.notification; 
+            const notificacion = payload.notification || payload.data; 
             showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000);
         });
     }
