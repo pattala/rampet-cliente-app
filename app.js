@@ -1,12 +1,13 @@
-// app.js de la Aplicación del Cliente (VERSIÓN FINAL CON ESPERA FORZADA DE SW)
+// app.js de la PWA (VERSIÓN CON NUEVO FLUJO DE ACCESO Y TÉRMINOS)
 
+// ========== CONFIGURACIÓN DE FIREBASE ==========
 const firebaseConfig = {
-  apiKey: "AIzaSyAvBw_Cc-t8lfip_FtQ1w_w3DrPDYpxINs",
-  authDomain: "sistema-fidelizacion.firebaseapp.com",
-  projectId: "sistema-fidelizacion",
-  storageBucket: "sistema-fidelizacion.appspot.com",
-  messagingSenderId: "357176214962",
-  appId: "1:357176214962:web:6c1df9b74ff0f3779490ab"
+    apiKey: "AIzaSyAvBw_Cc-t8lfip_FtQ1w_w3DrPDYpxINs",
+    authDomain: "sistema-fidelizacion.firebaseapp.com",
+    projectId: "sistema-fidelizacion",
+    storageBucket: "sistema-fidelizacion.appspot.com",
+    messagingSenderId: "357176214962",
+    appId: "1:357176214962:web:6c1df9b74ff0f3779490ab"
 };
 
 const app = firebase.initializeApp(firebaseConfig);
@@ -18,12 +19,15 @@ if (isMessagingSupported) {
     messaging = firebase.messaging();
 }
 
+// ========== VARIABLES GLOBALES ==========
 let clienteData = null; 
 let premiosData = [];
+let unsubscribeCliente = null; // Para detener la escucha de Firestore al cerrar sesión
 
 // ========== FUNCIONES DE AYUDA ==========
 function showToast(message, type = 'info', duration = 5000) {
     const container = document.getElementById('toast-container');
+    if (!container) return;
     const toast = document.createElement('div');
     toast.className = `toast ${type}`;
     toast.textContent = message;
@@ -48,138 +52,105 @@ function formatearFecha(isoDateString) {
     return `${dia}/${mes}/${anio}`;
 }
 
-// ========== LÓGICA DE NOTIFICACIONES (VERSIÓN FINAL Y ROBUSTA) ==========
-
-async function obtenerYGuardarToken() {
-    if (!isMessagingSupported || !messaging || !clienteData || !clienteData.id) return;
-
-    try {
-        // --- INICIO DE LA CORRECCIÓN DEFINITIVA ---
-        // 1. Forzamos el registro del Service Worker CADA VEZ.
-        // Si ya está registrado, esta operación es muy rápida. Si no, lo registra.
-        console.log("Forzando registro del Service Worker...");
-        const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-        
-        // 2. Esperamos a que el Service Worker esté ACTIVO y listo.
-        await navigator.serviceWorker.ready;
-        console.log("Service Worker está activo y listo.");
-
-        // 3. Ahora, y solo ahora, pedimos el token.
-        const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
-        const currentToken = await messaging.getToken({ 
-            vapidKey: vapidKey, 
-            serviceWorkerRegistration: registration
-        });
-        // --- FIN DE LA CORRECCIÓN DEFINITIVA ---
-
-        if (currentToken) {
-            const tokensEnDb = clienteData.fcmTokens || [];
-            if (!tokensEnDb.includes(currentToken)) {
-                const clienteDocRef = db.collection('clientes').doc(clienteData.id.toString());
-                await clienteDocRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) });
-                showToast("¡Notificaciones activadas!", "success");
-            }
-        } else {
-            showToast("No se pudo obtener el token. Por favor, concede el permiso.", "warning");
-        }
-
-    } catch (err) {
-        console.error('ERROR FINAL en obtenerYGuardarToken:', err);
-        showToast("No se pudieron activar las notificaciones. Error: " + err.message, "error");
-    }
-}
-
-function gestionarPermisoNotificaciones() {
-    if (!isMessagingSupported || !auth.currentUser) return;
-    const permiso = Notification.permission;
-    const uid = auth.currentUser.uid;
-    const storageKey = `popUpPermisoMostrado_${uid}`;
-    const popUpYaMostrado = localStorage.getItem(storageKey);
-    const notifCard = document.getElementById('notif-card');
-    const notifSwitch = document.getElementById('notif-switch');
-    const prePermisoOverlay = document.getElementById('pre-permiso-overlay');
-    prePermisoOverlay.style.display = 'none';
-    notifCard.style.display = 'none';
-    if (permiso === 'granted') {
-        obtenerYGuardarToken();
-    } else if (permiso === 'denied') {
-        notifCard.style.display = 'block';
-        notifSwitch.checked = false;
-    } else { // 'default'
-        if (!popUpYaMostrado) {
-            prePermisoOverlay.style.display = 'flex';
-        } else {
-            notifCard.style.display = 'block';
-            notifSwitch.checked = false;
-        }
-    }
-}
-
 // ========== LÓGICA DE DATOS Y UI ==========
-async function loadClientData(user) {
+function listenToClientData(user) {
     showScreen('loading-screen');
-    try {
-        const clientesRef = db.collection('clientes');
-        const snapshot = await clientesRef.where("email", "==", user.email).limit(1).get();
-        if (snapshot.empty) throw new Error("No se pudo encontrar la ficha de cliente.");
+    if (unsubscribeCliente) unsubscribeCliente();
+
+    const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
+
+    unsubscribeCliente = clienteQuery.onSnapshot(async (snapshot) => {
+        if (snapshot.empty) {
+            showToast("Error: No se encontró tu ficha de cliente.", "error");
+            logout();
+            return;
+        }
         
         const doc = snapshot.docs[0];
         clienteData = { id: doc.id, ...doc.data() };
-        
-        const premiosSnapshot = await db.collection('premios').get();
-        premiosData = premiosSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        
-        document.getElementById('cliente-nombre').textContent = clienteData.nombre.split(' ')[0];
-        document.getElementById('cliente-puntos').textContent = clienteData.puntos || 0;
-        
-        const puntosPorVencer = getPuntosEnProximoVencimiento(clienteData);
-        const fechaVencimiento = getFechaProximoVencimiento(clienteData);
-        const vencimientoCard = document.getElementById('vencimiento-card');
-        if (puntosPorVencer > 0 && fechaVencimiento) {
-            vencimientoCard.style.display = 'block';
-            document.getElementById('cliente-puntos-vencimiento').textContent = puntosPorVencer;
-            document.getElementById('cliente-fecha-vencimiento').textContent = formatearFecha(fechaVencimiento.toISOString());
-        } else {
-            vencimientoCard.style.display = 'none';
+
+        if (premiosData.length === 0) {
+            try {
+                const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
+                premiosData = premiosSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            } catch (e) {
+                console.error("Error cargando premios:", e);
+                showToast("No se pudieron cargar los premios.", "warning");
+            }
         }
 
-        const historialLista = document.getElementById('lista-historial');
-        historialLista.innerHTML = '';
-        if (clienteData.historialPuntos && clienteData.historialPuntos.length > 0) {
-            const historialReciente = clienteData.historialPuntos.sort((a,b) => new Date(b.fechaObtencion) - new Date(a.fechaObtencion)).slice(0, 5);
-            historialReciente.forEach(item => {
-                const li = document.createElement('li');
-                const puntos = item.puntosObtenidos > 0 ? `+${item.puntosObtenidos}` : item.puntosObtenidos;
-                li.innerHTML = `<span>${formatearFecha(item.fechaObtencion)}</span> <strong>${item.origen}</strong> <span class="puntos ${puntos > 0 ? 'ganados':'gastados'}">${puntos} pts</span>`;
-                historialLista.appendChild(li);
-            });
-        } else {
-            historialLista.innerHTML = '<li>Aún no tienes movimientos.</li>';
-        }
+        renderMainScreen();
 
-        const premiosLista = document.getElementById('lista-premios-cliente');
-        premiosLista.innerHTML = '';
-        const premiosCanjeables = premiosData.filter(p => p.puntos <= clienteData.puntos && p.stock > 0);
-        if (premiosCanjeables.length > 0) {
-            premiosCanjeables.forEach(premio => {
-                const li = document.createElement('li');
-                li.innerHTML = `<strong>${premio.nombre}</strong> <span class="puntos-premio">${premio.puntos} Puntos</span>`;
-                premiosLista.appendChild(li);
-            });
-        } else {
-             premiosLista.innerHTML = '<li>Sigue sumando puntos para canjear premios.</li>';
-        }
-
-        showScreen('main-app-screen');
-        gestionarPermisoNotificaciones();
-    } catch (error) {
-        console.error("Error FATAL en loadClientData:", error);
-        showToast(error.message, "error");
+    }, (error) => {
+        console.error("Error escuchando datos del cliente:", error);
+        showToast("Error al cargar tus datos.", "error");
         logout();
-    }
+    });
 }
 
-// ... (El resto de funciones se mantienen igual)
+function renderMainScreen() {
+    if (!clienteData) return;
+
+    document.getElementById('cliente-nombre').textContent = clienteData.nombre.split(' ')[0];
+    document.getElementById('cliente-puntos').textContent = clienteData.puntos || 0;
+
+    const termsBanner = document.getElementById('terms-banner');
+    if (!clienteData.terminosAceptados) {
+        termsBanner.style.display = 'block';
+    } else {
+        termsBanner.style.display = 'none';
+    }
+
+    const puntosPorVencer = getPuntosEnProximoVencimiento(clienteData);
+    const fechaVencimiento = getFechaProximoVencimiento(clienteData);
+    const vencimientoCard = document.getElementById('vencimiento-card');
+    if (puntosPorVencer > 0 && fechaVencimiento) {
+        vencimientoCard.style.display = 'block';
+        document.getElementById('cliente-puntos-vencimiento').textContent = puntosPorVencer;
+        document.getElementById('cliente-fecha-vencimiento').textContent = formatearFecha(fechaVencimiento.toISOString());
+    } else {
+        vencimientoCard.style.display = 'none';
+    }
+
+    const historialLista = document.getElementById('lista-historial');
+    historialLista.innerHTML = '';
+    if (clienteData.historialPuntos && clienteData.historialPuntos.length > 0) {
+        const historialReciente = [...clienteData.historialPuntos].sort((a,b) => new Date(b.fechaObtencion) - new Date(a.fechaObtencion)).slice(0, 5);
+        historialReciente.forEach(item => {
+            const li = document.createElement('li');
+            const puntos = item.puntosObtenidos > 0 ? `+${item.puntosObtenidos}` : item.puntosObtenidos;
+            li.innerHTML = `<span>${formatearFecha(item.fechaObtencion)}</span> <strong>${item.origen}</strong> <span class="puntos ${puntos > 0 ? 'ganados':'gastados'}">${puntos} pts</span>`;
+            historialLista.appendChild(li);
+        });
+    } else {
+        historialLista.innerHTML = '<li>Aún no tienes movimientos.</li>';
+    }
+
+    const premiosLista = document.getElementById('lista-premios-cliente');
+    premiosLista.innerHTML = '';
+    if (premiosData.length > 0) {
+        premiosData.forEach(premio => {
+            const li = document.createElement('li');
+            const puedeCanjear = clienteData.puntos >= premio.puntos;
+            li.className = puedeCanjear ? 'canjeable' : 'no-canjeable';
+            li.innerHTML = `<strong>${premio.nombre}</strong> <span class="puntos-premio">${premio.puntos} Puntos</span>`;
+            premiosLista.appendChild(li);
+        });
+        
+        if (!clienteData.terminosAceptados) {
+            const infoMsg = document.createElement('p');
+            infoMsg.className = 'info-message';
+            infoMsg.innerHTML = 'Para poder canjear estos premios en la tienda, primero debes <a href="#" id="accept-terms-link-premios">aceptar los Términos y Condiciones</a>.';
+            premiosLista.appendChild(infoMsg);
+        }
+
+    } else {
+        premiosLista.innerHTML = '<li>No hay premios disponibles en este momento.</li>';
+    }
+
+    showScreen('main-app-screen');
+}
+
 function getFechaProximoVencimiento(cliente) {
     if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
     let fechaMasProxima = null;
@@ -200,6 +171,7 @@ function getFechaProximoVencimiento(cliente) {
     });
     return fechaMasProxima;
 }
+
 function getPuntosEnProximoVencimiento(cliente) {
     const fechaProximoVencimiento = getFechaProximoVencimiento(cliente);
     if (!fechaProximoVencimiento) return 0;
@@ -217,78 +189,188 @@ function getPuntosEnProximoVencimiento(cliente) {
     });
     return puntosAVencer;
 }
-async function registerAndLinkAccount() {
-    const dni = document.getElementById('register-dni').value.trim();
-    const email = document.getElementById('register-email').value.trim();
-    const password = document.getElementById('register-password').value;
-    const registerButton = document.getElementById('register-btn');
-    if (!dni || !email || password.length < 6) { showToast("Por favor, completa todos los campos...", "error"); return; }
-    registerButton.disabled = true; registerButton.textContent = 'Procesando...';
-    try {
-        const clientesRef = db.collection('clientes');
-        const snapshot = await clientesRef.where("dni", "==", dni).get();
-        if (snapshot.empty) throw new Error("No se encontró cliente con ese DNI.");
-        const clienteDoc = snapshot.docs[0];
-        const clienteActual = clienteDoc.data();
-        if (clienteActual.authUID) throw new Error("Este cliente ya tiene una cuenta.");
-        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-        await clienteDoc.ref.update({ authUID: userCredential.user.uid, email: email });
-    } catch (error) {
-        if (error.code === 'auth/email-already-in-use') showToast("Este email ya está en uso.", "error");
-        else showToast(error.message, "error");
-    } finally {
-        registerButton.disabled = false; registerButton.textContent = 'Crear y Vincular Cuenta';
-    }
-}
+
+// ========== LÓGICA DE ACCESO Y REGISTRO ==========
 async function login() {
     const email = document.getElementById('login-email').value.trim();
     const password = document.getElementById('login-password').value;
-    if (!email || !password) return showToast("Por favor, ingresa tu email y contraseña.", "error");
-    try { await auth.signInWithEmailAndPassword(email, password); } 
-    catch (error) { showToast("Error al iniciar sesión. Verifica tus credenciales.", "error"); }
-}
-async function logout() {
-    try { await auth.signOut(); } 
-    catch (error) { showToast("Error al cerrar sesión.", "error"); }
+    const boton = document.getElementById('login-btn');
+
+    if (!email || !password) {
+        return showToast("Por favor, ingresa tu email y contraseña.", "error");
+    }
+    
+    boton.disabled = true;
+    boton.textContent = 'Ingresando...';
+
+    try {
+        await auth.signInWithEmailAndPassword(email, password);
+    } catch (error) {
+        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+            showToast("Email o contraseña incorrectos.", "error");
+        } else {
+            showToast("Error al iniciar sesión. Inténtalo de nuevo.", "error");
+        }
+        console.error("Error en login:", error);
+    } finally {
+        boton.disabled = false;
+        boton.textContent = 'Ingresar';
+    }
 }
 
-// ========== PUNTO DE ENTRADA DE LA APLICACIÓN ==========
+async function registerNewAccount() {
+    const nombre = document.getElementById('register-nombre').value.trim();
+    const dni = document.getElementById('register-dni').value.trim();
+    const email = document.getElementById('register-email').value.trim().toLowerCase();
+    const telefono = document.getElementById('register-telefono').value.trim();
+    const fechaNacimiento = document.getElementById('register-fecha-nacimiento').value;
+    const password = document.getElementById('register-password').value;
+    const termsAccepted = document.getElementById('register-terms').checked;
+    const boton = document.getElementById('register-btn');
+
+    if (!nombre || !dni || !email || !fechaNacimiento || !password) {
+        return showToast("Por favor, completa todos los campos obligatorios.", "error");
+    }
+    if (password.length < 6) {
+        return showToast("La contraseña debe tener al menos 6 caracteres.", "error");
+    }
+    if (!termsAccepted) {
+        return showToast("Debes aceptar los Términos y Condiciones para registrarte.", "error");
+    }
+
+    boton.disabled = true;
+    boton.textContent = 'Creando cuenta...';
+
+    try {
+        const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+        const authUID = userCredential.user.uid;
+
+        const nuevoClienteId = Date.now(); 
+        
+        const nuevoCliente = {
+            id: nuevoClienteId,
+            authUID: authUID,
+            nombre,
+            dni,
+            email,
+            telefono,
+            fechaNacimiento,
+            fechaInscripcion: new Date().toISOString().split('T')[0],
+            puntos: 0,
+            saldoAcumulado: 0,
+            totalGastado: 0,
+            ultimaCompra: "",
+            historialPuntos: [],
+            historialCanjes: [],
+            fcmTokens: [],
+            terminosAceptados: true
+        };
+        
+        await db.collection('clientes').doc(nuevoClienteId.toString()).set(nuevoCliente);
+        
+    } catch (error) {
+        if (error.code === 'auth/email-already-in-use') {
+            showToast("Este email ya ha sido registrado.", "error");
+        } else {
+            showToast("No se pudo crear la cuenta. Inténtalo de nuevo.", "error");
+        }
+        console.error("Error en registro:", error);
+    } finally {
+        boton.disabled = false;
+        boton.textContent = 'Crear Cuenta';
+    }
+}
+
+async function logout() {
+    try {
+        if (unsubscribeCliente) unsubscribeCliente();
+        await auth.signOut();
+        clienteData = null;
+        premiosData = [];
+        showScreen('login-screen');
+    } catch (error) {
+        showToast("Error al cerrar sesión.", "error");
+    }
+}
+
+// ========== LÓGICA DE TÉRMINOS Y CONDICIONES ==========
+function openTermsModal() {
+    document.getElementById('terms-modal').style.display = 'flex';
+    if (clienteData && !clienteData.terminosAceptados) {
+        document.getElementById('accept-terms-btn-modal').style.display = 'block';
+    }
+}
+
+function closeTermsModal() {
+    document.getElementById('terms-modal').style.display = 'none';
+    document.getElementById('accept-terms-btn-modal').style.display = 'none';
+}
+
+async function acceptTerms() {
+    if (!clienteData || !clienteData.id) return;
+    
+    const boton = document.getElementById('accept-terms-btn-modal');
+    boton.disabled = true;
+
+    try {
+        const clienteRef = db.collection('clientes').doc(clienteData.id.toString());
+        await clienteRef.update({ terminosAceptados: true });
+        showToast("¡Gracias por aceptar los términos!", "success");
+        closeTermsModal();
+    } catch (error) {
+        showToast("No se pudo actualizar. Inténtalo de nuevo.", "error");
+        console.error("Error aceptando términos:", error);
+    } finally {
+        boton.disabled = false;
+    }
+}
+
+// ========== LÓGICA DE NOTIFICACIONES ==========
+async function obtenerYGuardarToken() {
+    // Esta función no necesita cambios, pero depende de que `clienteData` esté cargado
+    if (!isMessagingSupported || !messaging || !clienteData || !clienteData.id) return;
+    try {
+        const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+        await navigator.serviceWorker.ready;
+        const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
+        const currentToken = await messaging.getToken({ vapidKey, serviceWorkerRegistration: registration });
+        if (currentToken) {
+            const tokensEnDb = clienteData.fcmTokens || [];
+            if (!tokensEnDb.includes(currentToken)) {
+                const clienteDocRef = db.collection('clientes').doc(clienteData.id.toString());
+                await clienteDocRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) });
+                showToast("¡Notificaciones activadas!", "success");
+            }
+        } else {
+            showToast("No se pudo obtener el token. Por favor, concede el permiso.", "warning");
+        }
+    } catch (err) {
+        console.error('Error en obtenerYGuardarToken:', err);
+        showToast("No se pudieron activar las notificaciones.", "error");
+    }
+}
+
+// ========== PUNTO DE ENTRADA Y EVENT LISTENERS ==========
 function main() {
-    // Ya no registramos el SW aquí, se hará dentro de la función que lo necesita.
     document.getElementById('show-register-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('register-screen'); });
     document.getElementById('show-login-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('login-screen'); });
-    document.getElementById('register-btn').addEventListener('click', registerAndLinkAccount);
     document.getElementById('login-btn').addEventListener('click', login);
+    document.getElementById('register-btn').addEventListener('click', registerNewAccount);
     document.getElementById('logout-btn').addEventListener('click', logout);
+    
+    document.getElementById('show-terms-link').addEventListener('click', (e) => { e.preventDefault(); openTermsModal(); });
+    document.getElementById('show-terms-link-banner').addEventListener('click', (e) => { e.preventDefault(); openTermsModal(); });
+    document.getElementById('close-terms-modal').addEventListener('click', closeTermsModal);
+    document.getElementById('accept-terms-btn-modal').addEventListener('click', acceptTerms);
+    
+    document.getElementById('premios-container').addEventListener('click', (e) => {
+        if (e.target.id === 'accept-terms-link-premios') {
+            e.preventDefault();
+            openTermsModal();
+        }
+    });
 
     if (isMessagingSupported) {
-        const handleUserDecision = () => { if (!auth.currentUser) return; const storageKey = `popUpPermisoMostrado_${auth.currentUser.uid}`; localStorage.setItem(storageKey, 'true'); document.getElementById('pre-permiso-overlay').style.display = 'none'; };
-        document.getElementById('btn-activar-permiso').addEventListener('click', () => {
-            handleUserDecision();
-            Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
-        });
-        document.getElementById('btn-ahora-no').addEventListener('click', () => {
-            handleUserDecision();
-            showToast("Entendido. Puedes cambiar de opinión cuando quieras.", "info");
-            gestionarPermisoNotificaciones();
-        });
-        document.getElementById('notif-switch').addEventListener('change', (event) => {
-            const manualGuide = document.getElementById('notif-manual-guide');
-            if (event.target.checked) {
-                if (Notification.permission === 'denied') {
-                    manualGuide.style.display = 'block';
-                    event.target.checked = false; 
-                } else {
-                    manualGuide.style.display = 'none';
-                    Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
-                }
-            }
-        });
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible' && auth.currentUser) {
-                gestionarPermisoNotificaciones();
-            }
-        });
         messaging.onMessage((payload) => {
             const notificacion = payload.data || payload.notification; 
             showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000);
@@ -297,9 +379,11 @@ function main() {
 
     auth.onAuthStateChanged(user => {
         if (user) {
-            loadClientData(user);
+            listenToClientData(user);
         } else {
+            if (unsubscribeCliente) unsubscribeCliente();
             clienteData = null;
+            premiosData = [];
             showScreen('login-screen');
         }
     });
