@@ -18,56 +18,60 @@
             <h1>Club RAMPET</h1>
         </header>
 
+        <!-- PANTALLA DE CARGA -->
         <div id="loading-screen" class="screen active">
             <p>Cargando...</p>
         </div>
         
+        <!-- PANTALLA DE INICIO DE SESIÓN -->
         <div id="login-screen" class="screen">
             <h2>Bienvenido</h2>
             <p>Ingresa para consultar tus puntos y beneficios.</p>
             <div class="form-group">
-                <input type="email" id="login-email" placeholder="Tu Email" autocomplete="email">
-                <input type="password" id="login-password" placeholder="Tu Contraseña">
+                <input type="email" id="login-email" placeholder="Tu Email" autocomplete="email" required>
+                <input type="password" id="login-password" placeholder="Tu Contraseña o DNI" required>
                 <button id="login-btn" class="primary-btn">Ingresar</button>
             </div>
-            <p class="toggle-link">¿Primera vez aquí? <a href="#" id="show-register-link">Crea tu cuenta</a></p>
+            <p class="toggle-link">¿Aún no eres miembro? <a href="#" id="show-register-link">Regístrate aquí</a></p>
         </div>
 
+        <!-- PANTALLA DE REGISTRO PARA NUEVOS USUARIOS -->
         <div id="register-screen" class="screen">
-            <h2>Crea tu acceso</h2>
-            <p>Usa los datos con los que te registraste en la tienda para vincular tu cuenta.</p>
+            <h2>Únete al Club</h2>
+            <p>Completa tus datos para empezar a sumar puntos.</p>
             <div class="form-group">
-                <input type="text" id="register-dni" placeholder="Tu DNI" required>
-                <input type="email" id="register-email" placeholder="Tu Email" required autocomplete="email">
+                <input type="text" id="register-nombre" placeholder="Nombre Completo" required>
+                <input type="text" id="register-dni" placeholder="DNI" required>
+                <input type="email" id="register-email" placeholder="Email" required autocomplete="email">
+                <input type="tel" id="register-telefono" placeholder="Teléfono (Opcional)">
+                <label for="register-fecha-nacimiento">Fecha de Nacimiento</label>
+                <input type="date" id="register-fecha-nacimiento" required>
                 <input type="password" id="register-password" placeholder="Crea una Contraseña (mín. 6 caracteres)" required>
-                <button id="register-btn" class="primary-btn">Crear y Vincular Cuenta</button>
+                
+                <div class="terms-container">
+                    <input type="checkbox" id="register-terms">
+                    <label for="register-terms">He leído y acepto los <a href="#" id="show-terms-link">Términos y Condiciones</a>.</label>
+                </div>
+
+                <button id="register-btn" class="primary-btn">Crear Cuenta</button>
             </div>
             <p class="toggle-link">¿Ya tienes cuenta? <a href="#" id="show-login-link">Ingresa aquí</a></p>
         </div>
 
+        <!-- PANTALLA PRINCIPAL DE LA APLICACIÓN -->
         <div id="main-app-screen" class="screen">
             <div class="user-header">
                 <h3>Hola, <span id="cliente-nombre">--</span></h3>
-                <button id="logout-btn" class="secondary-btn">Salir</button>
-            </div>
-
-            <!-- ===== NUEVO: Pre-Permiso Modal (Oculto por defecto) ===== -->
-            <div id="pre-permiso-overlay" class="pre-permiso-overlay" style="display: none;">
-                <div class="pre-permiso-content card">
-                    <h3>¡No te pierdas de nada!</h3>
-                    <p>Activa las notificaciones para enterarte cuando:</p>
-                    <ul>
-                        <li>🎁 Haya nuevos premios disponibles.</li>
-                        <li>🎂 Sea tu cumpleaños y recibas un bono.</li>
-                        <li>🔥 Tus puntos estén por vencer.</li>
-                    </ul>
-                    <div class="pre-permiso-actions">
-                        <button id="btn-activar-permiso" class="primary-btn">Sí, activar</button>
-                        <button id="btn-ahora-no" class="secondary-btn">Ahora no</button>
-                    </div>
+                <div class="user-actions">
+                    <button id="account-btn" class="secondary-btn">Mi Cuenta</button>
+                    <button id="logout-btn" class="secondary-btn">Salir</button>
                 </div>
             </div>
-            <!-- ===== FIN DEL NUEVO CÓDIGO ===== -->
+
+            <!-- BANNER DE AVISO PARA ACEPTAR TÉRMINOS Y CONDICIONES -->
+            <div id="terms-banner" class="card terms-banner" style="display: none;">
+                <p>⚠️ Para poder canjear premios, debes aceptar los <a href="#" id="show-terms-link-banner">Términos y Condiciones</a>.</p>
+            </div>
 
             <div class="card puntos-card">
                 <p>Tus Puntos Disponibles</p>
@@ -80,7 +84,6 @@
                 <p>Vencen el: <strong id="cliente-fecha-vencimiento">--</strong></p>
             </div>
 
-            <!-- ===== NUEVO: Tarjeta de Notificaciones con Switch (Oculto por defecto) ===== -->
             <div id="notif-card" class="card" style="display: none;">
                 <h3>Notificaciones</h3>
                 <div class="notif-setting">
@@ -90,19 +93,37 @@
                         <span class="slider round"></span>
                     </label>
                 </div>
-                <p id="notif-manual-guide" class="manual-guide" style="display: none;">
-                    Para recibir notificaciones, necesitas permitirlo manualmente. Haz clic en el candado 🔒 de la barra de direcciones de tu navegador y activa los permisos.
-                </p>
             </div>
-            <!-- ===== FIN DEL NUEVO CÓDIGO ===== -->
 
             <div id="historial-container" class="card">
                 <h3>Historial Reciente</h3>
                 <ul id="lista-historial"></ul>
             </div>
+            
             <div id="premios-container" class="card">
-                <h3>Premios que puedes canjear</h3>
-                <ul id="lista-premios-cliente"></ul>
+                <h3>Catálogo de Premios</h3>
+                <p>Estos son los premios que puedes canjear en la tienda:</p>
+                <ul id="lista-premios-cliente">
+                    <!-- Contenido generado por JavaScript -->
+                </ul>
+            </div>
+        </div>
+
+        <!-- MODAL PARA MOSTRAR LOS TÉRMINOS Y CONDICIONES -->
+        <div id="terms-modal" class="modal-overlay" style="display: none;">
+            <div class="modal-content">
+                <span id="close-terms-modal" class="modal-close-btn">×</span>
+                <h2>Términos y Condiciones</h2>
+                <div class="terms-text-container">
+                    <p><strong>[Aquí puedes pegar el texto completo de tus términos y condiciones.]</strong></p>
+                    <p><strong>1. Generalidades:</strong> El programa de fidelización "Club RAMPET" es un beneficio para clientes. La participación en el programa implica la aceptación de estos términos.</p>
+                    <p><strong>2. Acumulación de Puntos:</strong> Los puntos se acumularán según la tasa de conversión establecida por RAMPET y visible en el panel de configuración. Los puntos no tienen valor monetario y no son transferibles.</p>
+                    <p><strong>3. Canje de Premios:</strong> El canje de premios se realiza **exclusivamente en el local físico** y será procesado por un administrador del sistema. La PWA sirve como un catálogo para consultar los premios disponibles según los puntos del cliente.</p>
+                    <p><strong>4. Validez y Caducidad:</strong> Los puntos tienen una fecha de caducidad según las reglas definidas en el sistema. El cliente será notificado de los vencimientos próximos a través de la PWA.</p>
+                    <p><strong>5. Modificaciones:</strong> RAMPET se reserva el derecho de modificar los términos y condiciones, la tasa de conversión o el catálogo de premios en cualquier momento.</p>
+                </div>
+                <!-- El botón de aceptación solo será visible cuando se abra desde el banner -->
+                <button id="accept-terms-btn-modal" class="primary-btn" style="display: none;">He Leído y Acepto los Términos</button>
             </div>
         </div>
 
