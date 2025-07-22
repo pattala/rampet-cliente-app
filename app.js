@@ -1,6 +1,6 @@
-// app.js de la PWA (VERSIÓN FINAL CON CONFIGURACIÓN CORREGIDA)
+// app.js de la PWA (VERSIÓN FINAL CON numeroSocio PENDIENTE Y POP-UP)
 
-// ========== CONFIGURACIÓN DE FIREBASE (COMPLETA Y CORRECTA) ==========
+// ========== CONFIGURACIÓN DE FIREBASE ==========
 const firebaseConfig = {
     apiKey: "AIzaSyAvBw_Cc-t8lfip_FtQ1w_w3DrPDYpxINs",
     authDomain: "sistema-fidelizacion.firebaseapp.com",
@@ -13,6 +13,7 @@ const firebaseConfig = {
 const app = firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 const auth = firebase.auth();
+const functions = firebase.functions();
 let messaging;
 const isMessagingSupported = firebase.messaging.isSupported();
 if (isMessagingSupported) {
@@ -67,7 +68,6 @@ async function listenToClientData(user) {
         console.warn("No se encontró cliente por authUID. Intentando buscar por email para reparar...");
         clienteQuery = db.collection('clientes').where("email", "==", user.email).limit(1);
         snapshot = await clienteQuery.get();
-
         if (!snapshot.empty) {
             const clienteDoc = snapshot.docs[0];
             console.log(`Reparando cliente antiguo: ${clienteDoc.id}`);
@@ -88,10 +88,7 @@ async function listenToClientData(user) {
     }
     
     unsubscribeCliente = clienteQuery.onSnapshot(async (snapshot) => {
-        if (snapshot.empty) {
-            logout();
-            return;
-        }
+        if (snapshot.empty) { logout(); return; }
         
         const doc = snapshot.docs[0];
         clienteData = doc.data();
@@ -110,21 +107,16 @@ async function listenToClientData(user) {
         renderMainScreen();
         gestionarPermisoNotificaciones(); 
 
-    }, (error) => {
-        console.error("Error escuchando datos del cliente:", error);
-        logout();
-    });
+    }, (error) => { logout(); });
 }
 
 function renderMainScreen() {
     if (!clienteData) return;
-
     document.getElementById('cliente-nombre').textContent = clienteData.nombre.split(' ')[0];
+    document.getElementById('cliente-numero-socio').textContent = clienteData.numeroSocio ? `#${clienteData.numeroSocio}` : 'N° Pendiente';
     document.getElementById('cliente-puntos').textContent = clienteData.puntos || 0;
-
-    const termsBanner = document.getElementById('terms-banner');
-    termsBanner.style.display = !clienteData.terminosAceptados ? 'block' : 'none';
-
+    document.getElementById('terms-banner').style.display = !clienteData.terminosAceptados ? 'block' : 'none';
+    
     const puntosPorVencer = getPuntosEnProximoVencimiento(clienteData);
     const fechaVencimiento = getFechaProximoVencimiento(clienteData);
     const vencimientoCard = document.getElementById('vencimiento-card');
@@ -163,10 +155,8 @@ function renderMainScreen() {
     } else {
         premiosLista.innerHTML = '<li>No hay premios disponibles en este momento.</li>';
     }
-
     showScreen('main-app-screen');
 }
-
 function getFechaProximoVencimiento(cliente) {
     if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
     let fechaMasProxima = null;
@@ -222,7 +212,7 @@ async function login() {
         if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
             showToast("Email o contraseña incorrectos.", "error");
         } else {
-            showToast("Error al iniciar sesión.", "error");
+            showToast("Error al iniciar sesión. Inténtalo de nuevo.", "error");
         }
         console.error("Error en login:", error);
     } finally {
@@ -244,13 +234,9 @@ async function registerNewAccount() {
     if (!nombre || !dni || !email || !telefono || !fechaNacimiento || !password) {
         return showToast("Por favor, completa todos los campos.", "error");
     }
-    if (password.length < 6) {
-        return showToast("La contraseña debe tener al menos 6 caracteres.", "error");
-    }
-    if (!termsAccepted) {
-        return showToast("Debes aceptar los Términos y Condiciones para registrarte.", "error");
-    }
-
+    if (password.length < 6) { return showToast("La contraseña debe tener al menos 6 caracteres.", "error"); }
+    if (!termsAccepted) { return showToast("Debes aceptar los Términos y Condiciones.", "error"); }
+    
     boton.disabled = true;
     boton.textContent = 'Creando cuenta...';
 
@@ -259,9 +245,9 @@ async function registerNewAccount() {
         const authUID = userCredential.user.uid;
 
         const clienteRef = db.collection('clientes').doc(); 
-        
         const nuevoCliente = {
             id: clienteRef.id,
+            numeroSocio: null,
             authUID,
             nombre,
             dni,
@@ -281,21 +267,7 @@ async function registerNewAccount() {
         };
         
         await clienteRef.set(nuevoCliente);
-
-        showToast("Enviando email de bienvenida...", "info");
-        const response = await fetch(`${API_BASE_URL}/send-email`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${MI_API_SECRET}` },
-            body: JSON.stringify({
-                to: email,
-                templateId: 'bienvenida',
-                templateData: {
-                    nombre: nombre.split(' ')[0],
-                    id_cliente: nuevoCliente.id
-                }
-            }),
-        });
-        if (!response.ok) { throw new Error("Falló el envío del email de bienvenida."); }
+        showToast("¡Registro exitoso! Tu cuenta está pendiente de aprobación por un administrador.", "success");
 
     } catch (error) {
         if (error.code === 'auth/email-already-in-use') {
@@ -351,7 +323,6 @@ async function acceptTerms() {
         boton.disabled = false;
     }
 }
-
 // ========== LÓGICA DE NOTIFICACIONES ==========
 async function obtenerYGuardarToken() {
     if (!isMessagingSupported || !messaging || !clienteRef) return;
@@ -377,14 +348,19 @@ async function obtenerYGuardarToken() {
 
 function gestionarPermisoNotificaciones() {
     if (!isMessagingSupported || !auth.currentUser) return;
+    const popUpYaMostrado = localStorage.getItem(`popUpPermisoMostrado_${auth.currentUser.uid}`);
+    
+    if (Notification.permission === 'default' && !popUpYaMostrado) {
+        document.getElementById('pre-permiso-overlay').style.display = 'flex';
+    }
+    
     const notifCard = document.getElementById('notif-card');
     notifCard.style.display = 'block';
+
     const notifSwitch = document.getElementById('notif-switch');
+    notifSwitch.checked = Notification.permission === 'granted';
     if (Notification.permission === 'granted') {
-        notifSwitch.checked = true;
         obtenerYGuardarToken();
-    } else {
-        notifSwitch.checked = false;
     }
 }
 
@@ -395,17 +371,32 @@ function main() {
     document.getElementById('login-btn').addEventListener('click', login);
     document.getElementById('register-btn').addEventListener('click', registerNewAccount);
     document.getElementById('logout-btn').addEventListener('click', logout);
+    
     document.getElementById('show-terms-link').addEventListener('click', (e) => { e.preventDefault(); openTermsModal(); });
     document.getElementById('show-terms-link-banner').addEventListener('click', (e) => { e.preventDefault(); openTermsModal(); });
     document.getElementById('close-terms-modal').addEventListener('click', closeTermsModal);
     document.getElementById('accept-terms-btn-modal').addEventListener('click', acceptTerms);
 
     if (isMessagingSupported) {
+        const handleUserDecision = () => {
+            if (!auth.currentUser) return;
+            localStorage.setItem(`popUpPermisoMostrado_${auth.currentUser.uid}`, 'true');
+            document.getElementById('pre-permiso-overlay').style.display = 'none';
+        };
+        document.getElementById('btn-activar-permiso').addEventListener('click', () => {
+            handleUserDecision();
+            Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
+        });
+        document.getElementById('btn-ahora-no').addEventListener('click', () => {
+            handleUserDecision();
+            gestionarPermisoNotificaciones();
+        });
+
         document.getElementById('notif-switch').addEventListener('change', (event) => {
             if (event.target.checked) {
                 Notification.requestPermission().then(permission => {
                     if (permission === 'granted') {
-                        obtenerYGuardarToken();
+                        gestionarPermisoNotificaciones();
                     } else {
                         showToast("Permiso de notificaciones no concedido.", "warning");
                         event.target.checked = false;
@@ -413,6 +404,7 @@ function main() {
                 });
             }
         });
+        
         messaging.onMessage((payload) => {
             const notificacion = payload.data || payload.notification; 
             showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000);
@@ -431,4 +423,5 @@ function main() {
         }
     });
 }
+
 document.addEventListener('DOMContentLoaded', main);
