@@ -1,4 +1,4 @@
-// app.js de la PWA (VERSIÓN CON NUEVO FLUJO, TÉRMINOS Y CORRECCIONES)
+// app.js de la PWA (VERSIÓN CON LÓGICA DE REPARACIÓN PARA USUARIOS ANTIGUOS)
 
 // ========== CONFIGURACIÓN DE FIREBASE ==========
 const firebaseConfig = {
@@ -19,9 +19,7 @@ if (isMessagingSupported) {
     messaging = firebase.messaging();
 }
 
-// ========== CONSTANTES Y VARIABLES GLOBALES ==========
-const API_BASE_URL = "https://rampet-notification-server.vercel.app/api"; // Reemplaza si es necesario
-const MI_API_SECRET = 'R@mpet@2024@0112#1974#112'; // Debe coincidir con el del servidor
+// ========== VARIABLES GLOBALES ==========
 let clienteData = null; 
 let premiosData = [];
 let unsubscribeCliente = null;
@@ -55,17 +53,18 @@ function formatearFecha(isoDateString) {
 }
 
 // ========== LÓGICA DE DATOS Y UI ==========
-function listenToClientData(user) {
+async function listenToClientData(user) {
     showScreen('loading-screen');
     if (unsubscribeCliente) unsubscribeCliente();
 
+    // --- INICIO DE LA LÓGICA DE REPARACIÓN ---
     // 1. Intentamos encontrar al cliente por su authUID (el método ideal)
     let clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
     let snapshot = await clienteQuery.get();
 
     if (snapshot.empty) {
         // 2. Si no se encuentra, es un usuario antiguo. Lo buscamos por email.
-        console.warn("No se encontró cliente por authUID. Intentando buscar por email...");
+        console.warn("No se encontró cliente por authUID. Intentando buscar por email para reparar...");
         clienteQuery = db.collection('clientes').where("email", "==", user.email).limit(1);
         snapshot = await clienteQuery.get();
 
@@ -73,16 +72,54 @@ function listenToClientData(user) {
             // 3. ¡Lo encontramos! "Reparamos" el documento añadiéndole el authUID.
             const clienteDoc = snapshot.docs[0];
             console.log(`Reparando cliente antiguo: ${clienteDoc.id}`);
-            await clienteDoc.ref.update({ authUID: user.uid });
-            // Ahora, la escucha en tiempo real funcionará con la nueva consulta.
-            clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
+            try {
+                await clienteDoc.ref.update({ authUID: user.uid });
+                // Ahora, la escucha en tiempo real funcionará con la nueva consulta.
+                clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
+            } catch (error) {
+                console.error("Error al reparar el cliente:", error);
+                showToast("Error al vincular tu cuenta. Contacta con soporte.", "error");
+                logout();
+                return;
+            }
         } else {
             // 4. Si no lo encontramos ni por UID ni por email, la cuenta está huérfana.
-            showToast("Error crítico: Tu cuenta de acceso no está vinculada a ninguna ficha de cliente.", "error");
+            showToast("Error crítico: Tu cuenta de acceso no está vinculada a ninguna ficha.", "error");
             logout();
             return;
         }
     }
+    // --- FIN DE LA LÓGICA DE REPARACIÓN ---
+
+    unsubscribeCliente = clienteQuery.onSnapshot(async (snapshot) => {
+        if (snapshot.empty) {
+            showToast("Error: No se pudo cargar tu ficha de cliente.", "error");
+            logout();
+            return;
+        }
+        
+        const doc = snapshot.docs[0];
+        clienteData = { id: doc.id, ...doc.data() }; 
+
+        if (premiosData.length === 0) {
+            try {
+                const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
+                premiosData = premiosSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            } catch (e) {
+                console.error("Error cargando premios:", e);
+                showToast("No se pudieron cargar los premios.", "warning");
+            }
+        }
+
+        renderMainScreen();
+        gestionarPermisoNotificaciones(); 
+
+    }, (error) => {
+        console.error("Error escuchando datos del cliente:", error);
+        showToast("Error al cargar tus datos.", "error");
+        logout();
+    });
+}
 
 function renderMainScreen() {
     if (!clienteData) return;
@@ -93,7 +130,6 @@ function renderMainScreen() {
     const termsBanner = document.getElementById('terms-banner');
     termsBanner.style.display = !clienteData.terminosAceptados ? 'block' : 'none';
 
-    // ... (El resto del renderizado de Vencimiento, Historial y Premios se mantiene)
     const puntosPorVencer = getPuntosEnProximoVencimiento(clienteData);
     const fechaVencimiento = getFechaProximoVencimiento(clienteData);
     const vencimientoCard = document.getElementById('vencimiento-card');
@@ -144,12 +180,71 @@ function renderMainScreen() {
     showScreen('main-app-screen');
 }
 
-function getFechaProximoVencimiento(cliente) { /* ...código sin cambios... */ }
-function getPuntosEnProximoVencimiento(cliente) { /* ...código sin cambios... */ }
+function getFechaProximoVencimiento(cliente) {
+    if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
+    let fechaMasProxima = null;
+    const hoy = new Date();
+    hoy.setUTCHours(0, 0, 0, 0);
+    cliente.historialPuntos.forEach(grupo => {
+        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
+            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
+            const fechaCaducidad = new Date(fechaObtencion);
+            const diasDeValidez = grupo.diasCaducidad || 90; 
+            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
+            if (fechaCaducidad >= hoy) {
+                if (fechaMasProxima === null || fechaCaducidad < fechaMasProxima) {
+                    fechaMasProxima = fechaCaducidad;
+                }
+            }
+        }
+    });
+    return fechaMasProxima;
+}
+
+function getPuntosEnProximoVencimiento(cliente) {
+    const fechaProximoVencimiento = getFechaProximoVencimiento(cliente);
+    if (!fechaProximoVencimiento) return 0;
+    let puntosAVencer = 0;
+    cliente.historialPuntos.forEach(grupo => {
+        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
+            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
+            const fechaCaducidad = new Date(fechaObtencion);
+            const diasDeValidez = grupo.diasCaducidad || 90;
+            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + diasDeValidez);
+            if (fechaCaducidad.getTime() === fechaProximoVencimiento.getTime()) {
+                puntosAVencer += grupo.puntosDisponibles;
+            }
+        }
+    });
+    return puntosAVencer;
+}
 
 // ========== LÓGICA DE ACCESO Y REGISTRO ==========
 async function login() {
-    // ... (código de la función login sin cambios)
+    const email = document.getElementById('login-email').value.trim();
+    const password = document.getElementById('login-password').value;
+    const boton = document.getElementById('login-btn');
+
+    if (!email || !password) {
+        return showToast("Por favor, ingresa tu email y contraseña.", "error");
+    }
+    
+    boton.disabled = true;
+    boton.textContent = 'Ingresando...';
+
+    try {
+        await auth.signInWithEmailAndPassword(email, password);
+    } catch (error) {
+        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+            showToast("Email o contraseña incorrectos.", "error");
+        } else {
+            showToast("Error al iniciar sesión. Inténtalo de nuevo.", "error");
+        }
+        console.error("Error en login:", error);
+    } finally {
+        boton.disabled = false;
+        boton.textContent = 'Ingresar';
+    }
 }
 
 async function registerNewAccount() {
@@ -162,12 +257,15 @@ async function registerNewAccount() {
     const termsAccepted = document.getElementById('register-terms').checked;
     const boton = document.getElementById('register-btn');
 
-    // CORRECCIÓN: Teléfono ahora es obligatorio
     if (!nombre || !dni || !email || !telefono || !fechaNacimiento || !password) {
         return showToast("Por favor, completa todos los campos.", "error");
     }
-    if (password.length < 6) { return showToast("La contraseña debe tener al menos 6 caracteres.", "error"); }
-    if (!termsAccepted) { return showToast("Debes aceptar los Términos y Condiciones.", "error"); }
+    if (password.length < 6) {
+        return showToast("La contraseña debe tener al menos 6 caracteres.", "error");
+    }
+    if (!termsAccepted) {
+        return showToast("Debes aceptar los Términos y Condiciones para registrarte.", "error");
+    }
 
     boton.disabled = true;
     boton.textContent = 'Creando cuenta...';
@@ -176,12 +274,11 @@ async function registerNewAccount() {
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
         const authUID = userCredential.user.uid;
 
-        // CORRECCIÓN ID: Dejamos que Firestore genere el ID
         const clienteRef = db.collection('clientes').doc(); 
         
         const nuevoCliente = {
-            id: clienteRef.id, // Guardamos el ID autogenerado
-            authUID,
+            id: clienteRef.id,
+            authUID: authUID,
             nombre,
             dni,
             email,
@@ -196,12 +293,11 @@ async function registerNewAccount() {
             historialCanjes: [],
             fcmTokens: [],
             terminosAceptados: true,
-            passwordPersonalizada: true // Nació con contraseña personal
+            passwordPersonalizada: true
         };
         
         await clienteRef.set(nuevoCliente);
 
-        // CORRECCIÓN EMAIL BIENVENIDA: Enviamos el email tras el registro
         showToast("Enviando email de bienvenida...", "info");
         await fetch(`${API_BASE_URL}/send-email`, {
             method: 'POST',
@@ -230,13 +326,48 @@ async function registerNewAccount() {
 }
 
 async function logout() {
-    // ... (código de la función logout sin cambios)
+    try {
+        if (unsubscribeCliente) unsubscribeCliente();
+        await auth.signOut();
+        clienteData = null;
+        premiosData = [];
+        showScreen('login-screen');
+    } catch (error) {
+        showToast("Error al cerrar sesión.", "error");
+    }
 }
 
 // ========== LÓGICA DE TÉRMINOS Y CONDICIONES ==========
-function openTermsModal() { /* ...código sin cambios... */ }
-function closeTermsModal() { /* ...código sin cambios... */ }
-async function acceptTerms() { /* ...código sin cambios... */ }
+function openTermsModal() {
+    document.getElementById('terms-modal').style.display = 'flex';
+    if (clienteData && !clienteData.terminosAceptados) {
+        document.getElementById('accept-terms-btn-modal').style.display = 'block';
+    }
+}
+
+function closeTermsModal() {
+    document.getElementById('terms-modal').style.display = 'none';
+    document.getElementById('accept-terms-btn-modal').style.display = 'none';
+}
+
+async function acceptTerms() {
+    if (!clienteData || !clienteData.id) return;
+    
+    const boton = document.getElementById('accept-terms-btn-modal');
+    boton.disabled = true;
+
+    try {
+        const clienteRef = db.collection('clientes').doc(clienteData.id);
+        await clienteRef.update({ terminosAceptados: true });
+        showToast("¡Gracias por aceptar los términos!", "success");
+        closeTermsModal();
+    } catch (error) {
+        showToast("No se pudo actualizar. Inténtalo de nuevo.", "error");
+        console.error("Error aceptando términos:", error);
+    } finally {
+        boton.disabled = false;
+    }
+}
 
 // ========== LÓGICA DE NOTIFICACIONES ==========
 async function obtenerYGuardarToken() {
@@ -265,7 +396,6 @@ async function obtenerYGuardarToken() {
 function gestionarPermisoNotificaciones() {
     if (!isMessagingSupported || !auth.currentUser) return;
     
-    // Mostramos la tarjeta de configuración de notificaciones para que el usuario pueda interactuar con ella
     const notifCard = document.getElementById('notif-card');
     notifCard.style.display = 'block';
 
@@ -280,16 +410,17 @@ function gestionarPermisoNotificaciones() {
 
 // ========== PUNTO DE ENTRADA Y EVENT LISTENERS ==========
 function main() {
-    // ... (El resto de la función `main` se mantiene igual que en la versión anterior que te pasé)
     document.getElementById('show-register-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('register-screen'); });
     document.getElementById('show-login-link').addEventListener('click', (e) => { e.preventDefault(); showScreen('login-screen'); });
     document.getElementById('login-btn').addEventListener('click', login);
     document.getElementById('register-btn').addEventListener('click', registerNewAccount);
     document.getElementById('logout-btn').addEventListener('click', logout);
+    
     document.getElementById('show-terms-link').addEventListener('click', (e) => { e.preventDefault(); openTermsModal(); });
     document.getElementById('show-terms-link-banner').addEventListener('click', (e) => { e.preventDefault(); openTermsModal(); });
     document.getElementById('close-terms-modal').addEventListener('click', closeTermsModal);
     document.getElementById('accept-terms-btn-modal').addEventListener('click', acceptTerms);
+    
     document.getElementById('premios-container').addEventListener('click', (e) => {
         if (e.target.id === 'accept-terms-link-premios') {
             e.preventDefault();
@@ -298,7 +429,6 @@ function main() {
     });
 
     if (isMessagingSupported) {
-        // Switch para activar/desactivar notificaciones
         document.getElementById('notif-switch').addEventListener('change', (event) => {
             if (event.target.checked) {
                 Notification.requestPermission().then(permission => {
@@ -310,11 +440,8 @@ function main() {
                     }
                 });
             }
-            // NOTA: No implementamos la lógica para "desactivar" (quitar token),
-            // ya que es más complejo y generalmente no es necesario.
         });
         
-        // Listener para mensajes con la app en primer plano
         messaging.onMessage((payload) => {
             const notificacion = payload.data || payload.notification; 
             showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000);
