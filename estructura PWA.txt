@@ -1,0 +1,10 @@
+/ (carpeta de la PWA)
+├── index.html
+├── styles.css
+├── app.js          <-- MUY REDUCIDO. Orquestador principal.
+└── modules/
+    ├── firebase.js   (Inicialización y exportación de instancias de Firebase v8)
+    ├── ui.js         (Toda la manipulación del DOM: mostrar pantallas, renderizar datos, etc.)
+    ├── data.js       (Maneja el estado, la lógica de datos y los listeners de Firestore)
+    ├── auth.js       (Lógica de inicio de sesión, registro y cierre de sesión)
+    └── notifications.js (Lógica para permisos y gestión de notificaciones push)
