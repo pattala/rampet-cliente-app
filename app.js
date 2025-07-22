@@ -59,39 +59,30 @@ function listenToClientData(user) {
     showScreen('loading-screen');
     if (unsubscribeCliente) unsubscribeCliente();
 
-    const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
+    // 1. Intentamos encontrar al cliente por su authUID (el método ideal)
+    let clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
+    let snapshot = await clienteQuery.get();
 
-    unsubscribeCliente = clienteQuery.onSnapshot(async (snapshot) => {
-        if (snapshot.empty) {
-            showToast("Error: No se encontró tu ficha de cliente.", "error");
+    if (snapshot.empty) {
+        // 2. Si no se encuentra, es un usuario antiguo. Lo buscamos por email.
+        console.warn("No se encontró cliente por authUID. Intentando buscar por email...");
+        clienteQuery = db.collection('clientes').where("email", "==", user.email).limit(1);
+        snapshot = await clienteQuery.get();
+
+        if (!snapshot.empty) {
+            // 3. ¡Lo encontramos! "Reparamos" el documento añadiéndole el authUID.
+            const clienteDoc = snapshot.docs[0];
+            console.log(`Reparando cliente antiguo: ${clienteDoc.id}`);
+            await clienteDoc.ref.update({ authUID: user.uid });
+            // Ahora, la escucha en tiempo real funcionará con la nueva consulta.
+            clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
+        } else {
+            // 4. Si no lo encontramos ni por UID ni por email, la cuenta está huérfana.
+            showToast("Error crítico: Tu cuenta de acceso no está vinculada a ninguna ficha de cliente.", "error");
             logout();
             return;
         }
-        
-        const doc = snapshot.docs[0];
-        // CORRECCIÓN DE ID: Usamos el ID del documento de Firestore, no el numérico.
-        clienteData = { id: doc.id, ...doc.data() }; 
-
-        if (premiosData.length === 0) {
-            try {
-                const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
-                premiosData = premiosSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            } catch (e) {
-                console.error("Error cargando premios:", e);
-                showToast("No se pudieron cargar los premios.", "warning");
-            }
-        }
-
-        renderMainScreen();
-        // CORRECCIÓN FCMTOKEN: Se llama a la gestión de notificaciones DESPUÉS de cargar los datos
-        gestionarPermisoNotificaciones(); 
-
-    }, (error) => {
-        console.error("Error escuchando datos del cliente:", error);
-        showToast("Error al cargar tus datos.", "error");
-        logout();
-    });
-}
+    }
 
 function renderMainScreen() {
     if (!clienteData) return;
