@@ -1,14 +1,20 @@
-// modules/notifications.js (PWA)
-// Gestiona los permisos y la recepción de notificaciones push.
+// pwa/modules/notifications.js (VERSIÓN CORREGIDA)
 
 import { auth, messaging, firebase, isMessagingSupported as supported } from './firebase.js';
 import * as UI from './ui.js';
 
 export const isMessagingSupported = supported;
 
-async function obtenerYGuardarToken(clienteRef, clienteData) {
-    if (!isMessagingSupported) return;
+async function obtenerYGuardarToken() {
+    if (!isMessagingSupported || !auth.currentUser) return;
+
     try {
+        // Obtenemos la referencia al documento del cliente recién creado
+        const querySnapshot = await db.collection('clientes').where('authUID', '==', auth.currentUser.uid).limit(1).get();
+        if (querySnapshot.empty) return;
+        const clienteRef = querySnapshot.docs[0].ref;
+        const clienteData = querySnapshot.docs[0].data();
+
         const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
         await navigator.serviceWorker.ready;
         const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
@@ -22,53 +28,39 @@ async function obtenerYGuardarToken(clienteRef, clienteData) {
             }
         }
     } catch (err) {
-        console.error('Error al obtener token:', err);
+        console.error('Error al obtener y guardar token:', err);
         UI.showToast("No se pudieron activar las notificaciones.", "error");
     }
 }
 
-export function gestionarPermisoNotificaciones(clienteRef, clienteData) {
-    if (!isMessagingSupported || !auth.currentUser) return;
-    const popUpYaMostrado = localStorage.getItem(`popUpPermisoMostrado_${auth.currentUser.uid}`);
+/**
+ * Muestra el pop-up de pre-permiso para solicitar la activación de notificaciones.
+ * Esta función ahora se llama explícitamente después del registro.
+ */
+export function solicitarPermisoNotificaciones() {
+    if (!isMessagingSupported) return;
     
-    if (Notification.permission === 'default' && !popUpYaMostrado) {
+    // Solo mostramos el pop-up si el permiso aún no ha sido concedido o denegado.
+    if (Notification.permission === 'default') {
         document.getElementById('pre-permiso-overlay').style.display = 'flex';
-    }
-    
-    document.getElementById('notif-card').style.display = 'block';
-    const notifSwitch = document.getElementById('notif-switch');
-    notifSwitch.checked = Notification.permission === 'granted';
-
-    if (Notification.permission === 'granted') {
-        obtenerYGuardarToken(clienteRef, clienteData);
     }
 }
 
 export function handlePermissionRequest() {
-    localStorage.setItem(`popUpPermisoMostrado_${auth.currentUser.uid}`, 'true');
     document.getElementById('pre-permiso-overlay').style.display = 'none';
-    Notification.requestPermission().then(() => gestionarPermisoNotificaciones());
+    Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+            obtenerYGuardarToken();
+        }
+    });
 }
 
 export function dismissPermissionRequest() {
-    localStorage.setItem(`popUpPermisoMostrado_${auth.currentUser.uid}`, 'true');
     document.getElementById('pre-permiso-overlay').style.display = 'none';
 }
 
-export function handlePermissionSwitch(event) {
-    if (event.target.checked) {
-        Notification.requestPermission().then(permission => {
-            if (permission !== 'granted') {
-                UI.showToast("Permiso no concedido. Actívalo en la configuración del navegador.", "warning");
-                event.target.checked = false;
-            } else {
-                gestionarPermisoNotificaciones();
-            }
-        });
-    }
-}
-
 export function listenForInAppMessages() {
+    if (!isMessagingSupported) return;
     messaging.onMessage((payload) => {
         const notificacion = payload.notification || payload.data; 
         UI.showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000);
