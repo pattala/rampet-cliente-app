@@ -1,8 +1,8 @@
-// modules/auth.js (PWA)
-// Gestiona la autenticación de usuarios.
+// pwa/modules/auth.js (VERSIÓN CORREGIDA)
 
-import { auth, db, firebase } from './firebase.js';
+import { auth, db } from './firebase.js';
 import * as UI from './ui.js';
+import * as Notifications from './notifications.js'; // Importamos el módulo de notificaciones
 import { cleanupListener } from './data.js';
 
 export async function login() {
@@ -35,7 +35,7 @@ export async function registerNewAccount() {
     const telefono = document.getElementById('register-telefono').value.trim();
     const fechaNacimiento = document.getElementById('register-fecha-nacimiento').value;
     const password = document.getElementById('register-password').value;
-    const termsAccepted = document.getElementById('register-terms').checked;
+    const termsAccepted = document.getElementById('register-terms').checked; // Leemos el valor del checkbox
     
     if (!nombre || !dni || !email || !password || !fechaNacimiento) return UI.showToast("Completa todos los campos.", "error");
     if (password.length < 6) return UI.showToast("La contraseña debe tener al menos 6 caracteres.", "error");
@@ -47,19 +47,23 @@ export async function registerNewAccount() {
     try {
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
         
+        // Creamos el documento en la colección 'clientes'
         await db.collection('clientes').add({
             authUID: userCredential.user.uid,
-            numeroSocio: null, // Pendiente de aprobación
+            numeroSocio: null,
             nombre, dni, email, telefono, fechaNacimiento,
             fechaInscripcion: new Date().toISOString().split('T')[0],
             puntos: 0, saldoAcumulado: 0, totalGastado: 0,
             historialPuntos: [], historialCanjes: [], fcmTokens: [],
-            terminosAceptados: false, // El usuario deberá aceptar explícitamente
+            terminosAceptados: termsAccepted, // <-- CORRECCIÓN: Usamos la variable del formulario
             passwordPersonalizada: true
         });
         
-        UI.showToast("¡Registro exitoso! Tu cuenta está pendiente de aprobación.", "success");
-        // El onAuthStateChanged en app.js se encargará de loguearlo.
+        // El onAuthStateChanged se activará y logueará al usuario.
+        // Aquí disparamos la solicitud de permisos de notificación para el nuevo usuario.
+        if (Notifications.isMessagingSupported) {
+            Notifications.solicitarPermisoNotificaciones();
+        }
 
     } catch (error) {
         if (error.code === 'auth/email-already-in-use') {
