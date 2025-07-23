@@ -1,5 +1,8 @@
-// modules/firebase.js (PWA)
+// modules/firebase.js (PWA) - VERSIÓN CORREGIDA
 // Inicializa y exporta las instancias de Firebase v8.
+
+// LÍNEA AÑADIDA: Capturamos el objeto global 'firebase' en una constante local.
+const firebase = window.firebase;
 
 let db, auth, messaging;
 let isMessagingSupported = false;
@@ -25,4 +28,5 @@ export function setupFirebase() {
     }
 }
 
+// LÍNEA CORREGIDA: Exportamos las variables correctamente.
 export { db, auth, messaging, firebase, isMessagingSupported };
