@@ -1,7 +1,23 @@
-// modules/ui.js (PWA)
-// Gestiona toda la manipulación del DOM.
+// pwa/modules/ui.js (VERSIÓN ROBUSTA CON DEPURACIÓN)
+// Descripción: Se ha hecho más robusto para evitar que la app se detenga
+// si un elemento HTML no se encuentra al momento de renderizar.
 
 import * as Data from './data.js';
+
+/**
+ * Función auxiliar que actualiza el textContent de un elemento de forma segura.
+ * Si el elemento no existe, imprime una advertencia en la consola.
+ * @param {string} id - El ID del elemento.
+ * @param {string|number} content - El contenido a establecer.
+ */
+function safeSetText(id, content) {
+    const element = document.getElementById(id);
+    if (element) {
+        element.textContent = content;
+    } else {
+        console.warn(`[UI SafeSet] Elemento con ID "${id}" no encontrado al intentar actualizar.`);
+    }
+}
 
 export function showToast(message, type = 'info', duration = 5000) {
     const container = document.getElementById('toast-container');
@@ -16,12 +32,17 @@ export function showToast(message, type = 'info', duration = 5000) {
 export function showScreen(screenId) {
     document.querySelectorAll('.screen').forEach(screen => screen.classList.remove('active'));
     const screenToShow = document.getElementById(screenId);
-    if (screenToShow) screenToShow.classList.add('active');
+    if (screenToShow) {
+        screenToShow.classList.add('active');
+    } else {
+        console.error(`[UI ShowScreen] No se encontró la pantalla con ID "${screenId}".`);
+    }
 }
 
 function formatearFecha(isoDateString) {
     if (!isoDateString) return 'N/A';
     const parts = isoDateString.split('T')[0].split('-');
+    if (parts.length !== 3) return 'Fecha inválida';
     const fecha = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
     if (isNaN(fecha.getTime())) return 'Fecha inválida';
     const dia = String(fecha.getUTCDate()).padStart(2, '0');
@@ -33,64 +54,73 @@ function formatearFecha(isoDateString) {
 export function renderMainScreen(clienteData, premiosData) {
     if (!clienteData) return;
 
-    // Encabezado
-    document.getElementById('cliente-nombre').textContent = clienteData.nombre.split(' ')[0];
-    document.getElementById('cliente-numero-socio').textContent = clienteData.numeroSocio ? `#${clienteData.numeroSocio}` : 'N° Pendiente';
-    document.getElementById('cliente-puntos').textContent = clienteData.puntos || 0;
+    // Usamos la función segura para actualizar el DOM
+    safeSetText('cliente-nombre', clienteData.nombre.split(' ')[0]);
+    safeSetText('cliente-numero-socio', clienteData.numeroSocio ? `#${clienteData.numeroSocio}` : 'N° Pendiente');
+    safeSetText('cliente-puntos', clienteData.puntos || 0);
 
-    // Banner de términos y condiciones
-    document.getElementById('terms-banner').style.display = !clienteData.terminosAceptados ? 'block' : 'none';
-    
-    // Tarjeta de vencimiento de puntos
+    const termsBanner = document.getElementById('terms-banner');
+    if (termsBanner) {
+        termsBanner.style.display = !clienteData.terminosAceptados ? 'block' : 'none';
+    }
+
+    const vencimientoCard = document.getElementById('vencimiento-card');
     const puntosPorVencer = Data.getPuntosEnProximoVencimiento(clienteData);
     const fechaVencimiento = Data.getFechaProximoVencimiento(clienteData);
-    const vencimientoCard = document.getElementById('vencimiento-card');
-    if (puntosPorVencer > 0 && fechaVencimiento) {
-        vencimientoCard.style.display = 'block';
-        document.getElementById('cliente-puntos-vencimiento').textContent = puntosPorVencer;
-        document.getElementById('cliente-fecha-vencimiento').textContent = formatearFecha(fechaVencimiento.toISOString());
-    } else {
-        vencimientoCard.style.display = 'none';
+
+    if (vencimientoCard) {
+        if (puntosPorVencer > 0 && fechaVencimiento) {
+            vencimientoCard.style.display = 'block';
+            safeSetText('cliente-puntos-vencimiento', puntosPorVencer);
+            safeSetText('cliente-fecha-vencimiento', formatearFecha(fechaVencimiento.toISOString()));
+        } else {
+            vencimientoCard.style.display = 'none';
+        }
     }
 
-    // Historial reciente
     const historialLista = document.getElementById('lista-historial');
-    historialLista.innerHTML = '';
-    const historialReciente = [...(clienteData.historialPuntos || [])].sort((a,b) => new Date(b.fechaObtencion) - new Date(a.fechaObtencion)).slice(0, 5);
-    if (historialReciente.length > 0) {
-        historialReciente.forEach(item => {
-            const li = document.createElement('li');
-            const puntos = item.puntosObtenidos > 0 ? `+${item.puntosObtenidos}` : item.puntosObtenidos;
-            li.innerHTML = `<span>${formatearFecha(item.fechaObtencion)}</span> <strong>${item.origen}</strong> <span class="puntos ${puntos > 0 ? 'ganados':'gastados'}">${puntos} pts</span>`;
-            historialLista.appendChild(li);
-        });
-    } else {
-        historialLista.innerHTML = '<li>Aún no tienes movimientos.</li>';
+    if (historialLista) {
+        historialLista.innerHTML = '';
+        const historialReciente = [...(clienteData.historialPuntos || [])].sort((a,b) => new Date(b.fechaObtencion) - new Date(a.fechaObtencion)).slice(0, 5);
+        if (historialReciente.length > 0) {
+            historialReciente.forEach(item => {
+                const li = document.createElement('li');
+                const puntos = item.puntosObtenidos > 0 ? `+${item.puntosObtenidos}` : item.puntosObtenidos;
+                li.innerHTML = `<span>${formatearFecha(item.fechaObtencion)}</span> <strong>${item.origen}</strong> <span class="puntos ${puntos > 0 ? 'ganados':'gastados'}">${puntos} pts</span>`;
+                historialLista.appendChild(li);
+            });
+        } else {
+            historialLista.innerHTML = '<li>Aún no tienes movimientos.</li>';
+        }
     }
 
-    // Catálogo de premios
     const premiosLista = document.getElementById('lista-premios-cliente');
-    premiosLista.innerHTML = '';
-    if (premiosData.length > 0) {
-        premiosData.forEach(premio => {
-            const li = document.createElement('li');
-            const puedeCanjear = clienteData.puntos >= premio.puntos;
-            li.className = puedeCanjear ? 'canjeable' : 'no-canjeable';
-            li.innerHTML = `<strong>${premio.nombre}</strong> <span class="puntos-premio">${premio.puntos} Puntos</span>`;
-            premiosLista.appendChild(li);
-        });
-    } else {
-        premiosLista.innerHTML = '<li>No hay premios disponibles en este momento.</li>';
+    if (premiosLista) {
+        premiosLista.innerHTML = '';
+        if (premiosData && premiosData.length > 0) {
+            premiosData.forEach(premio => {
+                const li = document.createElement('li');
+                const puedeCanjear = clienteData.puntos >= premio.puntos;
+                li.className = puedeCanjear ? 'canjeable' : 'no-canjeable';
+                li.innerHTML = `<strong>${premio.nombre}</strong> <span class="puntos-premio">${premio.puntos} Puntos</span>`;
+                premiosLista.appendChild(li);
+            });
+        } else {
+            premiosLista.innerHTML = '<li>No hay premios disponibles en este momento.</li>';
+        }
     }
 
     showScreen('main-app-screen');
 }
 
 export function openTermsModal(showAcceptButton) {
-    document.getElementById('terms-modal').style.display = 'flex';
-    document.getElementById('accept-terms-btn-modal').style.display = showAcceptButton ? 'block' : 'none';
+    const modal = document.getElementById('terms-modal');
+    const button = document.getElementById('accept-terms-btn-modal');
+    if(modal) modal.style.display = 'flex';
+    if(button) button.style.display = showAcceptButton ? 'block' : 'none';
 }
 
 export function closeTermsModal() {
-    document.getElementById('terms-modal').style.display = 'none';
+    const modal = document.getElementById('terms-modal');
+    if(modal) modal.style.display = 'none';
 }
