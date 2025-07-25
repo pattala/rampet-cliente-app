@@ -3,6 +3,10 @@
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
 
+/**
+ * Función principal que gestiona la UI de notificaciones.
+ * Decide si mostrar el panel de bienvenida, el switch de control, o la advertencia de bloqueo.
+ */
 export function gestionarPermisoNotificaciones() {
     if (!isMessagingSupported || !auth.currentUser) return;
 
@@ -11,7 +15,7 @@ export function gestionarPermisoNotificaciones() {
     const blockedWarning = document.getElementById('notif-blocked-warning');
     const popUpYaGestionado = localStorage.getItem(`notifGestionado_${auth.currentUser.uid}`);
 
-    // Ocultamos todos los paneles por defecto
+    // Ocultamos todos los paneles por defecto para empezar de cero.
     promptCard.style.display = 'none';
     switchCard.style.display = 'none';
     blockedWarning.style.display = 'none';
@@ -28,7 +32,7 @@ export function gestionarPermisoNotificaciones() {
         return;
     }
 
-    // CASO 2: El permiso está en 'default' (aún no ha decidido).
+    // CASO 2: El permiso es 'default' (aún no ha decidido).
     // Si es la primera vez que ve la opción, mostramos el panel de bienvenida.
     if (!popUpYaGestionado) {
         promptCard.style.display = 'block';
@@ -40,7 +44,23 @@ export function gestionarPermisoNotificaciones() {
 }
 
 async function obtenerYGuardarToken() {
-    // ... (Esta función no necesita cambios)
+    if (!isMessagingSupported || !auth.currentUser) return;
+    try {
+        const querySnapshot = await db.collection('clientes').where('authUID', '==', auth.currentUser.uid).limit(1).get();
+        if (querySnapshot.empty) return;
+        const clienteRef = querySnapshot.docs[0].ref;
+
+        const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+        await navigator.serviceWorker.ready;
+        const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
+        const currentToken = await messaging.getToken({ vapidKey, serviceWorkerRegistration: registration });
+        
+        if (currentToken) {
+            await clienteRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) });
+        }
+    } catch (err) {
+        console.error('Error al obtener y guardar token:', err);
+    }
 }
 
 export function handlePermissionRequest() {
@@ -82,5 +102,10 @@ export function handlePermissionSwitch(event) {
 }
 
 export function listenForInAppMessages() {
-    // ... (Esta función no necesita cambios)
+    if (messaging) {
+        messaging.onMessage((payload) => {
+            const notificacion = payload.notification || payload.data; 
+            UI.showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000);
+        });
+    }
 }
