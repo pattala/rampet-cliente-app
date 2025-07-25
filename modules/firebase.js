@@ -1,6 +1,6 @@
-// pwa/modules/firebase.js (VERSIÓN FINAL)
-// Descripción: Inicializa la app y exporta las instancias y una función
-// para comprobar la compatibilidad de Messaging cuando la app esté lista.
+// pwa/modules/firebase.js (VERSIÓN FINAL CORREGIDA)
+// Descripción: Corrige el error de exportación que impedía a otros módulos
+// importar el objeto principal 'firebase'.
 
 const firebase = window.firebase;
 
@@ -27,7 +27,6 @@ export function setupFirebase() {
 
 // Nueva función que se llamará cuando la app esté lista
 export function checkMessagingSupport() {
-    // Esta promesa se resuelve después de que isSupported() ha hecho su trabajo
     return new Promise((resolve) => {
         if (firebase.messaging.isSupported()) {
             messaging = firebase.messaging();
@@ -39,3 +38,6 @@ export function checkMessagingSupport() {
         }
     });
 }
+
+// CORRECCIÓN: Se vuelve a exportar el objeto 'firebase'
+export { db, auth, messaging, app, firebase, isMessagingSupported };
