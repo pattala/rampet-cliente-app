@@ -1,39 +1,34 @@
-// pwa/modules/notifications.js (VERSIÓN FINAL CON LÓGICA DE POP-UP MEJORADA)
+// pwa/modules/notifications.js (LÓGICA FINAL Y COMPLETA)
 
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
 
-/**
- * Función principal que gestiona la UI de notificaciones.
- * Decide si mostrar el pop-up de bienvenida, el switch de control, o nada.
- */
 export function gestionarPermisoNotificaciones() {
     if (!isMessagingSupported || !auth.currentUser) return;
 
-    const notifCard = document.getElementById('notif-card');
+    const promptCard = document.getElementById('notif-prompt-card');
+    const switchCard = document.getElementById('notif-card');
     const notifSwitch = document.getElementById('notif-switch');
     const popUpYaGestionado = localStorage.getItem(`notifGestionado_${auth.currentUser.uid}`);
 
-    // Si el permiso ya fue concedido, no mostramos nada. La decisión está tomada.
-    if (Notification.permission === 'granted') {
-        notifCard.style.display = 'none';
-        obtenerYGuardarToken(); // Nos aseguramos de tener el token más reciente
+    // Ocultamos todo por defecto
+    promptCard.style.display = 'none';
+    switchCard.style.display = 'none';
+
+    // Si el permiso ya fue concedido o denegado por el navegador, no hay nada que mostrar.
+    if (Notification.permission === 'granted' || Notification.permission === 'denied') {
+        if(Notification.permission === 'granted') obtenerYGuardarToken(); // Nos aseguramos de tener el token
         return;
     }
 
-    // Si el permiso fue denegado, no hay nada que el usuario pueda hacer desde la UI.
-    if (Notification.permission === 'denied') {
-        notifCard.style.display = 'none';
-        return;
-    }
-
-    // Si el permiso es 'default' y es la primera vez que entra, mostramos el pop-up.
+    // Si el permiso es 'default' (preguntar) y es la primera vez que el usuario ve la opción,
+    // mostramos el panel de bienvenida.
     if (Notification.permission === 'default' && !popUpYaGestionado) {
-        document.getElementById('pre-permiso-overlay').style.display = 'flex';
+        promptCard.style.display = 'block';
     } else {
-        // Si ya interactuó con el pop-up (ej: click en "Ahora no") o es una visita posterior,
+        // Si ya interactuó con el panel (ej: 'Quizás más tarde') o es una visita posterior,
         // mostramos el switch como segunda oportunidad.
-        notifCard.style.display = 'block';
+        switchCard.style.display = 'block';
         notifSwitch.checked = false;
     }
 }
@@ -58,18 +53,18 @@ async function obtenerYGuardarToken() {
     }
 }
 
-// Handlers para los botones del pop-up y el switch
 export function handlePermissionRequest() {
+    // Marcamos que el usuario ya interactuó para no mostrar el panel de bienvenida de nuevo.
     localStorage.setItem(`notifGestionado_${auth.currentUser.uid}`, 'true');
-    document.getElementById('pre-permiso-overlay').style.display = 'none';
+    document.getElementById('notif-prompt-card').style.display = 'none';
 
     Notification.requestPermission().then(permission => {
         if (permission === 'granted') {
             UI.showToast("¡Notificaciones activadas!", "success");
-            document.getElementById('notif-card').style.display = 'none';
+            document.getElementById('notif-card').style.display = 'none'; // Ocultamos el switch
             obtenerYGuardarToken();
         } else {
-            // Si el usuario deniega el permiso desde el navegador, mostramos el switch desactivado.
+            // Si lo deniega, mostramos el switch como opción
             document.getElementById('notif-card').style.display = 'block';
             document.getElementById('notif-switch').checked = false;
         }
@@ -78,7 +73,7 @@ export function handlePermissionRequest() {
 
 export function dismissPermissionRequest() {
     localStorage.setItem(`notifGestionado_${auth.currentUser.uid}`, 'true');
-    document.getElementById('pre-permiso-overlay').style.display = 'none';
+    document.getElementById('notif-prompt-card').style.display = 'none';
     // Mostramos el switch como opción para más tarde.
     document.getElementById('notif-card').style.display = 'block';
     document.getElementById('notif-switch').checked = false;
@@ -86,7 +81,15 @@ export function dismissPermissionRequest() {
 
 export function handlePermissionSwitch(event) {
     if (event.target.checked) {
-        handlePermissionRequest(); // Reutilizamos la misma lógica del pop-up
+        Notification.requestPermission().then(permission => {
+            if (permission === 'granted') {
+                UI.showToast("¡Notificaciones activadas!", "success");
+                document.getElementById('notif-card').style.display = 'none';
+                obtenerYGuardarToken();
+            } else {
+                event.target.checked = false; // Vuelve a 'off' si el usuario no da permiso
+            }
+        });
     }
 }
 
