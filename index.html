@@ -21,7 +21,6 @@
 
         <div id="loading-screen" class="screen active"><p>Cargando...</p></div>
         
-        <!-- INICIO DE LA CORRECCIÓN: Contenido añadido -->
         <div id="login-screen" class="screen">
             <h2>Bienvenido</h2>
             <p>Ingresa para consultar tus puntos y beneficios.</p>
@@ -54,7 +53,6 @@
             </div>
             <p class="toggle-link">¿Ya tienes cuenta? <a href="#" id="show-login-link">Ingresa aquí</a></p>
         </div>
-        <!-- FIN DE LA CORRECCIÓN -->
 
         <div id="main-app-screen" class="screen">
             <div class="user-header">
@@ -64,12 +62,18 @@
                 </div>
             </div>
 
-            <div id="terms-banner" class="card terms-banner" style="display: none;"></div>
+            <div id="terms-banner" class="card terms-banner" style="display: none;">
+                 <p>⚠️ Para poder canjear premios, debes aceptar los <a href="#" id="show-terms-link-banner">Términos y Condiciones</a>.</p>
+            </div>
             <div class="card puntos-card">
                 <p>Tus Puntos Disponibles</p>
                 <h2 id="cliente-puntos">--</h2>
             </div>
-            <div id="vencimiento-card" class="card vencimiento-card" style="display: none;"></div>
+            <div id="vencimiento-card" class="card vencimiento-card" style="display: none;">
+                <p>⚠️ Puntos por Vencer</p>
+                <h2><span id="cliente-puntos-vencimiento">--</span> Puntos</h2>
+                <p>Vencen el: <strong id="cliente-fecha-vencimiento">--</strong></p>
+            </div>
             
             <div id="notif-card" class="card" style="display: none;">
                 <h3>Notificaciones</h3>
@@ -82,8 +86,18 @@
                 </div>
             </div>
 
-            <div id="historial-container" class="card"></div>
-            <div id="premios-container" class="card"></div>
+            <!-- INICIO DE LA CORRECCIÓN: Contenido añadido -->
+            <div id="historial-container" class="card">
+                <h3>Historial Reciente</h3>
+                <ul id="lista-historial"></ul>
+            </div>
+            
+            <div id="premios-container" class="card">
+                <h3>Catálogo de Premios</h3>
+                <p>Estos son los premios que puedes canjear en la tienda:</p>
+                <ul id="lista-premios-cliente"></ul>
+            </div>
+            <!-- FIN DE LA CORRECCIÓN -->
             
             <footer class="app-footer">
                 <p>Al usar esta app, aceptas nuestros <a href="#" id="footer-terms-link">Términos y Condiciones</a>.</p>
