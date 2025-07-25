@@ -21,38 +21,8 @@
 
         <div id="loading-screen" class="screen active"><p>Cargando...</p></div>
         
-        <div id="login-screen" class="screen">
-            <h2>Bienvenido</h2>
-            <p>Ingresa para consultar tus puntos y beneficios.</p>
-            <div class="form-group">
-                <input type="email" id="login-email" placeholder="Tu Email" autocomplete="email" required>
-                <input type="password" id="login-password" placeholder="Tu Contraseña o DNI" required>
-                <button id="login-btn" class="primary-btn">Ingresar</button>
-            </div>
-            <p class="toggle-link">¿Aún no eres miembro? <a href="#" id="show-register-link">Regístrate aquí</a></p>
-        </div>
-
-        <div id="register-screen" class="screen">
-            <h2>Únete al Club</h2>
-            <p>Completa tus datos para empezar a sumar puntos.</p>
-            <div class="form-group">
-                <input type="text" id="register-nombre" placeholder="Nombre Completo" required>
-                <input type="text" id="register-dni" placeholder="DNI" required>
-                <input type="email" id="register-email" placeholder="Email" required autocomplete="email">
-                <input type="tel" id="register-telefono" placeholder="Teléfono" required>
-                <label for="register-fecha-nacimiento">Fecha de Nacimiento</label>
-                <input type="date" id="register-fecha-nacimiento" required>
-                <input type="password" id="register-password" placeholder="Crea una Contraseña (mín. 6 caracteres)" required>
-                
-                <div class="terms-container">
-                    <input type="checkbox" id="register-terms">
-                    <label for="register-terms">He leído y acepto los <a href="#" id="show-terms-link">Términos y Condiciones</a>.</label>
-                </div>
-
-                <button id="register-btn" class="primary-btn">Crear Cuenta</button>
-            </div>
-            <p class="toggle-link">¿Ya tienes cuenta? <a href="#" id="show-login-link">Ingresa aquí</a></p>
-        </div>
+        <div id="login-screen" class="screen"><!-- Contenido del login --></div>
+        <div id="register-screen" class="screen"><!-- Contenido del registro --></div>
 
         <div id="main-app-screen" class="screen">
             <div class="user-header">
@@ -62,9 +32,7 @@
                 </div>
             </div>
 
-            <div id="terms-banner" class="card terms-banner" style="display: none;">
-                <p>⚠️ Para poder canjear premios, debes aceptar los <a href="#" id="show-terms-link-banner">Términos y Condiciones</a>.</p>
-            </div>
+            <div id="terms-banner" class="card terms-banner" style="display: none;"></div>
             <div class="card puntos-card">
                 <p>Tus Puntos Disponibles</p>
                 <h2 id="cliente-puntos">--</h2>
@@ -92,16 +60,14 @@
                 </div>
             </div>
 
+            <!-- NUEVO: Panel de Advertencia para Notificaciones Bloqueadas -->
+            <div id="notif-blocked-warning" class="card warning-banner" style="display: none;">
+                <p>⚠️ Has bloqueado las notificaciones. Para recibir alertas de puntos y promociones, por favor, habilítalas en la configuración de tu navegador para este sitio.</p>
+            </div>
+
             <div id="vencimiento-card" class="card vencimiento-card" style="display: none;"></div>
-            <div id="historial-container" class="card">
-                 <h3>Historial Reciente</h3>
-                <ul id="lista-historial"></ul>
-            </div>
-            <div id="premios-container" class="card">
-                <h3>Catálogo de Premios</h3>
-                <p>Estos son los premios que puedes canjear en la tienda:</p>
-                <ul id="lista-premios-cliente"></ul>
-            </div>
+            <div id="historial-container" class="card"></div>
+            <div id="premios-container" class="card"></div>
             
             <footer class="app-footer">
                 <p>Al usar esta app, aceptas nuestros <a href="#" id="footer-terms-link">Términos y Condiciones</a>.</p>
@@ -113,8 +79,12 @@
                 <span id="close-terms-modal" class="modal-close-btn">×</span>
                 <h2>Términos y Condiciones</h2>
                 <div class="terms-text-container">
-                    <p><strong>1. Generalidades:</strong> El programa de fidelización "Club RAMPET" es un beneficio exclusivo para nuestros clientes...</p>
-                    <p><strong>2. Consentimiento de Comunicaciones:</strong> Al registrarte y/o aceptar los términos en la aplicación, otorgas tu consentimiento explícito para recibir comunicaciones...</p>
+                    <p><strong>1. Generalidades:</strong> El programa de fidelización "Club RAMPET" es un beneficio exclusivo para nuestros clientes. La participación en el programa es gratuita e implica la aceptación total de los presentes términos y condiciones.</p>
+                    <p><strong>2. Consentimiento de Comunicaciones:</strong> Al registrarte y/o aceptar los términos en la aplicación, otorgas tu consentimiento explícito para recibir comunicaciones transaccionales y promocionales del Club RAMPET a través de correo electrónico y notificaciones push. Estas comunicaciones son parte integral del programa de fidelización e incluyen, entre otros, avisos sobre puntos ganados, premios canjeados, promociones especiales y vencimiento de puntos. Puedes gestionar tus preferencias de notificaciones en cualquier momento.</p>
+                    <p><strong>3. Acumulación de Puntos:</strong> Los puntos se acumularán según la tasa de conversión vigente establecida por RAMPET. Los puntos no tienen valor monetario, no son transferibles a otras personas ni canjeables por dinero en efectivo.</p>
+                    <p><strong>4. Canje de Premios:</strong> El canje de premios se realiza exclusivamente en el local físico y será procesado por un administrador del sistema. La PWA sirve como un catálogo para consultar los premios disponibles y los puntos necesarios. Para realizar un canje, el cliente debe presentar una identificación válida.</p>
+                    <p><strong>5. Validez y Caducidad:</strong> Los puntos acumulados tienen una fecha de caducidad que se rige por las reglas definidas en el sistema. El cliente será notificado de los vencimientos próximos a través de los canales de comunicación aceptados para que pueda utilizarlos a tiempo.</p>
+                    <p><strong>6. Modificaciones del Programa:</strong> RAMPET se reserva el derecho de modificar los términos y condiciones, la tasa de conversión, el catálogo de premios o cualquier otro aspecto del programa de fidelización, inclusive su finalizacion, en cualquier momento y sin previo aviso.</p>
                 </div>
                 <button id="accept-terms-btn-modal" class="primary-btn" style="display: none;">He Leído y Acepto los Términos</button>
             </div>
