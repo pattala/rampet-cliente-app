@@ -21,7 +21,6 @@
 
         <div id="loading-screen" class="screen active"><p>Cargando...</p></div>
         
-        <!-- INICIO DE LA CORRECCIÓN: Contenido de Login y Registro restaurado -->
         <div id="login-screen" class="screen">
             <h2>Bienvenido</h2>
             <p>Ingresa para consultar tus puntos y beneficios.</p>
@@ -54,7 +53,6 @@
             </div>
             <p class="toggle-link">¿Ya tienes cuenta? <a href="#" id="show-login-link">Ingresa aquí</a></p>
         </div>
-        <!-- FIN DE LA CORRECCIÓN -->
 
         <div id="main-app-screen" class="screen">
             <div class="user-header">
@@ -72,13 +70,15 @@
                 <h2 id="cliente-puntos">--</h2>
             </div>
 
-            <!-- Panel de Bienvenida a Notificaciones -->
-            <div id="notif-prompt-card" class="card notif-prompt" style="display: none;">
-                <h3>¡No te pierdas de nada! 🚀</h3>
-                <p>Activa las notificaciones para enterarte al instante de nuevas promos, recompensas y cuando sumas puntos.</p>
-                <div class="prompt-actions">
-                    <button id="btn-activar-notif-prompt" class="primary-btn">Sí, activar ahora</button>
-                    <button id="btn-rechazar-notif-prompt" class="secondary-btn">Quizás más tarde</button>
+            <!-- Panel de Bienvenida a Notificaciones (ahora con los IDs correctos) -->
+            <div id="pre-permiso-overlay" class="pre-permiso-overlay" style="display: none;">
+                <div class="pre-permiso-content card">
+                    <h3>¡No te pierdas de nada! 🚀</h3>
+                    <p>Activa las notificaciones para enterarte al instante de nuevas promos, recompensas y cuando sumas puntos.</p>
+                    <div class="pre-permiso-actions">
+                        <button id="btn-activar-permiso" class="primary-btn">Sí, activar ahora</button>
+                        <button id="btn-ahora-no" class="secondary-btn">Quizás más tarde</button>
+                    </div>
                 </div>
             </div>
 
