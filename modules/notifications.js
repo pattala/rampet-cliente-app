@@ -1,4 +1,4 @@
-// pwa/modules/notifications.js (VERSIÓN FINAL Y ROBUSTA)
+// pwa/modules/notifications.js (VERSIÓN FINAL CON DIAGNÓSTICO)
 
 import { auth, db, messaging, firebase, isMessagingSupported as supported } from './firebase.js';
 import * as UI from './ui.js';
@@ -7,22 +7,39 @@ export const isMessagingSupported = supported;
 
 /**
  * Función principal que decide si se debe solicitar el permiso de notificaciones.
- * Se llama cada vez que se cargan los datos del usuario.
  * @param {object} clienteData Los datos del cliente desde Firestore.
  */
 export function gestionarPermisoNotificaciones(clienteData) {
-    if (!isMessagingSupported || !auth.currentUser) return;
+    // --- INICIO DE DIAGNÓSTICO ---
+    console.log("--- Chequeo de Notificaciones ---");
+    console.log(`¿Navegador compatible? (isMessagingSupported): ${isMessagingSupported}`);
+    if (!isMessagingSupported) {
+        console.log("-> Fin del chequeo: El navegador no es compatible con Firebase Messaging.");
+        return;
+    }
+    console.log(`¿Usuario autenticado? (auth.currentUser): ${!!auth.currentUser}`);
+    console.log(`Estado del permiso (Notification.permission): "${Notification.permission}"`);
+    // --- FIN DE DIAGNÓSTICO ---
+
+    // CORRECCIÓN: Hacemos visible la tarjeta del switch
+    document.getElementById('notif-card').style.display = 'block';
+    const notifSwitch = document.getElementById('notif-switch');
+    notifSwitch.checked = Notification.permission === 'granted';
 
     const popUpYaGestionado = localStorage.getItem(`notifGestionado_${auth.currentUser.uid}`);
     const esUsuarioNuevo = clienteData.numeroSocio === null;
 
-    // Mostramos el pop-up SÓLO SI:
-    // 1. El permiso del navegador está en "default" (preguntar).
-    // 2. Es un usuario nuevo (sin N° de Socio).
-    // 3. No hemos gestionado antes este pop-up para él (flag en localStorage).
+    // --- MÁS DIAGNÓSTICO ---
+    console.log(`¿Es usuario nuevo? (numeroSocio === null): ${esUsuarioNuevo}`);
+    console.log(`¿Pop-up ya gestionado? (localStorage): ${!!popUpYaGestionado}`);
+    
     if (Notification.permission === 'default' && esUsuarioNuevo && !popUpYaGestionado) {
+        console.log("-> DECISIÓN: ¡Mostrando pop-up de permiso!");
         document.getElementById('pre-permiso-overlay').style.display = 'flex';
+    } else {
+        console.log("-> DECISIÓN: No se cumplen las condiciones para mostrar el pop-up.");
     }
+    console.log("---------------------------------");
 }
 
 async function obtenerYGuardarToken() {
@@ -53,6 +70,7 @@ export function handlePermissionRequest() {
     document.getElementById('pre-permiso-overlay').style.display = 'none';
     Notification.requestPermission().then(permission => {
         if (permission === 'granted') {
+            document.getElementById('notif-switch').checked = true;
             obtenerYGuardarToken();
         }
     });
