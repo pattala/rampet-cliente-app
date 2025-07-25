@@ -1,10 +1,12 @@
-// Archivo a modificar: pwa/modules/firebase.js (VERSIÓN FINAL)
+// pwa/modules/firebase.js (VERSIÓN FINAL)
+// Descripción: Inicializa la app y exporta las instancias y una función
+// para comprobar la compatibilidad de Messaging cuando la app esté lista.
 
-// Capturamos el objeto global 'firebase' que cargan los scripts del HTML.
 const firebase = window.firebase;
 
-let db, auth, messaging;
-let isMessagingSupported = false;
+// Exportamos las instancias para ser asignadas después.
+export let db, auth, messaging, app;
+export let isMessagingSupported = false; // El valor por defecto es false
 
 export function setupFirebase() {
     const firebaseConfig = {
@@ -16,24 +18,24 @@ export function setupFirebase() {
         appId: "1:357176214962:web:6c1df9b74ff0f3779490ab"
     };
 
-    // 1. Inicializamos la aplicación. Este paso es obligatorio.
-    const app = firebase.initializeApp(firebaseConfig);
-
-    // 2. Inicializamos Analytics (buena práctica).
+    app = firebase.initializeApp(firebaseConfig);
     firebase.analytics(app);
     
-    // 3. Obtenemos las instancias de los servicios que usaremos.
     db = firebase.firestore();
     auth = firebase.auth();
-    
-    // 4. Verificamos si Messaging es compatible DESPUÉS de la inicialización.
-    if (firebase.messaging.isSupported()) {
-        messaging = firebase.messaging();
-        isMessagingSupported = true;
-    } else {
-        isMessagingSupported = false;
-    }
 }
 
-// 5. Exportamos todo para que el resto de la app pueda usarlo.
-export { db, auth, messaging, firebase, isMessagingSupported };
+// Nueva función que se llamará cuando la app esté lista
+export function checkMessagingSupport() {
+    // Esta promesa se resuelve después de que isSupported() ha hecho su trabajo
+    return new Promise((resolve) => {
+        if (firebase.messaging.isSupported()) {
+            messaging = firebase.messaging();
+            isMessagingSupported = true;
+            resolve(true);
+        } else {
+            isMessagingSupported = false;
+            resolve(false);
+        }
+    });
+}
