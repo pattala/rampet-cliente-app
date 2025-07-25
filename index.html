@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Club RAMPET - Mis Puntos</title>
     <link rel="stylesheet" href="styles.css">
+    <!-- Usaremos la versión 9 (compat) para mantener la consistencia con el panel -->
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-analytics-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
@@ -21,7 +22,6 @@
 
         <div id="loading-screen" class="screen active"><p>Cargando...</p></div>
         
-        <!-- INICIO DE LA CORRECCIÓN: Contenido de Login y Registro restaurado -->
         <div id="login-screen" class="screen">
             <h2>Bienvenido</h2>
             <p>Ingresa para consultar tus puntos y beneficios.</p>
@@ -54,7 +54,6 @@
             </div>
             <p class="toggle-link">¿Ya tienes cuenta? <a href="#" id="show-login-link">Ingresa aquí</a></p>
         </div>
-        <!-- FIN DE LA CORRECCIÓN -->
 
         <div id="main-app-screen" class="screen">
             <div class="user-header">
@@ -72,6 +71,7 @@
                 <h2 id="cliente-puntos">--</h2>
             </div>
 
+            <!-- Panel de Bienvenida a Notificaciones -->
             <div id="notif-prompt-card" class="card notif-prompt" style="display: none;">
                 <h3>¡No te pierdas de nada! 🚀</h3>
                 <p>Activa las notificaciones para enterarte al instante de nuevas promos, recompensas y cuando sumas puntos.</p>
@@ -81,6 +81,7 @@
                 </div>
             </div>
 
+            <!-- Tarjeta con Switch (para después) -->
             <div id="notif-card" class="card" style="display: none;">
                 <h3>Notificaciones</h3>
                 <div class="notif-setting">
@@ -92,6 +93,7 @@
                 </div>
             </div>
 
+            <!-- Panel de Advertencia para Notificaciones Bloqueadas -->
             <div id="notif-blocked-warning" class="card warning-banner" style="display: none;">
                 <p>⚠️ Has bloqueado las notificaciones. Para recibir alertas de puntos y promociones, por favor, habilítalas en la configuración de tu navegador para este sitio.</p>
             </div>
