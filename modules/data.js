@@ -45,7 +45,7 @@ export async function listenToClientData(user) {
         }
 
         UI.renderMainScreen(clienteData, premiosData);
-        
+        Notifications.gestionarPermisoNotificaciones(clienteData); 
 
     }, (error) => {
         console.error("Error en listener de cliente:", error);
