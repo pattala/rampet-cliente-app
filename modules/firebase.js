@@ -1,9 +1,9 @@
-// pwa/modules/firebase.js (VERSIÓN DEFINITIVA)
-// Descripción: Corrige el error de sintaxis "Duplicate export".
+// pwa/modules/firebase.js (VERSIÓN DEFINITIVA CORREGIDA)
+// Descripción: Corrige el manejo asíncrono de checkMessagingSupport,
+// que era la causa del bloqueo en la pantalla de "Cargando...".
 
 const firebase = window.firebase;
 
-// Declaramos las variables en el alcance del módulo, sin exportarlas aquí.
 let db, auth, messaging, app;
 let isMessagingSupported = false;
 
@@ -24,18 +24,25 @@ export function setupFirebase() {
     auth = firebase.auth();
 }
 
-export function checkMessagingSupport() {
-    return new Promise((resolve) => {
-        if (firebase.messaging.isSupported()) {
+/**
+ * CORRECCIÓN CLAVE: Esta función ahora es asíncrona y maneja
+ * correctamente la promesa devuelta por isSupported().
+ */
+export async function checkMessagingSupport() {
+    try {
+        const supported = await firebase.messaging.isSupported();
+        if (supported) {
             messaging = firebase.messaging();
             isMessagingSupported = true;
-            resolve(true);
         } else {
             isMessagingSupported = false;
-            resolve(false);
         }
-    });
+    } catch (error) {
+        console.error("Error al comprobar la compatibilidad de Firebase Messaging:", error);
+        isMessagingSupported = false;
+    }
+    return isMessagingSupported;
 }
 
-// CORRECCIÓN: Un único punto de exportación para todas las variables del módulo.
+// Un único punto de exportación para todas las variables del módulo.
 export { db, auth, messaging, app, firebase, isMessagingSupported };
