@@ -1,6 +1,6 @@
-// pwa/modules/firebase.js (VERSIÓN DEFINITIVA CORREGIDA)
-// Descripción: Corrige el manejo asíncrono de checkMessagingSupport,
-// que era la causa del bloqueo en la pantalla de "Cargando...".
+// pwa/modules/firebase.js (VERSIÓN FINAL Y ROBUSTA)
+// Descripción: Corrige el manejo asíncrono y añade tolerancia a fallos
+// en la inicialización de Analytics.
 
 const firebase = window.firebase;
 
@@ -18,18 +18,24 @@ export function setupFirebase() {
     };
 
     app = firebase.initializeApp(firebaseConfig);
-    firebase.analytics(app);
+    
+    // Inicializamos Analytics de forma segura para evitar bloqueos
+    try {
+        firebase.analytics(app);
+    } catch (error) {
+        console.warn("Firebase Analytics no se pudo inicializar. Esto puede ser debido a un bloqueador de anuncios y no afecta la funcionalidad principal.");
+    }
     
     db = firebase.firestore();
     auth = firebase.auth();
 }
 
 /**
- * CORRECCIÓN CLAVE: Esta función ahora es asíncrona y maneja
- * correctamente la promesa devuelta por isSupported().
+ * Comprueba la compatibilidad de Messaging de forma asíncrona y segura.
  */
 export async function checkMessagingSupport() {
     try {
+        // Usamos la promesa directamente para mayor compatibilidad
         const supported = await firebase.messaging.isSupported();
         if (supported) {
             messaging = firebase.messaging();
