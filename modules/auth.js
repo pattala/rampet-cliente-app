@@ -35,7 +35,7 @@ export async function registerNewAccount() {
     const telefono = document.getElementById('register-telefono').value.trim();
     const fechaNacimiento = document.getElementById('register-fecha-nacimiento').value;
     const password = document.getElementById('register-password').value;
-    const termsAccepted = document.getElementById('register-terms').checked; // Leemos el valor del checkbox
+    const termsAccepted = document.getElementById('register-terms').checked;
     
     if (!nombre || !dni || !email || !password || !fechaNacimiento) return UI.showToast("Completa todos los campos.", "error");
     if (password.length < 6) return UI.showToast("La contraseña debe tener al menos 6 caracteres.", "error");
@@ -47,23 +47,19 @@ export async function registerNewAccount() {
     try {
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
         
-        // Creamos el documento en la colección 'clientes'
         await db.collection('clientes').add({
             authUID: userCredential.user.uid,
-            numeroSocio: null,
+            numeroSocio: null, // <-- Usaremos esto para identificar al nuevo usuario
             nombre, dni, email, telefono, fechaNacimiento,
             fechaInscripcion: new Date().toISOString().split('T')[0],
             puntos: 0, saldoAcumulado: 0, totalGastado: 0,
             historialPuntos: [], historialCanjes: [], fcmTokens: [],
-            terminosAceptados: termsAccepted, // <-- CORRECCIÓN: Usamos la variable del formulario
+            terminosAceptados: termsAccepted,
             passwordPersonalizada: true
         });
         
-        // El onAuthStateChanged se activará y logueará al usuario.
-        // Aquí disparamos la solicitud de permisos de notificación para el nuevo usuario.
-        if (Notifications.isMessagingSupported) {
-            Notifications.solicitarPermisoNotificaciones();
-        }
+        // Ya no llamamos a la lógica de notificación desde aquí.
+        // El listener onAuthStateChanged se encargará de todo.
 
     } catch (error) {
         if (error.code === 'auth/email-already-in-use') {
@@ -76,7 +72,6 @@ export async function registerNewAccount() {
         boton.textContent = 'Crear Cuenta';
     }
 }
-
 export async function logout() {
     try {
         cleanupListener();
