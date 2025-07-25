@@ -44,6 +44,7 @@ function main() {
 
     checkMessagingSupport().then(isSupported => {
         if (isSupported) {
+            // Conectamos los 3 listeners de notificaciones
             safeAddEventListener('btn-activar-notif-prompt', 'click', Notifications.handlePermissionRequest);
             safeAddEventListener('btn-rechazar-notif-prompt', 'click', Notifications.dismissPermissionRequest);
             safeAddEventListener('notif-switch', 'change', Notifications.handlePermissionSwitch);
