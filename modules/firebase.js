@@ -1,12 +1,11 @@
-// pwa/modules/firebase.js (VERSIÓN FINAL CORREGIDA)
-// Descripción: Corrige el error de exportación que impedía a otros módulos
-// importar el objeto principal 'firebase'.
+// pwa/modules/firebase.js (VERSIÓN DEFINITIVA)
+// Descripción: Corrige el error de sintaxis "Duplicate export".
 
 const firebase = window.firebase;
 
-// Exportamos las instancias para ser asignadas después.
-export let db, auth, messaging, app;
-export let isMessagingSupported = false; // El valor por defecto es false
+// Declaramos las variables en el alcance del módulo, sin exportarlas aquí.
+let db, auth, messaging, app;
+let isMessagingSupported = false;
 
 export function setupFirebase() {
     const firebaseConfig = {
@@ -25,7 +24,6 @@ export function setupFirebase() {
     auth = firebase.auth();
 }
 
-// Nueva función que se llamará cuando la app esté lista
 export function checkMessagingSupport() {
     return new Promise((resolve) => {
         if (firebase.messaging.isSupported()) {
@@ -39,5 +37,5 @@ export function checkMessagingSupport() {
     });
 }
 
-// CORRECCIÓN: Se vuelve a exportar el objeto 'firebase'
+// CORRECCIÓN: Un único punto de exportación para todas las variables del módulo.
 export { db, auth, messaging, app, firebase, isMessagingSupported };
