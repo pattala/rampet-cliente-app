@@ -1,7 +1,6 @@
-// modules/firebase.js (PWA) - VERSIÓN CORREGIDA
-// Inicializa y exporta las instancias de Firebase v8.
+// Archivo a modificar: pwa/modules/firebase.js (VERSIÓN FINAL)
 
-// LÍNEA AÑADIDA: Capturamos el objeto global 'firebase' en una constante local.
+// Capturamos el objeto global 'firebase' que cargan los scripts del HTML.
 const firebase = window.firebase;
 
 let db, auth, messaging;
@@ -17,16 +16,24 @@ export function setupFirebase() {
         appId: "1:357176214962:web:6c1df9b74ff0f3779490ab"
     };
 
-    firebase.initializeApp(firebaseConfig);
+    // 1. Inicializamos la aplicación. Este paso es obligatorio.
+    const app = firebase.initializeApp(firebaseConfig);
+
+    // 2. Inicializamos Analytics (buena práctica).
+    firebase.analytics(app);
     
+    // 3. Obtenemos las instancias de los servicios que usaremos.
     db = firebase.firestore();
     auth = firebase.auth();
     
+    // 4. Verificamos si Messaging es compatible DESPUÉS de la inicialización.
     if (firebase.messaging.isSupported()) {
         messaging = firebase.messaging();
         isMessagingSupported = true;
+    } else {
+        isMessagingSupported = false;
     }
 }
 
-// LÍNEA CORREGIDA: Exportamos las variables correctamente.
+// 5. Exportamos todo para que el resto de la app pueda usarlo.
 export { db, auth, messaging, firebase, isMessagingSupported };
