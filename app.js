@@ -1,4 +1,4 @@
-// app.js (PWA del Cliente - ARQUITECTURA FINAL Y ROBUSTA)
+// app.js (PWA del Cliente)
 
 import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -20,7 +20,11 @@ function setupAuthScreenListeners() {
     safeAddEventListener('register-btn', 'click', Auth.registerNewAccount);
     safeAddEventListener('show-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
     safeAddEventListener('close-terms-modal', 'click', UI.closeTermsModal);
-    safeAddEventListener('forgot-password-link', 'click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
+    
+    // Lógica actualizada para el flujo de "olvidé mi contraseña"
+    safeAddEventListener('forgot-password-link', 'click', (e) => { e.preventDefault(); UI.openForgotPasswordModal(); });
+    safeAddEventListener('close-forgot-modal', 'click', UI.closeForgotPasswordModal);
+    safeAddEventListener('send-reset-email-btn', 'click', Auth.sendPasswordResetFromLogin);
 }
 
 function setupMainAppScreenListeners() {
@@ -50,7 +54,6 @@ function main() {
 
     checkMessagingSupport().then(isSupported => {
         if (isSupported) {
-            // Conectamos los 3 listeners de notificaciones
             safeAddEventListener('btn-activar-notif-prompt', 'click', Notifications.handlePermissionRequest);
             safeAddEventListener('btn-rechazar-notif-prompt', 'click', Notifications.dismissPermissionRequest);
             safeAddEventListener('notif-switch', 'change', Notifications.handlePermissionSwitch);
