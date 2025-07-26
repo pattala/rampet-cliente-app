@@ -1,4 +1,4 @@
-// pwa/app.js - VERSIÓN FINAL CON DELEGACIÓN DE EVENTOS
+// pwa/app.js - VERSIÓN FINAL CON DELEGACIÓN DE EVENTOS Y CORRECCIÓN DE NOTIFICACIONES
 
 import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -12,15 +12,12 @@ import * as Notifications from './modules/notifications.js';
  * @param {Event} e - El objeto del evento de clic.
  */
 function handleGlobalClick(e) {
-    // Si el elemento clickeado no tiene un ID, no hacemos nada.
     if (!e.target.id) return;
 
-    // Prevenimos el comportamiento por defecto para los enlaces <a>
     if (e.target.tagName === 'A') {
         e.preventDefault();
     }
 
-    // Decidimos qué función llamar basándonos en el ID del elemento clickeado.
     switch (e.target.id) {
         // --- Flujo de Autenticación ---
         case 'show-register-link':
@@ -100,7 +97,6 @@ function handleGlobalChange(e) {
 function main() {
     setupFirebase();
 
-    // Conectamos nuestros manejadores globales al cuerpo del documento.
     document.body.addEventListener('click', handleGlobalClick);
     document.body.addEventListener('change', handleGlobalChange);
 
@@ -112,7 +108,12 @@ function main() {
         }
     });
 
-    checkMessagingSupport();
+    // CORRECCIÓN: Esta lógica es necesaria para escuchar notificaciones con la app abierta.
+    checkMessagingSupport().then(isSupported => {
+        if (isSupported) {
+            Notifications.listenForInAppMessages();
+        }
+    });
 }
 
 // El punto de entrada de la aplicación
