@@ -29,6 +29,9 @@
                 <input type="password" id="login-password" placeholder="Tu Contraseña o DNI" required>
                 <button id="login-btn" class="primary-btn">Ingresar</button>
             </div>
+            <p class="toggle-link" style="margin-top: 15px;">
+                <a href="#" id="forgot-password-link">¿Olvidaste tu contraseña?</a>
+            </p>
             <p class="toggle-link">¿Aún no eres miembro? <a href="#" id="show-register-link">Regístrate aquí</a></p>
         </div>
 
@@ -58,6 +61,7 @@
             <div class="user-header">
                 <h3>Hola, <span id="cliente-nombre">--</span> (<span id="cliente-numero-socio">--</span>)</h3>
                 <div class="user-actions">
+                    <button id="change-password-btn" class="secondary-btn">Cambiar Clave</button>
                     <button id="logout-btn" class="secondary-btn">Salir</button>
                 </div>
             </div>
@@ -70,21 +74,20 @@
                 <h2 id="cliente-puntos">--</h2>
             </div>
 
-            <!-- Panel de Bienvenida a Notificaciones -->
             <div id="notif-prompt-card" class="card notif-prompt" style="display: none;">
-    <h3>¡Activa tus Beneficios Exclusivos! 🚀</h3>
-    <p>Al activar las notificaciones, te aseguras de no perderte nada importante. Si no lo haces, te perderás de:</p>
-    <ul style="text-align: left; padding-left: 20px; margin-top: 10px; margin-bottom: 15px;">
-        <li>💰 <strong>Puntos al Instante:</strong> Saber en el momento exacto que sumaste puntos por una compra.</li>
-        <li>🔥 <strong>Ofertas Express:</strong> Recibir promociones únicas y por tiempo limitado solo para miembros.</li>
-        <li>🎁 <strong>Campañas y Recompensas:</strong> Ser el primero en enterarte de nuevos premios y campañas especiales.</li>
-    </ul>
-    <div class="prompt-actions">
-        <button id="btn-activar-notif-prompt" class="primary-btn">Sí, ¡Quiero los beneficios!</button>
-        <button id="btn-rechazar-notif-prompt" class="secondary-btn">Quizás más tarde</button>
-    </div>
-</div>
-            <!-- Tarjeta con Switch (para después) -->
+                <h3>¡Activa tus Beneficios Exclusivos! 🚀</h3>
+                <p>Al activar las notificaciones, te aseguras de no perderte nada importante. Si no lo haces, te perderás de:</p>
+                <ul style="text-align: left; padding-left: 20px; margin-top: 10px; margin-bottom: 15px;">
+                    <li>💰 <strong>Puntos al Instante:</strong> Saber en el momento exacto que sumaste puntos por una compra.</li>
+                    <li>🔥 <strong>Ofertas Express:</strong> Recibir promociones únicas y por tiempo limitado solo para miembros.</li>
+                    <li>🎁 <strong>Campañas y Recompensas:</strong> Ser el primero en enterarte de nuevos premios y campañas especiales.</li>
+                </ul>
+                <div class="prompt-actions">
+                    <button id="btn-activar-notif-prompt" class="primary-btn">Sí, ¡Quiero los beneficios!</button>
+                    <button id="btn-rechazar-notif-prompt" class="secondary-btn">Quizás más tarde</button>
+                </div>
+            </div>
+
             <div id="notif-card" class="card" style="display: none;">
                 <h3>Notificaciones</h3>
                 <div class="notif-setting">
@@ -96,7 +99,6 @@
                 </div>
             </div>
 
-            <!-- Panel de Advertencia para Notificaciones Bloqueadas -->
             <div id="notif-blocked-warning" class="card warning-banner" style="display: none;">
                 <p>⚠️ Has bloqueado las notificaciones. Para recibir alertas de puntos y promociones, por favor, habilítalas en la configuración de tu navegador para este sitio.</p>
             </div>
@@ -137,6 +139,21 @@
             </div>
         </div>
     </div>
+    
+    <div id="change-password-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content">
+            <span id="close-password-modal" class="modal-close-btn">×</span>
+            <h2>Cambiar Contraseña</h2>
+            <p>Para tu seguridad, ingresa tu contraseña actual antes de crear una nueva.</p>
+            <div class="form-group" style="margin-top: 15px;">
+                <input type="password" id="current-password" placeholder="Contraseña Actual (o tu DNI)" required>
+                <input type="password" id="new-password" placeholder="Nueva Contraseña (mín. 6 caracteres)" required>
+                <input type="password" id="confirm-new-password" placeholder="Confirmar Nueva Contraseña" required>
+            </div>
+            <button id="save-new-password-btn" class="primary-btn">Guardar Nueva Contraseña</button>
+        </div>
+    </div>
+
     <script src="app.js" type="module"></script>
 </body>
 </html>
