@@ -1,34 +1,24 @@
-// pwa/app.js - VERSIÓN FINAL Y FUNCIONAL
+// pwa/app.js - VERSIÓN FINAL Y DEFINTIVA
 
-// Importamos todos los módulos necesarios
 import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 import * as Notifications from './modules/notifications.js';
 
-// --- El punto de entrada principal de la aplicación ---
 document.addEventListener('DOMContentLoaded', function() {
-    
-    // 1. Inicializamos Firebase
     setupFirebase();
-
-    // 2. Conectamos los manejadores de eventos a todo el documento
     document.body.addEventListener('click', handleGlobalClick);
     document.body.addEventListener('change', handleGlobalChange);
 
-    // 3. Reaccionamos a los cambios de estado del usuario (login/logout)
     auth.onAuthStateChanged(user => {
         if (user) {
-            // Si hay un usuario, escuchamos sus datos y mostramos la app
             Data.listenToClientData(user);
         } else {
-            // Si no hay usuario, mostramos la pantalla de login
             UI.showScreen('login-screen');
         }
     });
 
-    // 4. Verificamos si las notificaciones push son compatibles
     checkMessagingSupport().then(isSupported => {
         if (isSupported) {
             Notifications.listenForInAppMessages();
@@ -41,10 +31,15 @@ document.addEventListener('DOMContentLoaded', function() {
  * @param {Event} e - El objeto del evento de clic.
  */
 function handleGlobalClick(e) {
-    const targetId = e.target.id;
-    if (!targetId) return;
+    // --- LÍNEA MODIFICADA ---
+    // En lugar de e.target, buscamos el elemento con ID más cercano. Esto es más robusto.
+    const targetElement = e.target.closest('[id]');
+    
+    if (!targetElement) return;
 
-    if (e.target.tagName === 'A') {
+    const targetId = targetElement.id;
+
+    if (targetElement.tagName === 'A') {
         e.preventDefault();
     }
 
@@ -84,8 +79,10 @@ function handleGlobalClick(e) {
  * @param {Event} e - El objeto del evento de cambio.
  */
 function handleGlobalChange(e) {
-    if (!e.target.id) return;
-    if (e.target.id === 'notif-switch') {
+    const targetId = e.target.id;
+    if (!targetId) return;
+
+    if (targetId === 'notif-switch') {
         Notifications.handlePermissionSwitch(e);
     }
 }
