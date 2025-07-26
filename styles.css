@@ -137,3 +137,31 @@ input:focus + .slider { box-shadow: 0 0 1px var(--success-color); }
 input:checked + .slider:before { transform: translateX(26px); }
 .slider.round { border-radius: 34px; }
 .slider.round:before { border-radius: 50%; }
+/* --- Estilos para Paneles de Notificaciones --- */
+
+/* Esta regla se aplica a los 3 paneles para darles un fondo consistente */
+#notif-prompt-card,
+#notif-card,
+#notif-blocked-warning {
+    background-color: #FFFACD; /* Un tono de amarillo pastel (LemonChiffon) */
+    border: 1px solid #F0E68C;  /* Un borde sutil para definirlo mejor */
+    padding: 20px;
+    border-radius: 12px; /* Mantenemos los bordes redondeados */
+}
+
+/* Ajuste específico para el panel de bienvenida para que los botones se vean bien */
+#notif-prompt-card h3 {
+    margin-top: 0;
+}
+
+#notif-prompt-card .prompt-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 15px;
+    flex-wrap: wrap; /* Para que se adapte en pantallas pequeñas */
+}
+
+#notif-prompt-card .prompt-actions .primary-btn,
+#notif-prompt-card .prompt-actions .secondary-btn {
+    flex-grow: 1; /* Para que los botones ocupen el espacio */
+}
