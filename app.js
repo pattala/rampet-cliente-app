@@ -1,4 +1,4 @@
-// pwa/app.js - VERSIÓN FINAL Y CORREGIDA
+// pwa/app.js - VERSIÓN FINAL CON DELEGACIÓN DE EVENTOS
 
 import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -6,66 +6,113 @@ import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 import * as Notifications from './modules/notifications.js';
 
-function safeAddEventListener(id, event, handler) {
-    const element = document.getElementById(id);
-    if (element) {
-        element.addEventListener(event, handler);
-    } else {
-        // En la versión final, es mejor que los errores no se muestren al usuario, solo en consola.
-        console.error(`Elemento con ID "${id}" NO fue encontrado en el DOM.`);
+/**
+ * Manejador global de clics para toda la aplicación.
+ * Utiliza la delegación de eventos para determinar qué acción realizar.
+ * @param {Event} e - El objeto del evento de clic.
+ */
+function handleGlobalClick(e) {
+    // Si el elemento clickeado no tiene un ID, no hacemos nada.
+    if (!e.target.id) return;
+
+    // Prevenimos el comportamiento por defecto para los enlaces <a>
+    if (e.target.tagName === 'A') {
+        e.preventDefault();
+    }
+
+    // Decidimos qué función llamar basándonos en el ID del elemento clickeado.
+    switch (e.target.id) {
+        // --- Flujo de Autenticación ---
+        case 'show-register-link':
+            UI.showScreen('register-screen');
+            break;
+        case 'show-login-link':
+            UI.showScreen('login-screen');
+            break;
+        case 'login-btn':
+            Auth.login();
+            break;
+        case 'register-btn':
+            Auth.registerNewAccount();
+            break;
+        case 'forgot-password-link':
+            UI.openForgotPasswordModal();
+            break;
+        case 'send-reset-email-btn':
+            Auth.sendPasswordResetFromLogin();
+            break;
+
+        // --- Flujo Principal de la App ---
+        case 'logout-btn':
+            Auth.logout();
+            break;
+        case 'change-password-btn':
+            UI.openChangePasswordModal();
+            break;
+        case 'save-new-password-btn':
+            Auth.changePassword();
+            break;
+        
+        // --- Flujo de Notificaciones ---
+        case 'btn-activar-notif-prompt':
+            Notifications.handlePermissionRequest();
+            break;
+        case 'btn-rechazar-notif-prompt':
+            Notifications.dismissPermissionRequest();
+            break;
+
+        // --- Modales ---
+        case 'close-terms-modal':
+        case 'footer-terms-link':
+        case 'show-terms-link-banner':
+        case 'show-terms-link':
+            UI.openTermsModal(e.target.id === 'show-terms-link-banner');
+            break;
+        case 'close-password-modal':
+            UI.closeChangePasswordModal();
+            break;
+        case 'close-forgot-modal':
+            UI.closeForgotPasswordModal();
+            break;
+        
+        // --- Aceptar Términos ---
+        case 'accept-terms-btn-modal':
+            Data.acceptTerms();
+            break;
     }
 }
 
-// Esta función ahora SOLO se encarga de los elementos de la pantalla de login/registro
-function setupAuthScreenListeners() {
-    safeAddEventListener('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
-    safeAddEventListener('show-login-link', 'click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
-    safeAddEventListener('login-btn', 'click', Auth.login);
-    safeAddEventListener('register-btn', 'click', Auth.registerNewAccount);
-    safeAddEventListener('forgot-password-link', 'click', (e) => { e.preventDefault(); UI.openForgotPasswordModal(); });
-}
+/**
+ * Manejador global de cambios para elementos como checkboxes o switches.
+ * @param {Event} e - El objeto del evento de cambio.
+ */
+function handleGlobalChange(e) {
+    if (!e.target.id) return;
 
-// Esta función solo se encarga de los elementos de la app principal
-function setupMainAppScreenListeners() {
-    safeAddEventListener('logout-btn', 'click', Auth.logout);
-    safeAddEventListener('change-password-btn', 'click', UI.openChangePasswordModal);
-    safeAddEventListener('show-terms-link-banner', 'click', (e) => { e.preventDefault(); UI.openTermsModal(true); });
-    safeAddEventListener('footer-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
-    safeAddEventListener('accept-terms-btn-modal', 'click', Data.acceptTerms);
+    switch (e.target.id) {
+        case 'notif-switch':
+            Notifications.handlePermissionSwitch(e);
+            break;
+    }
 }
 
 // La función principal que arranca todo
 function main() {
     setupFirebase();
 
-    // --- CAMBIO CLAVE: CONECTAMOS LOS LISTENERS DE LOS MODALES DE FORMA GLOBAL ---
-    // Estos botones siempre existirán en el DOM, así que los conectamos una sola vez al inicio.
-    // Esto soluciona el error de que no se encontraban.
-    safeAddEventListener('close-terms-modal', 'click', UI.closeTermsModal);
-    safeAddEventListener('close-password-modal', 'click', UI.closeChangePasswordModal);
-    safeAddEventListener('save-new-password-btn', 'click', Auth.changePassword);
-    safeAddEventListener('close-forgot-modal', 'click', UI.closeForgotPasswordModal);
-    safeAddEventListener('send-reset-email-btn', 'click', Auth.sendPasswordResetFromLogin);
+    // Conectamos nuestros manejadores globales al cuerpo del documento.
+    document.body.addEventListener('click', handleGlobalClick);
+    document.body.addEventListener('change', handleGlobalChange);
 
-    // El resto de la lógica de autenticación no cambia
     auth.onAuthStateChanged(user => {
         if (user) {
-            setupMainAppScreenListeners();
             Data.listenToClientData(user);
         } else {
-            setupAuthScreenListeners();
             UI.showScreen('login-screen');
         }
     });
 
-    checkMessagingSupport().then(isSupported => {
-        if (isSupported) {
-            safeAddEventListener('btn-activar-notif-prompt', 'click', Notifications.handlePermissionRequest);
-            safeAddEventListener('btn-rechazar-notif-prompt', 'click', Notifications.dismissPermissionRequest);
-            safeAddEventListener('notif-switch', 'change', Notifications.handlePermissionSwitch);
-            Notifications.listenForInAppMessages();
-        }
-    });
+    checkMessagingSupport();
 }
 
 // El punto de entrada de la aplicación
