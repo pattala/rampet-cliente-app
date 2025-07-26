@@ -1,15 +1,7 @@
-// pwa/modules/ui.js (VERSIÓN ROBUSTA CON DEPURACIÓN)
-// Descripción: Se ha hecho más robusto para evitar que la app se detenga
-// si un elemento HTML no se encuentra al momento de renderizar.
+// pwa/modules/ui.js
 
 import * as Data from './data.js';
 
-/**
- * Función auxiliar que actualiza el textContent de un elemento de forma segura.
- * Si el elemento no existe, imprime una advertencia en la consola.
- * @param {string} id - El ID del elemento.
- * @param {string|number} content - El contenido a establecer.
- */
 function safeSetText(id, content) {
     const element = document.getElementById(id);
     if (element) {
@@ -54,7 +46,6 @@ function formatearFecha(isoDateString) {
 export function renderMainScreen(clienteData, premiosData) {
     if (!clienteData) return;
 
-    // Usamos la función segura para actualizar el DOM
     safeSetText('cliente-nombre', clienteData.nombre.split(' ')[0]);
     safeSetText('cliente-numero-socio', clienteData.numeroSocio ? `#${clienteData.numeroSocio}` : 'N° Pendiente');
     safeSetText('cliente-puntos', clienteData.puntos || 0);
@@ -123,4 +114,19 @@ export function openTermsModal(showAcceptButton) {
 export function closeTermsModal() {
     const modal = document.getElementById('terms-modal');
     if(modal) modal.style.display = 'none';
+}
+
+export function openChangePasswordModal() {
+    const modal = document.getElementById('change-password-modal');
+    if (modal) {
+        document.getElementById('current-password').value = '';
+        document.getElementById('new-password').value = '';
+        document.getElementById('confirm-new-password').value = '';
+        modal.style.display = 'flex';
+    }
+}
+
+export function closeChangePasswordModal() {
+    const modal = document.getElementById('change-password-modal');
+    if (modal) modal.style.display = 'none';
 }
