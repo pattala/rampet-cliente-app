@@ -14,7 +14,6 @@ export async function login() {
     boton.textContent = 'Ingresando...';
     try {
         await auth.signInWithEmailAndPassword(email, password);
-        // El listener onAuthStateChanged en app.js se encargará del resto.
     } catch (error) {
         if (['auth/user-not-found', 'auth/wrong-password', 'auth/invalid-credential'].includes(error.code)) {
             UI.showToast("Email o contraseña incorrectos.", "error");
@@ -28,19 +27,27 @@ export async function login() {
 }
 
 export async function sendPasswordResetFromLogin() {
-    const email = prompt("Por favor, ingresa tu dirección de email para enviarte el enlace de recuperación:");
+    const emailInput = document.getElementById('forgot-password-email-input');
+    const email = emailInput.value.trim();
     
     if (!email) {
-        return; // El usuario canceló el prompt
+        return UI.showToast("Por favor, ingresa una dirección de email.", "error");
     }
+    
+    const boton = document.getElementById('send-reset-email-btn');
+    boton.disabled = true;
+    boton.textContent = 'Enviando...';
 
     try {
         await auth.sendPasswordResetEmail(email);
         UI.showToast(`Si existe una cuenta para ${email}, recibirás un correo en breve.`, "success", 10000);
+        UI.closeForgotPasswordModal();
     } catch (error) {
-        // No mostramos el error específico para no revelar si un email existe o no
-        UI.showToast("Ocurrió un problema al enviar el correo. Inténtalo de nuevo.", "error");
+        UI.showToast("Ocurrió un problema. Verifica el email e inténtalo de nuevo.", "error");
         console.error("Error en sendPasswordResetFromLogin:", error);
+    } finally {
+        boton.disabled = false;
+        boton.textContent = 'Enviar Email de Recuperación';
     }
 }
 
@@ -56,24 +63,19 @@ export async function registerNewAccount() {
     if (!nombre || !dni || !email || !password || !fechaNacimiento) {
         return UI.showToast("Completa todos los campos obligatorios.", "error");
     }
-
     if (!/^[0-9]+$/.test(dni) || dni.length < 6) {
         return UI.showToast("El DNI debe tener al menos 6 números y no debe contener letras ni símbolos.", "error");
     }
-
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
         return UI.showToast("Por favor, ingresa una dirección de email válida.", "error");
     }
-    
     if (telefono && (!/^[0-9]+$/.test(telefono) || telefono.length < 10)) {
         return UI.showToast("El teléfono debe contener solo números y tener al menos 10 dígitos (con código de área).", "error");
     }
-
     if (password.length < 6) {
         return UI.showToast("La contraseña debe tener al menos 6 caracteres.", "error");
     }
-
     if (!termsAccepted) {
         return UI.showToast("Debes aceptar los Términos y Condiciones.", "error");
     }
@@ -83,7 +85,6 @@ export async function registerNewAccount() {
     boton.textContent = 'Creando...';
     try {
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
-        
         await db.collection('clientes').add({
             authUID: userCredential.user.uid,
             numeroSocio: null,
@@ -94,7 +95,6 @@ export async function registerNewAccount() {
             terminosAceptados: termsAccepted,
             passwordPersonalizada: true
         });
-
     } catch (error) {
         if (error.code === 'auth/email-already-in-use') {
             UI.showToast("Este email ya ha sido registrado.", "error");
