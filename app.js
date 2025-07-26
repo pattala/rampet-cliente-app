@@ -20,13 +20,19 @@ function setupAuthScreenListeners() {
     safeAddEventListener('register-btn', 'click', Auth.registerNewAccount);
     safeAddEventListener('show-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
     safeAddEventListener('close-terms-modal', 'click', UI.closeTermsModal);
+    safeAddEventListener('forgot-password-link', 'click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
 }
 
 function setupMainAppScreenListeners() {
     safeAddEventListener('logout-btn', 'click', Auth.logout);
+    safeAddEventListener('change-password-btn', 'click', UI.openChangePasswordModal); 
     safeAddEventListener('show-terms-link-banner', 'click', (e) => { e.preventDefault(); UI.openTermsModal(true); });
     safeAddEventListener('footer-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
     safeAddEventListener('accept-terms-btn-modal', 'click', Data.acceptTerms);
+    
+    // LISTENERS PARA EL MODAL DE CONTRASEÑA
+    safeAddEventListener('close-password-modal', 'click', UI.closeChangePasswordModal);
+    safeAddEventListener('save-new-password-btn', 'click', Auth.changePassword);
 }
 
 function main() {
