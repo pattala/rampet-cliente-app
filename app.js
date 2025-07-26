@@ -1,4 +1,4 @@
-// pwa/app.js - VERSIÓN FINAL (5)
+// pwa/app.js - VERSIÓN FINAL CON INSTRUCCIÓN NATIVA
 
 import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -6,10 +6,43 @@ import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 import * as Notifications from './modules/notifications.js';
 
+// --- FUNCIÓN GLOBAL PARA EL ONCLICK ---
+// Hacemos la función accesible globalmente asignándola al objeto "window"
+window.handleForgotPasswordClick = function(event) {
+    event.preventDefault(); // Prevenimos que el enlace recargue la página
+    UI.openForgotPasswordModal();
+}
+
+// --- El resto de la aplicación funciona como antes ---
+
+function safeAddEventListener(id, event, handler) {
+    const element = document.getElementById(id);
+    if (element) {
+        element.addEventListener(event, handler);
+    }
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     setupFirebase();
-    document.body.addEventListener('click', handleGlobalClick);
-    document.body.addEventListener('change', handleGlobalChange);
+
+    // Conectamos todos los demás listeners de forma normal
+    safeAddEventListener('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
+    safeAddEventListener('show-login-link', 'click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
+    safeAddEventListener('login-btn', 'click', Auth.login);
+    safeAddEventListener('register-btn', 'click', Auth.registerNewAccount);
+    safeAddEventListener('send-reset-email-btn', 'click', Auth.sendPasswordResetFromLogin);
+    safeAddEventListener('logout-btn', 'click', Auth.logout);
+    safeAddEventListener('change-password-btn', 'click', UI.openChangePasswordModal);
+    safeAddEventListener('save-new-password-btn', 'click', Auth.changePassword);
+    safeAddEventListener('btn-activar-notif-prompt', 'click', Notifications.handlePermissionRequest);
+    safeAddEventListener('btn-rechazar-notif-prompt', 'click', Notifications.dismissPermissionRequest);
+    safeAddEventListener('notif-switch', 'change', Notifications.handlePermissionSwitch);
+    safeAddEventListener('close-terms-modal', 'click', UI.closeTermsModal);
+    safeAddEventListener('footer-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
+    safeAddEventListener('show-terms-link-banner', 'click', (e) => { e.preventDefault(); UI.openTermsModal(true); });
+    safeAddEventListener('close-password-modal', 'click', UI.closeChangePasswordModal);
+    safeAddEventListener('close-forgot-modal', 'click', UI.closeForgotPasswordModal);
+    safeAddEventListener('accept-terms-btn-modal', 'click', Data.acceptTerms);
 
     auth.onAuthStateChanged(user => {
         if (user) {
@@ -25,51 +58,3 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 });
-
-
-function handleGlobalClick(e) {
-    // La causa de todo el problema se soluciona con este simple cambio:
-    // Leer el ID directamente del event.target.
-    const targetId = e.target.id;
-    
-    // Si el elemento clickeado no tiene un ID, no hacemos nada.
-    if (!targetId) return;
-
-    // Solo prevenimos el comportamiento por defecto si es necesario
-    if (e.target.tagName === 'A') {
-        e.preventDefault();
-    }
-    
-    switch (targetId) {
-        case 'show-register-link': UI.showScreen('register-screen'); break;
-        case 'show-login-link': UI.showScreen('login-screen'); break;
-        case 'login-btn': Auth.login(); break;
-        case 'register-btn': Auth.registerNewAccount(); break;
-        case 'forgot-password-link': UI.openForgotPasswordModal(); break;
-        case 'send-reset-email-btn': Auth.sendPasswordResetFromLogin(); break;
-        case 'logout-btn': Auth.logout(); break;
-        case 'change-password-btn': UI.openChangePasswordModal(); break;
-        case 'save-new-password-btn': Auth.changePassword(); break;
-        case 'btn-activar-notif-prompt': Notifications.handlePermissionRequest(); break;
-        case 'btn-rechazar-notif-prompt': Notifications.dismissPermissionRequest(); break;
-        case 'show-terms-link':
-        case 'footer-terms-link':
-        case 'show-terms-link-banner':
-            UI.openTermsModal(targetId === 'show-terms-link-banner');
-            break;
-        case 'close-terms-modal': UI.closeTermsModal(); break;
-        case 'close-password-modal': UI.closeChangePasswordModal(); break;
-        case 'close-forgot-modal': UI.closeForgotPasswordModal(); break;
-        case 'accept-terms-btn-modal': Data.acceptTerms(); break;
-    }
-}
-
-
-function handleGlobalChange(e) {
-    const targetId = e.target.id;
-    if (!targetId) return;
-
-    if (targetId === 'notif-switch') {
-        Notifications.handlePermissionSwitch(e);
-    }
-}
