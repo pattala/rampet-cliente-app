@@ -1,8 +1,7 @@
-// pwa/modules/auth.js (VERSIÓN CORREGIDA)
+// pwa/modules/auth.js
 
-import { auth, db } from './firebase.js';
+import { auth, db, firebase } from './firebase.js';
 import * as UI from './ui.js';
-import * as Notifications from './notifications.js'; // Importamos el módulo de notificaciones
 import { cleanupListener } from './data.js';
 
 export async function login() {
@@ -28,8 +27,24 @@ export async function login() {
     }
 }
 
+export async function sendPasswordResetFromLogin() {
+    const email = prompt("Por favor, ingresa tu dirección de email para enviarte el enlace de recuperación:");
+    
+    if (!email) {
+        return; // El usuario canceló el prompt
+    }
+
+    try {
+        await auth.sendPasswordResetEmail(email);
+        UI.showToast(`Si existe una cuenta para ${email}, recibirás un correo en breve.`, "success", 10000);
+    } catch (error) {
+        // No mostramos el error específico para no revelar si un email existe o no
+        UI.showToast("Ocurrió un problema al enviar el correo. Inténtalo de nuevo.", "error");
+        console.error("Error en sendPasswordResetFromLogin:", error);
+    }
+}
+
 export async function registerNewAccount() {
-    // --- 1. Recolección de datos (sin cambios) ---
     const nombre = document.getElementById('register-nombre').value.trim();
     const dni = document.getElementById('register-dni').value.trim();
     const email = document.getElementById('register-email').value.trim().toLowerCase();
@@ -38,40 +53,31 @@ export async function registerNewAccount() {
     const password = document.getElementById('register-password').value;
     const termsAccepted = document.getElementById('register-terms').checked;
 
-    // --- 2. Bloque de Validaciones Mejorado ---
-
-    // Validación de campos obligatorios (existente)
     if (!nombre || !dni || !email || !password || !fechaNacimiento) {
         return UI.showToast("Completa todos los campos obligatorios.", "error");
     }
 
-    // NUEVA VALIDACIÓN: Formato del DNI
     if (!/^[0-9]+$/.test(dni) || dni.length < 6) {
         return UI.showToast("El DNI debe tener al menos 6 números y no debe contener letras ni símbolos.", "error");
     }
 
-    // NUEVA VALIDACIÓN: Formato de Email
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
         return UI.showToast("Por favor, ingresa una dirección de email válida.", "error");
     }
     
-    // NUEVA VALIDACIÓN: Formato de Teléfono (opcional pero si existe se valida)
     if (telefono && (!/^[0-9]+$/.test(telefono) || telefono.length < 10)) {
         return UI.showToast("El teléfono debe contener solo números y tener al menos 10 dígitos (con código de área).", "error");
     }
 
-    // Validación de contraseña (existente)
     if (password.length < 6) {
         return UI.showToast("La contraseña debe tener al menos 6 caracteres.", "error");
     }
 
-    // Validación de términos (existente)
     if (!termsAccepted) {
         return UI.showToast("Debes aceptar los Términos y Condiciones.", "error");
     }
 
-    // --- 3. Lógica de Registro (sin cambios) ---
     const boton = document.getElementById('register-btn');
     boton.disabled = true;
     boton.textContent = 'Creando...';
@@ -88,7 +94,7 @@ export async function registerNewAccount() {
             terminosAceptados: termsAccepted,
             passwordPersonalizada: true
         });
-        
+
     } catch (error) {
         if (error.code === 'auth/email-already-in-use') {
             UI.showToast("Este email ya ha sido registrado.", "error");
@@ -101,11 +107,54 @@ export async function registerNewAccount() {
     }
 }
 
+export async function changePassword() {
+    const currentPassword = document.getElementById('current-password').value;
+    const newPassword = document.getElementById('new-password').value;
+    const confirmNewPassword = document.getElementById('confirm-new-password').value;
+
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+        return UI.showToast("Debes completar todos los campos.", "error");
+    }
+    if (newPassword.length < 6) {
+        return UI.showToast("La nueva contraseña debe tener al menos 6 caracteres.", "error");
+    }
+    if (newPassword !== confirmNewPassword) {
+        return UI.showToast("Las nuevas contraseñas no coinciden.", "error");
+    }
+
+    const boton = document.getElementById('save-new-password-btn');
+    boton.disabled = true;
+    boton.textContent = 'Guardando...';
+
+    try {
+        const user = auth.currentUser;
+        if (!user) throw new Error("No hay usuario activo.");
+
+        const credential = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
+        await user.reauthenticateWithCredential(credential);
+
+        await user.updatePassword(newPassword);
+
+        UI.showToast("¡Contraseña actualizada con éxito!", "success");
+        UI.closeChangePasswordModal();
+
+    } catch (error) {
+        if (error.code === 'auth/wrong-password') {
+            UI.showToast("La contraseña actual es incorrecta.", "error");
+        } else {
+            UI.showToast("No se pudo actualizar la contraseña. Inténtalo de nuevo.", "error");
+        }
+        console.error("Error en changePassword:", error);
+    } finally {
+        boton.disabled = false;
+        boton.textContent = 'Guardar Nueva Contraseña';
+    }
+}
+
 export async function logout() {
     try {
         cleanupListener();
         await auth.signOut();
-        // El listener onAuthStateChanged en app.js mostrará la pantalla de login.
     } catch (error) {
         UI.showToast("Error al cerrar sesión.", "error");
     }
