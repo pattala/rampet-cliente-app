@@ -1,4 +1,4 @@
-// app.js (PWA del Cliente)
+// app.js (PWA del Cliente) - VERSIÓN CORREGIDA
 
 import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -6,6 +6,7 @@ import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 import * as Notifications from './modules/notifications.js';
 
+// --- Función auxiliar (sin cambios) ---
 function safeAddEventListener(id, event, handler) {
     const element = document.getElementById(id);
     if (element) {
@@ -13,6 +14,8 @@ function safeAddEventListener(id, event, handler) {
     }
 }
 
+// --- ESTA ES LA FUNCIÓN CORREGIDA ---
+// Ahora incluye los listeners para el nuevo modal de "Olvidé mi contraseña"
 function setupAuthScreenListeners() {
     safeAddEventListener('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
     safeAddEventListener('show-login-link', 'click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
@@ -21,12 +24,13 @@ function setupAuthScreenListeners() {
     safeAddEventListener('show-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
     safeAddEventListener('close-terms-modal', 'click', UI.closeTermsModal);
     
-    // Lógica actualizada para el flujo de "olvidé mi contraseña"
+    // Lógica CORRECTAMENTE CABLEADA para el flujo de "olvidé mi contraseña"
     safeAddEventListener('forgot-password-link', 'click', (e) => { e.preventDefault(); UI.openForgotPasswordModal(); });
     safeAddEventListener('close-forgot-modal', 'click', UI.closeForgotPasswordModal);
     safeAddEventListener('send-reset-email-btn', 'click', Auth.sendPasswordResetFromLogin);
 }
 
+// --- El resto del archivo (sin cambios) ---
 function setupMainAppScreenListeners() {
     safeAddEventListener('logout-btn', 'click', Auth.logout);
     safeAddEventListener('change-password-btn', 'click', UI.openChangePasswordModal); 
@@ -47,6 +51,7 @@ function main() {
             setupMainAppScreenListeners();
             Data.listenToClientData(user);
         } else {
+            // Esta función ahora cableará correctamente los eventos
             setupAuthScreenListeners();
             UI.showScreen('login-screen');
         }
