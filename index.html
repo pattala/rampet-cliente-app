@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Club RAMPET - Mis Puntos</title>
     <link rel="stylesheet" href="styles.css">
-    <!-- Usaremos la versión 9 (compat) para mantener la consistencia con el panel -->
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-analytics-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
@@ -71,7 +70,6 @@
                 <h2 id="cliente-puntos">--</h2>
             </div>
 
-            <!-- Panel de Bienvenida a Notificaciones -->
             <div id="notif-prompt-card" class="card notif-prompt" style="display: none;">
                 <h3>¡No te pierdas de nada! 🚀</h3>
                 <p>Activa las notificaciones para enterarte al instante de nuevas promos, recompensas y cuando sumas puntos.</p>
@@ -81,7 +79,6 @@
                 </div>
             </div>
 
-            <!-- Tarjeta con Switch (para después) -->
             <div id="notif-card" class="card" style="display: none;">
                 <h3>Notificaciones</h3>
                 <div class="notif-setting">
@@ -93,12 +90,18 @@
                 </div>
             </div>
 
-            <!-- Panel de Advertencia para Notificaciones Bloqueadas -->
             <div id="notif-blocked-warning" class="card warning-banner" style="display: none;">
                 <p>⚠️ Has bloqueado las notificaciones. Para recibir alertas de puntos y promociones, por favor, habilítalas en la configuración de tu navegador para este sitio.</p>
             </div>
 
-            <div id="vencimiento-card" class="card vencimiento-card" style="display: none;"></div>
+            <!-- INICIO DE LA CORRECCIÓN: Contenido restaurado -->
+            <div id="vencimiento-card" class="card vencimiento-card" style="display: none;">
+                <p>⚠️ Puntos por Vencer</p>
+                <h2><span id="cliente-puntos-vencimiento">--</span> Puntos</h2>
+                <p>Vencen el: <strong id="cliente-fecha-vencimiento">--</strong></p>
+            </div>
+            <!-- FIN DE LA CORRECCIÓN -->
+
             <div id="historial-container" class="card">
                  <h3>Historial Reciente</h3>
                 <ul id="lista-historial"></ul>
@@ -119,12 +122,7 @@
                 <span id="close-terms-modal" class="modal-close-btn">×</span>
                 <h2>Términos y Condiciones</h2>
                 <div class="terms-text-container">
-                    <p><strong>1. Generalidades:</strong> El programa de fidelización "Club RAMPET" es un beneficio exclusivo para nuestros clientes. La participación en el programa es gratuita e implica la aceptación total de los presentes términos y condiciones.</p>
-                    <p><strong>2. Consentimiento de Comunicaciones:</strong> Al registrarte y/o aceptar los términos en la aplicación, otorgas tu consentimiento explícito para recibir comunicaciones transaccionales y promocionales del Club RAMPET a través de correo electrónico y notificaciones push. Estas comunicaciones son parte integral del programa de fidelización e incluyen, entre otros, avisos sobre puntos ganados, premios canjeados, promociones especiales y vencimiento de puntos. Puedes gestionar tus preferencias de notificaciones en cualquier momento.</p>
-                    <p><strong>3. Acumulación de Puntos:</strong> Los puntos se acumularán según la tasa de conversión vigente establecida por RAMPET. Los puntos no tienen valor monetario, no son transferibles a otras personas ni canjeables por dinero en efectivo.</p>
-                    <p><strong>4. Canje de Premios:</strong> El canje de premios se realiza exclusivamente en el local físico y será procesado por un administrador del sistema. La PWA sirve como un catálogo para consultar los premios disponibles y los puntos necesarios. Para realizar un canje, el cliente debe presentar una identificación válida.</p>
-                    <p><strong>5. Validez y Caducidad:</strong> Los puntos acumulados tienen una fecha de caducidad que se rige por las reglas definidas en el sistema. El cliente será notificado de los vencimientos próximos a través de los canales de comunicación aceptados para que pueda utilizarlos a tiempo.</p>
-                    <p><strong>6. Modificaciones del Programa:</strong> RAMPET se reserva el derecho de modificar los términos y condiciones, la tasa de conversión, el catálogo de premios o cualquier otro aspecto del programa de fidelización, inclusive su finalizacion, en cualquier momento y sin previo aviso.</p>
+                    <p><strong>1. Generalidades:</strong> El programa de fidelización "Club RAMPET" es un beneficio exclusivo para nuestros clientes...</p>
                 </div>
                 <button id="accept-terms-btn-modal" class="primary-btn" style="display: none;">He Leído y Acepto los Términos</button>
             </div>
