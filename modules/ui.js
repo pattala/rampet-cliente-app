@@ -130,16 +130,3 @@ export function closeChangePasswordModal() {
     const modal = document.getElementById('change-password-modal');
     if (modal) modal.style.display = 'none';
 }
-
-export function openForgotPasswordModal() {
-    const modal = document.getElementById('forgot-password-modal');
-    if (modal) {
-        document.getElementById('forgot-password-email-input').value = '';
-        modal.style.display = 'flex';
-    }
-}
-
-export function closeForgotPasswordModal() {
-    const modal = document.getElementById('forgot-password-modal');
-    if (modal) modal.style.display = 'none';
-}
