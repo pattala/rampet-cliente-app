@@ -22,19 +22,24 @@ export async function listenToClientData(user) {
     UI.showScreen('loading-screen');
     if (unsubscribeCliente) unsubscribeCliente();
 
-    const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
+    // ▼▼▼ CAMBIO PRINCIPAL AQUÍ ▼▼▼
+    // En lugar de buscar en la colección, accedemos directamente al documento del usuario
+    // usando su UID, que es como lo definen las nuevas reglas de seguridad.
+    clienteRef = db.collection('clientes').doc(user.uid);
+    // ▲▲▲ FIN DEL CAMBIO PRINCIPAL ▲▲▲
     
-    unsubscribeCliente = clienteQuery.onSnapshot(async (snapshot) => {
-        if (snapshot.empty) {
+    unsubscribeCliente = clienteRef.onSnapshot(async (doc) => {
+        // Ahora trabajamos con un 'doc' individual, no con un 'snapshot' de varios documentos.
+        if (!doc.exists) {
             UI.showToast("Error: Tu cuenta no está vinculada a ninguna ficha de cliente.", "error");
+            console.error("No se encontró el documento del cliente para el UID:", user.uid);
             Auth.logout();
             return;
         }
         
-        const doc = snapshot.docs[0];
         clienteData = doc.data();
-        clienteRef = doc.ref;
 
+        // La lógica para cargar los premios se mantiene igual.
         if (premiosData.length === 0) {
             try {
                 const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
@@ -49,6 +54,7 @@ export async function listenToClientData(user) {
 
     }, (error) => {
         console.error("Error en listener de cliente:", error);
+        UI.showToast("Error al cargar tus datos.", "error");
         Auth.logout();
     });
 }
@@ -69,7 +75,7 @@ export async function acceptTerms() {
     }
 }
 
-// Funciones de cálculo
+// Funciones de cálculo (SIN CAMBIOS)
 export function getFechaProximoVencimiento(cliente) {
     if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
     let fechaMasProxima = null;
