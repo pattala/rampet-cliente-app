@@ -163,3 +163,24 @@ input:checked + .slider:before { transform: translateX(26px); }
 #notif-prompt-card .prompt-actions .secondary-btn {
     flex-grow: 1; 
 }
+/* --- Estilos para Campañas --- */
+.campanas-grid {
+  display: grid;
+  grid-template-columns: 1fr; /* Una columna en móvil */
+  gap: 15px;
+  width: 100%;
+}
+
+.campana-banner img {
+  width: 100%;
+  border-radius: 12px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  display: block;
+}
+
+/* Para pantallas más grandes, podemos mostrar 2 columnas */
+@media (min-width: 768px) {
+  .campanas-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
