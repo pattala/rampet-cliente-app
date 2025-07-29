@@ -81,7 +81,6 @@ export async function registerNewAccount() {
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
         const user = userCredential.user;
         
-        // ▼▼▼ CAMBIO PRINCIPAL AQUÍ ▼▼▼
         // Usamos .doc(user.uid).set() para que el ID del documento sea el UID del usuario.
         await db.collection('clientes').doc(user.uid).set({
             authUID: user.uid, // Guardamos el UID también como campo para consistencia
@@ -93,7 +92,6 @@ export async function registerNewAccount() {
             terminosAceptados: termsAccepted,
             passwordPersonalizada: true
         });
-        // ▲▲▲ FIN DEL CAMBIO ▲▲▲
 
     } catch (error) {
         if (error.code === 'auth/email-already-in-use') {
