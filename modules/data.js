@@ -22,8 +22,9 @@ export async function listenToClientData(user) {
     UI.showScreen('loading-screen');
     if (unsubscribeCliente) unsubscribeCliente();
 
-    // ▼▼▼ CAMBIO PRINCIPAL AQUÍ ▼▼▼
-    // Ahora leemos directamente el documento del cliente usando su UID.
+    // ▼▼▼ ESTE ES EL CAMBIO CLAVE ▼▼▼
+    // Leemos directamente el documento del cliente usando su UID,
+    // que es la forma permitida por las nuevas reglas de seguridad.
     clienteRef = db.collection('clientes').doc(user.uid);
     // ▲▲▲ FIN DEL CAMBIO ▲▲▲
     
