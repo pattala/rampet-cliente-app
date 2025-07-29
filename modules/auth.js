@@ -38,6 +38,7 @@ export async function sendPasswordResetFromLogin() {
         await auth.sendPasswordResetEmail(email);
         UI.showToast(`Si existe una cuenta para ${email}, recibirás un correo en breve.`, "success", 10000);
     } catch (error) {
+        // No mostramos el error específico para no revelar si un email existe o no
         UI.showToast("Ocurrió un problema al enviar el correo. Inténtalo de nuevo.", "error");
         console.error("Error en sendPasswordResetFromLogin:", error);
     }
@@ -52,7 +53,6 @@ export async function registerNewAccount() {
     const password = document.getElementById('register-password').value;
     const termsAccepted = document.getElementById('register-terms').checked;
 
-    // --- (Validaciones sin cambios) ---
     if (!nombre || !dni || !email || !password || !fechaNacimiento) {
         return UI.showToast("Completa todos los campos obligatorios.", "error");
     }
@@ -70,7 +70,6 @@ export async function registerNewAccount() {
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
         const user = userCredential.user;
         
-        // ▼▼▼ ESTA ES LA LÍNEA CORREGIDA Y DEFINITIVA ▼▼▼
         // Usamos .doc(user.uid).set() para que el ID del documento sea el UID del usuario.
         await db.collection('clientes').doc(user.uid).set({
             authUID: user.uid, // Guardamos el UID también como campo para consistencia
@@ -97,9 +96,52 @@ export async function registerNewAccount() {
 }
 
 export async function changePassword() {
-    // ... (Tu código original sin cambios)
+    const currentPassword = document.getElementById('current-password').value;
+    const newPassword = document.getElementById('new-password').value;
+    const confirmNewPassword = document.getElementById('confirm-new-password').value;
+
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+        return UI.showToast("Debes completar todos los campos.", "error");
+    }
+    if (newPassword.length < 6) {
+        return UI.showToast("La nueva contraseña debe tener al menos 6 caracteres.", "error");
+    }
+    if (newPassword !== confirmNewPassword) {
+        return UI.showToast("Las nuevas contraseñas no coinciden.", "error");
+    }
+
+    const boton = document.getElementById('save-new-password-btn');
+    boton.disabled = true;
+    boton.textContent = 'Guardando...';
+
+    try {
+        const user = auth.currentUser;
+        if (!user) throw new Error("No hay usuario activo.");
+
+        const credential = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword);
+        await user.reauthenticateWithCredential(credential);
+        await user.updatePassword(newPassword);
+        UI.showToast("¡Contraseña actualizada con éxito!", "success");
+        UI.closeChangePasswordModal();
+
+    } catch (error) {
+        if (error.code === 'auth/wrong-password') {
+            UI.showToast("La contraseña actual es incorrecta.", "error");
+        } else {
+            UI.showToast("No se pudo actualizar la contraseña. Inténtalo de nuevo.", "error");
+        }
+        console.error("Error en changePassword:", error);
+    } finally {
+        boton.disabled = false;
+        boton.textContent = 'Guardar Nueva Contraseña';
+    }
 }
 
 export async function logout() {
-    // ... (Tu código original sin cambios)
+    try {
+        cleanupListener();
+        await auth.signOut();
+    } catch (error) {
+        UI.showToast("Error al cerrar sesión.", "error");
+    }
 }
