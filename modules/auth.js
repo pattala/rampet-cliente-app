@@ -53,27 +53,23 @@ export async function registerNewAccount() {
     const password = document.getElementById('register-password').value;
     const termsAccepted = document.getElementById('register-terms').checked;
 
+    // --- (Validaciones sin cambios) ---
     if (!nombre || !dni || !email || !password || !fechaNacimiento) {
         return UI.showToast("Completa todos los campos obligatorios.", "error");
     }
-
     if (!/^[0-9]+$/.test(dni) || dni.length < 6) {
         return UI.showToast("El DNI debe tener al menos 6 números y no debe contener letras ni símbolos.", "error");
     }
-
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) {
         return UI.showToast("Por favor, ingresa una dirección de email válida.", "error");
     }
-    
     if (telefono && (!/^[0-9]+$/.test(telefono) || telefono.length < 10)) {
         return UI.showToast("El teléfono debe contener solo números y tener al menos 10 dígitos (con código de área).", "error");
     }
-
     if (password.length < 6) {
         return UI.showToast("La contraseña debe tener al menos 6 caracteres.", "error");
     }
-
     if (!termsAccepted) {
         return UI.showToast("Debes aceptar los Términos y Condiciones.", "error");
     }
@@ -83,9 +79,12 @@ export async function registerNewAccount() {
     boton.textContent = 'Creando...';
     try {
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+        const user = userCredential.user;
         
-        await db.collection('clientes').add({
-            authUID: userCredential.user.uid,
+        // ▼▼▼ CAMBIO PRINCIPAL AQUÍ ▼▼▼
+        // Usamos .doc(user.uid).set() para que el ID del documento sea el UID del usuario.
+        await db.collection('clientes').doc(user.uid).set({
+            authUID: user.uid, // Guardamos el UID también como campo para consistencia
             numeroSocio: null,
             nombre, dni, email, telefono, fechaNacimiento,
             fechaInscripcion: new Date().toISOString().split('T')[0],
@@ -94,11 +93,13 @@ export async function registerNewAccount() {
             terminosAceptados: termsAccepted,
             passwordPersonalizada: true
         });
+        // ▲▲▲ FIN DEL CAMBIO ▲▲▲
 
     } catch (error) {
         if (error.code === 'auth/email-already-in-use') {
             UI.showToast("Este email ya ha sido registrado.", "error");
         } else {
+            console.error("Error en el registro:", error);
             UI.showToast("No se pudo crear la cuenta.", "error");
         }
     } finally {
