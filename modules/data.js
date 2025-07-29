@@ -22,11 +22,8 @@ export async function listenToClientData(user) {
     UI.showScreen('loading-screen');
     if (unsubscribeCliente) unsubscribeCliente();
 
-    // ▼▼▼ ESTE ES EL CAMBIO CLAVE ▼▼▼
-    // Leemos directamente el documento del cliente usando su UID,
-    // que es la forma permitida por las nuevas reglas de seguridad.
+    // Leemos directamente el documento del cliente usando su UID.
     clienteRef = db.collection('clientes').doc(user.uid);
-    // ▲▲▲ FIN DEL CAMBIO ▲▲▲
     
     unsubscribeCliente = clienteRef.onSnapshot(async (doc) => {
         if (!doc.exists) {
