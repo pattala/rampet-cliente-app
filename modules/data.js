@@ -1,5 +1,4 @@
 // modules/data.js (PWA)
-// Gestiona el estado de la app y la comunicación con Firestore.
 
 import { db } from './firebase.js';
 import * as UI from './ui.js';
@@ -58,7 +57,10 @@ export async function acceptTerms() {
     const boton = document.getElementById('accept-terms-btn-modal');
     boton.disabled = true;
     try {
-        await clienteRef.update({ terminosAceptados: true });
+        await clienteRef.update({ 
+            terminosAceptados: true,
+            fechaAceptacionTerminos: new Date().toISOString()
+        });
         UI.showToast("¡Gracias por aceptar los términos!", "success");
         UI.closeTermsModal();
     } catch (error) {
@@ -69,7 +71,6 @@ export async function acceptTerms() {
     }
 }
 
-// Funciones de cálculo (SIN CAMBIOS)
 export function getFechaProximoVencimiento(cliente) {
     if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
     let fechaMasProxima = null;
