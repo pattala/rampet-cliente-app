@@ -135,30 +135,49 @@ export function closeChangePasswordModal() {
 // ... todo el código existente de ui.js ...
 
 /**
- * Renderiza los banners de las campañas activas en la PWA.
- * @param {Array} campañasActivas Un array con los objetos de las campañas que tienen banner.
+ * Renderiza las campañas activas: como banner si tienen URL, o como tarjeta de texto si no.
+ * @param {Array} campañasActivas Un array con los objetos de las campañas.
  */
 export function renderCampaigns(campañasActivas) {
     const container = document.getElementById('campanas-container');
-    const bannersDiv = document.getElementById('campanas-banners');
+    const contentDiv = document.getElementById('campanas-banners'); // Reutilizamos este div
 
-    if (!container || !bannersDiv) return;
+    if (!container || !contentDiv) return;
 
-    // Si no hay campañas con banner, nos aseguramos de que el contenedor esté oculto.
     if (!campañasActivas || campañasActivas.length === 0) {
         container.style.display = 'none';
         return;
     }
 
-    // Si hay campañas, mostramos el contenedor y lo llenamos.
-    bannersDiv.innerHTML = ''; // Limpiamos banners anteriores por si acaso.
+    contentDiv.innerHTML = ''; // Limpiamos contenido anterior.
     
     campañasActivas.forEach(campana => {
-        const img = document.createElement('img');
-        img.src = campana.urlBanner;
-        img.alt = campana.nombre; // El texto alternativo es bueno para la accesibilidad
-        bannersDiv.appendChild(img);
+        // Lógica para decidir qué dibujar
+        if (campana.urlBanner && campana.urlBanner.trim() !== '') {
+            // DIBUJAMOS LA IMAGEN
+            const img = document.createElement('img');
+            img.src = campana.urlBanner;
+            img.alt = campana.nombre;
+            contentDiv.appendChild(img);
+        } else {
+            // DIBUJAMOS LA TARJETA DE TEXTO
+            const textCard = document.createElement('div');
+            textCard.className = 'campaign-text-card'; // Nueva clase para darle estilo
+
+            let beneficioTexto = '';
+            if (campana.tipo === 'multiplicador_compra') {
+                beneficioTexto = `Beneficio: Puntos x${campana.valor}`;
+            } else if (campana.tipo === 'bono_fijo_compra') {
+                beneficioTexto = `Beneficio: +${campana.valor} Puntos Extra`;
+            }
+
+            textCard.innerHTML = `
+                <h4>${campana.nombre}</h4>
+                <p>${beneficioTexto}</p>
+            `;
+            contentDiv.appendChild(textCard);
+        }
     });
 
-    container.style.display = 'block'; // Mostramos el contenedor con los nuevos banners.
+    container.style.display = 'block';
 }
