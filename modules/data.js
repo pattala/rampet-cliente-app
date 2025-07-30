@@ -56,16 +56,13 @@ export async function listenToClientData(user) {
                 .get();
 
             // 2. Filtramos los resultados en el cliente para la fecha de inicio y la URL del banner
-            const campañasActivasConBanner = campañasSnapshot.docs
+            const campañasActivas = campañasSnapshot.docs
                 .map(doc => doc.data())
-                .filter(campana => {
-                    const esVigente = hoyString >= campana.fechaInicio;
-                    const tieneBanner = campana.urlBanner && campana.urlBanner.trim() !== '';
-                    return esVigente && tieneBanner;
+                .filter(campana => hoyString >= campana.fechaInicio); 
                 });
             
             // 3. Llamamos a la función de la UI para que renderice los banners
-            UI.renderCampaigns(campañasActivasConBanner);
+            UI.renderCampaigns(campañasActivas);
 
         } catch (error) {
             console.error("Error al cargar las campañas:", error);
