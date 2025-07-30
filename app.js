@@ -5,7 +5,6 @@ import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 import * as Notifications from './modules/notifications.js';
-import * as Campanas from './modules/campanas.js'; // <-- 1. NUEVA IMPORTACIÓN
 
 function safeAddEventListener(id, event, handler) {
     const element = document.getElementById(id);
@@ -43,7 +42,6 @@ function main() {
         if (user) {
             setupMainAppScreenListeners();
             Data.listenToClientData(user);
-            Campanas.cargarCampanasActivas(); // <-- 2. LLAMADA A LA NUEVA FUNCIÓN
         } else {
             setupAuthScreenListeners();
             UI.showScreen('login-screen');
