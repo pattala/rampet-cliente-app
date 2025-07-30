@@ -181,23 +181,37 @@ input:checked + .slider:before { transform: translateX(26px); }
     display: block;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
-/* --- Estilos para Tarjeta de Campaña de solo Texto --- */
-.campaign-text-card {
-    background-color: var(--background-color);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
+/* --- Estilos para Items de Campaña (Banner y/o Texto) --- */
+
+/* La tarjeta que contiene una campaña individual (imagen + texto) */
+.campaign-item-card {
+    background-color: var(--card-background);
+    border-radius: 12px;
+    overflow: hidden; /* Clave para que la imagen se ajuste a los bordes redondeados */
+    box-shadow: var(--box-shadow);
+}
+
+/* La imagen del banner dentro de la tarjeta */
+.campaign-item-card img {
+    width: 100%;
+    display: block;
+    border-bottom: 1px solid var(--border-color); /* Línea separadora si hay texto debajo */
+}
+
+/* El contenedor del texto (título y beneficio) */
+.campaign-text-content {
     padding: 15px;
     text-align: center;
 }
 
-.campaign-text-card h4 {
+.campaign-text-content h4 {
     margin: 0 0 5px 0;
     font-size: 1.1em;
     color: var(--primary-color);
-    border: none; /* Sobrescribimos el h3 general */
+    border: none;
 }
 
-.campaign-text-card p {
+.campaign-text-content p {
     margin: 0;
     font-size: 1em;
     color: var(--text-color);
