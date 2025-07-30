@@ -138,9 +138,15 @@ export function closeChangePasswordModal() {
  * Renderiza las campañas activas: como banner si tienen URL, o como tarjeta de texto si no.
  * @param {Array} campañasActivas Un array con los objetos de las campañas.
  */
+/**
+ * Renderiza las campañas activas.
+ * Muestra siempre el nombre y el beneficio en una tarjeta.
+ * Si además hay una URL de banner, la añade encima del texto.
+ * @param {Array} campañasActivas Un array con los objetos de las campañas.
+ */
 export function renderCampaigns(campañasActivas) {
     const container = document.getElementById('campanas-container');
-    const contentDiv = document.getElementById('campanas-banners'); // Reutilizamos este div
+    const contentDiv = document.getElementById('campanas-banners');
 
     if (!container || !contentDiv) return;
 
@@ -152,31 +158,42 @@ export function renderCampaigns(campañasActivas) {
     contentDiv.innerHTML = ''; // Limpiamos contenido anterior.
     
     campañasActivas.forEach(campana => {
-        // Lógica para decidir qué dibujar
+        // 1. Creamos siempre la tarjeta base que contendrá todo.
+        const campaignCard = document.createElement('div');
+        campaignCard.className = 'campaign-item-card'; // Nueva clase para la tarjeta contenedora
+
+        // 2. Creamos el contenedor para el texto del beneficio.
+        const textContent = document.createElement('div');
+        textContent.className = 'campaign-text-content';
+
+        let beneficioTexto = '';
+        if (campana.tipo === 'multiplicador_compra') {
+            beneficioTexto = `Beneficio: Puntos x${campana.valor}`;
+        } else if (campana.tipo === 'bono_fijo_compra') {
+            beneficioTexto = `Beneficio: +${campana.valor} Puntos Extra`;
+        } else {
+            // Para campañas informativas, el beneficio puede estar implícito en el nombre o banner.
+            beneficioTexto = 'Promoción Especial';
+        }
+
+        textContent.innerHTML = `
+            <h4>${campana.nombre}</h4>
+            <p>${beneficioTexto}</p>
+        `;
+
+        // 3. Si hay una URL de banner, creamos la imagen y la insertamos ANTES del texto.
         if (campana.urlBanner && campana.urlBanner.trim() !== '') {
-            // DIBUJAMOS LA IMAGEN
             const img = document.createElement('img');
             img.src = campana.urlBanner;
-            img.alt = campana.nombre;
-            contentDiv.appendChild(img);
-        } else {
-            // DIBUJAMOS LA TARJETA DE TEXTO
-            const textCard = document.createElement('div');
-            textCard.className = 'campaign-text-card'; // Nueva clase para darle estilo
-
-            let beneficioTexto = '';
-            if (campana.tipo === 'multiplicador_compra') {
-                beneficioTexto = `Beneficio: Puntos x${campana.valor}`;
-            } else if (campana.tipo === 'bono_fijo_compra') {
-                beneficioTexto = `Beneficio: +${campana.valor} Puntos Extra`;
-            }
-
-            textCard.innerHTML = `
-                <h4>${campana.nombre}</h4>
-                <p>${beneficioTexto}</p>
-            `;
-            contentDiv.appendChild(textCard);
+            img.alt = `Banner de ${campana.nombre}`;
+            campaignCard.appendChild(img); // Añadimos la imagen primero
         }
+        
+        // 4. Añadimos siempre el contenido de texto.
+        campaignCard.appendChild(textContent);
+
+        // 5. Añadimos la tarjeta completa al contenedor principal.
+        contentDiv.appendChild(campaignCard);
     });
 
     container.style.display = 'block';
