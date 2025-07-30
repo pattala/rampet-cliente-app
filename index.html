@@ -66,9 +66,6 @@
                 </div>
             </div>
 
-            <div id="campanas-container" class="card" style="display: none; background-color: transparent; box-shadow: none; padding: 0;">
-                <div id="lista-campanas" class="campanas-grid"></div>
-            </div>
             <div id="terms-banner" class="card terms-banner" style="display: none;">
                 <p>⚠️ Para poder canjear premios, debes aceptar los <a href="#" id="show-terms-link-banner">Términos y Condiciones</a>.</p>
             </div>
@@ -76,7 +73,12 @@
                 <p>Tus Puntos Disponibles</p>
                 <h2 id="cliente-puntos">--</h2>
             </div>
-
+ <div id="campanas-container" class="card campanas-card" style="display: none;">
+                <h3>Promociones para ti</h3>
+                <div id="campanas-banners">
+                    <!-- Los banners se insertarán aquí dinámicamente -->
+                </div>
+            </div>
             <div id="notif-prompt-card" class="card notif-prompt" style="display: none;">
                 <h3>¡Activa tus Beneficios Exclusivos! 🚀</h3>
                 <p>Al activar las notificaciones, te aseguras de no perderte nada importante. Si no lo haces, te perderás de:</p>
@@ -112,7 +114,7 @@
                 <p>Vencen el: <strong id="cliente-fecha-vencimiento">--</strong></p>
             </div>
             <div id="historial-container" class="card">
-                <h3>Historial Reciente</h3>
+                 <h3>Historial Reciente</h3>
                 <ul id="lista-historial"></ul>
             </div>
             <div id="premios-container" class="card">
