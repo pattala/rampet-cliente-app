@@ -17,6 +17,8 @@ export function cleanupListener() {
     clienteRef = null;
     premiosData = [];
 }
+// modules/data.js (PWA) - VERSIÓN CORREGIDA
+
 export async function listenToClientData(user) {
     UI.showScreen('loading-screen');
     if (unsubscribeCliente) unsubscribeCliente();
@@ -34,42 +36,36 @@ export async function listenToClientData(user) {
         clienteData = doc.data();
         clienteRef = doc.ref;
 
-        // La carga de premios se mantiene igual
+        // ESTE BLOQUE AHORA ESTÁ COMPLETO Y CORRECTO
         if (premiosData.length === 0) {
             try {
                 const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
                 premiosData = premiosSnapshot.docs.map(p => p.data());
             } catch (e) {
                 console.error("Error cargando premios:", e);
+                // Si fallan los premios, la app puede seguir sin ellos
             }
         }
 
-        // --> INICIO DE LA NUEVA LÓGICA DE CAMPAÑAS
         try {
             const hoy = new Date();
-            const hoyString = hoy.toISOString().split('T')[0]; // Formato 'YYYY-MM-DD'
+            const hoyString = hoy.toISOString().split('T')[0];
             
-            // 1. Hacemos una consulta inicial a Firestore
             const campañasSnapshot = await db.collection('campañas')
                 .where('habilitada', '==', true)
-                .where('fechaFin', '>=', hoyString) // Filtramos campañas cuyo fin es hoy o futuro
+                .where('fechaFin', '>=', hoyString)
                 .get();
 
-            // 2. Filtramos los resultados en el cliente para la fecha de inicio y la URL del banner
             const campañasActivas = campañasSnapshot.docs
                 .map(doc => doc.data())
-                .filter(campana => hoyString >= campana.fechaInicio); 
-                });
+                .filter(campana => hoyString >= campana.fechaInicio);
             
-            // 3. Llamamos a la función de la UI para que renderice los banners
             UI.renderCampaigns(campañasActivas);
 
         } catch (error) {
             console.error("Error al cargar las campañas:", error);
-            // Si falla, simplemente no mostramos banners, pero la app sigue funcionando
             UI.renderCampaigns([]);
         }
-        // --> FIN DE LA NUEVA LÓGICA DE CAMPAÑAS
 
         UI.renderMainScreen(clienteData, premiosData);
         Notifications.gestionarPermisoNotificaciones(clienteData); 
@@ -79,7 +75,6 @@ export async function listenToClientData(user) {
         Auth.logout();
     });
 }
-
 
 export async function acceptTerms() {
     if (!clienteRef) return;
