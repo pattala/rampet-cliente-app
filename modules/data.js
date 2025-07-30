@@ -1,4 +1,5 @@
 // modules/data.js (PWA)
+// Gestiona el estado de la app y la comunicación con Firestore.
 
 import { db } from './firebase.js';
 import * as UI from './ui.js';
@@ -16,24 +17,24 @@ export function cleanupListener() {
     clienteRef = null;
     premiosData = [];
 }
-
 export async function listenToClientData(user) {
     UI.showScreen('loading-screen');
     if (unsubscribeCliente) unsubscribeCliente();
 
-    // Leemos directamente el documento del cliente usando su UID.
-    clienteRef = db.collection('clientes').doc(user.uid);
+    const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
     
-    unsubscribeCliente = clienteRef.onSnapshot(async (doc) => {
-        if (!doc.exists) {
+    unsubscribeCliente = clienteQuery.onSnapshot(async (snapshot) => {
+        if (snapshot.empty) {
             UI.showToast("Error: Tu cuenta no está vinculada a ninguna ficha de cliente.", "error");
-            console.error("No se encontró el documento del cliente para el UID:", user.uid);
             Auth.logout();
             return;
         }
         
+        const doc = snapshot.docs[0];
         clienteData = doc.data();
+        clienteRef = doc.ref;
 
+        // La carga de premios se mantiene igual
         if (premiosData.length === 0) {
             try {
                 const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
@@ -42,6 +43,36 @@ export async function listenToClientData(user) {
                 console.error("Error cargando premios:", e);
             }
         }
+
+        // --> INICIO DE LA NUEVA LÓGICA DE CAMPAÑAS
+        try {
+            const hoy = new Date();
+            const hoyString = hoy.toISOString().split('T')[0]; // Formato 'YYYY-MM-DD'
+            
+            // 1. Hacemos una consulta inicial a Firestore
+            const campañasSnapshot = await db.collection('campañas')
+                .where('habilitada', '==', true)
+                .where('fechaFin', '>=', hoyString) // Filtramos campañas cuyo fin es hoy o futuro
+                .get();
+
+            // 2. Filtramos los resultados en el cliente para la fecha de inicio y la URL del banner
+            const campañasActivasConBanner = campañasSnapshot.docs
+                .map(doc => doc.data())
+                .filter(campana => {
+                    const esVigente = hoyString >= campana.fechaInicio;
+                    const tieneBanner = campana.urlBanner && campana.urlBanner.trim() !== '';
+                    return esVigente && tieneBanner;
+                });
+            
+            // 3. Llamamos a la función de la UI para que renderice los banners
+            UI.renderCampaigns(campañasActivasConBanner);
+
+        } catch (error) {
+            console.error("Error al cargar las campañas:", error);
+            // Si falla, simplemente no mostramos banners, pero la app sigue funcionando
+            UI.renderCampaigns([]);
+        }
+        // --> FIN DE LA NUEVA LÓGICA DE CAMPAÑAS
 
         UI.renderMainScreen(clienteData, premiosData);
         Notifications.gestionarPermisoNotificaciones(clienteData); 
@@ -52,15 +83,13 @@ export async function listenToClientData(user) {
     });
 }
 
+
 export async function acceptTerms() {
     if (!clienteRef) return;
     const boton = document.getElementById('accept-terms-btn-modal');
     boton.disabled = true;
     try {
-        await clienteRef.update({ 
-            terminosAceptados: true,
-            fechaAceptacionTerminos: new Date().toISOString()
-        });
+        await clienteRef.update({ terminosAceptados: true });
         UI.showToast("¡Gracias por aceptar los términos!", "success");
         UI.closeTermsModal();
     } catch (error) {
@@ -71,6 +100,7 @@ export async function acceptTerms() {
     }
 }
 
+// Funciones de cálculo
 export function getFechaProximoVencimiento(cliente) {
     if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
     let fechaMasProxima = null;
