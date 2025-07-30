@@ -130,3 +130,35 @@ export function closeChangePasswordModal() {
     const modal = document.getElementById('change-password-modal');
     if (modal) modal.style.display = 'none';
 }
+// panel-administrador/modules/ui.js
+
+// ... todo el código existente de ui.js ...
+
+/**
+ * Renderiza los banners de las campañas activas en la PWA.
+ * @param {Array} campañasActivas Un array con los objetos de las campañas que tienen banner.
+ */
+export function renderCampaigns(campañasActivas) {
+    const container = document.getElementById('campanas-container');
+    const bannersDiv = document.getElementById('campanas-banners');
+
+    if (!container || !bannersDiv) return;
+
+    // Si no hay campañas con banner, nos aseguramos de que el contenedor esté oculto.
+    if (!campañasActivas || campañasActivas.length === 0) {
+        container.style.display = 'none';
+        return;
+    }
+
+    // Si hay campañas, mostramos el contenedor y lo llenamos.
+    bannersDiv.innerHTML = ''; // Limpiamos banners anteriores por si acaso.
+    
+    campañasActivas.forEach(campana => {
+        const img = document.createElement('img');
+        img.src = campana.urlBanner;
+        img.alt = campana.nombre; // El texto alternativo es bueno para la accesibilidad
+        bannersDiv.appendChild(img);
+    });
+
+    container.style.display = 'block'; // Mostramos el contenedor con los nuevos banners.
+}
