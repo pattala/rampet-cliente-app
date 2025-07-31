@@ -1,12 +1,11 @@
 // ====================================================================
-// == RAMPET PWA - ARCHIVO JAVASCRIPT ÚNICO Y DEFINITIVO             ==
+// == RAMPET PWA - ARCHIVO JAVASCRIPT ÚNICO (CON TRANSICIONES MEJORADAS) ==
 // ====================================================================
 
 import { setupFirebase, checkMessagingSupport, auth, db, firebase, isMessagingSupported, messaging } from './modules/firebase.js';
-// No se importan más módulos de lógica interna.
 
 // ====================================================================
-// == LÓGICA DE UI (antes en ui.js)                                 ==
+// == LÓGICA DE UI (integrada)                                      ==
 // ====================================================================
 let carouselIntervalId = null;
 let isDragging = false, startX, startScrollLeft;
@@ -21,11 +20,31 @@ function showToast(message, type = 'info', duration = 5000) {
     setTimeout(() => toast.remove(), duration);
 }
 
+// --- FUNCIÓN showScreen MEJORADA PARA TRANSICIONES ---
 function showScreen(screenId) {
-    document.querySelectorAll('.screen').forEach(screen => screen.classList.remove('active'));
+    const screens = document.querySelectorAll('.screen');
     const screenToShow = document.getElementById(screenId);
-    if (screenToShow) screenToShow.classList.add('active');
+
+    let currentScreen = null;
+    screens.forEach(screen => {
+        if (screen.classList.contains('active')) {
+            currentScreen = screen;
+        }
+    });
+
+    if (currentScreen) {
+        if (currentScreen.id === screenId) return; // Ya estamos en la pantalla correcta
+        currentScreen.classList.add('exiting');
+        currentScreen.addEventListener('animationend', () => {
+            currentScreen.classList.remove('active', 'exiting');
+        }, { once: true });
+    }
+
+    if (screenToShow) {
+        screenToShow.classList.add('active');
+    }
 }
+// --- FIN DE LA FUNCIÓN MEJORADA ---
 
 function formatearFecha(isoDateString) { if (!isoDateString) return 'N/A'; const parts = isoDateString.split('T')[0].split('-'); if (parts.length !== 3) return 'Fecha inválida'; const fecha = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2])); if (isNaN(fecha.getTime())) return 'Fecha inválida'; const dia = String(fecha.getUTCDate()).padStart(2, '0'); const mes = String(fecha.getUTCMonth() + 1).padStart(2, '0'); const anio = fecha.getUTCFullYear(); return `${dia}/${mes}/${anio}`; }
 function renderMainScreen(clienteData, premiosData, campanasData = []) { if (!clienteData) return; document.getElementById('cliente-nombre').textContent = clienteData.nombre.split(' ')[0]; document.getElementById('cliente-numero-socio').textContent = clienteData.numeroSocio ? `#${clienteData.numeroSocio}` : 'N° Pendiente'; document.getElementById('cliente-puntos').textContent = clienteData.puntos || 0; const termsBanner = document.getElementById('terms-banner'); if (termsBanner) termsBanner.style.display = !clienteData.terminosAceptados ? 'block' : 'none'; const vencimientoCard = document.getElementById('vencimiento-card'); const puntosPorVencer = getPuntosEnProximoVencimiento(clienteData); const fechaVencimiento = getFechaProximoVencimiento(clienteData); if (vencimientoCard) { if (puntosPorVencer > 0 && fechaVencimiento) { vencimientoCard.style.display = 'block'; document.getElementById('cliente-puntos-vencimiento').textContent = puntosPorVencer; document.getElementById('cliente-fecha-vencimiento').textContent = formatearFecha(fechaVencimiento.toISOString()); } else { vencimientoCard.style.display = 'none'; } } const historialLista = document.getElementById('lista-historial'); if (historialLista) { historialLista.innerHTML = ''; const historialReciente = [...(clienteData.historialPuntos || [])].sort((a,b) => new Date(b.fechaObtencion) - new Date(a.fechaObtencion)).slice(0, 5); if (historialReciente.length > 0) { historialReciente.forEach(item => { const li = document.createElement('li'); const puntos = item.puntosObtenidos > 0 ? `+${item.puntosObtenidos}` : item.puntosObtenidos; li.innerHTML = `<span>${formatearFecha(item.fechaObtencion)}</span> <strong>${item.origen}</strong> <span class="puntos ${puntos > 0 ? 'ganados':'gastados'}">${puntos} pts</span>`; historialLista.appendChild(li); }); } else { historialLista.innerHTML = '<li>Aún no tienes movimientos.</li>'; } } const premiosLista = document.getElementById('lista-premios-cliente'); if (premiosLista) { premiosLista.innerHTML = ''; if (premiosData && premiosData.length > 0) { premiosData.forEach(premio => { const li = document.createElement('li'); const puedeCanjear = clienteData.puntos >= premio.puntos; li.className = puedeCanjear ? 'canjeable' : 'no-canjeable'; li.innerHTML = `<strong>${premio.nombre}</strong> <span class="puntos-premio">${premio.puntos} Puntos</span>`; premiosLista.appendChild(li); }); } else { premiosLista.innerHTML = '<li>No hay premios disponibles en este momento.</li>'; } } renderCampanasCarousel(campanasData); showScreen('main-app-screen'); }
@@ -36,7 +55,7 @@ function closeChangePasswordModal() { const modal = document.getElementById('cha
 function renderCampanasCarousel(campanasData) { const container = document.getElementById('carrusel-campanas-container'); const carrusel = document.getElementById('carrusel-campanas'); const indicadoresContainer = document.getElementById('carrusel-indicadores'); if (!container || !carrusel || !indicadoresContainer) return; if (carouselIntervalId) clearInterval(carouselIntervalId); const campanasVisibles = Array.isArray(campanasData) ? campanasData : []; if (campanasVisibles.length === 0) { container.style.display = 'none'; return; } container.style.display = 'block'; carrusel.innerHTML = ''; indicadoresContainer.innerHTML = ''; campanasVisibles.forEach((campana, index) => { const item = campana.urlBanner ? document.createElement('a') : document.createElement('div'); if (campana.urlBanner) { item.href = campana.urlBanner; item.target = '_blank'; item.rel = 'noopener noreferrer'; item.className = 'banner-item'; const img = document.createElement('img'); img.src = campana.urlBanner; img.alt = campana.nombre; item.appendChild(img); } else { item.className = 'banner-item-texto'; const title = document.createElement('h4'); title.textContent = campana.nombre; item.appendChild(title); if (campana.cuerpo) { const description = document.createElement('p'); description.textContent = campana.cuerpo; item.appendChild(description); } } carrusel.appendChild(item); const indicador = document.createElement('span'); indicador.className = 'indicador'; indicador.dataset.index = index; indicador.addEventListener('click', () => { const itemWidth = carrusel.children[index].offsetLeft; carrusel.scrollTo({ left: itemWidth, behavior: 'smooth' }); }); indicadoresContainer.appendChild(indicador); }); const updateActiveIndicator = () => { if (!carrusel.firstElementChild) return; const itemWidth = carrusel.firstElementChild.offsetWidth + 15; const currentIndex = Math.round(carrusel.scrollLeft / itemWidth); indicadoresContainer.querySelectorAll('.indicador').forEach((ind, idx) => { ind.classList.toggle('activo', idx === currentIndex); }); }; const startCarousel = () => { if (carouselIntervalId || isDragging) return; carouselIntervalId = setInterval(() => { if (!carrusel.firstElementChild) return; const scrollEnd = carrusel.scrollWidth - carrusel.clientWidth; if (carrusel.scrollLeft >= scrollEnd - 5) { carrusel.scrollTo({ left: 0, behavior: 'smooth' }); } else { carrusel.scrollBy({ left: carrusel.firstElementChild.offsetWidth + 15, behavior: 'smooth' }); } }, 4000); }; const stopCarousel = () => { clearInterval(carouselIntervalId); carouselIntervalId = null; }; const dragStart = (e) => { stopCarousel(); isDragging = true; carrusel.classList.add('arrastrando'); startX = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft; startScrollLeft = carrusel.scrollLeft; }; const dragStop = () => { isDragging = false; carrusel.classList.remove('arrastrando'); if (!carrusel.matches(':hover')) { startCarousel(); } }; const dragging = (e) => { if (!isDragging) return; e.preventDefault(); const x = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft; const walk = (x - startX) * 2; carrusel.scrollLeft = startScrollLeft - walk; updateActiveIndicator(); }; carrusel.addEventListener('scroll', () => { if (!isDragging) updateActiveIndicator(); }); if (campanasVisibles.length > 1) { carrusel.addEventListener('mousedown', dragStart); carrusel.addEventListener('touchstart', dragStart, { passive: true }); carrusel.addEventListener('mousemove', dragging); carrusel.addEventListener('touchmove', dragging, { passive: true }); carrusel.addEventListener('mouseup', dragStop); carrusel.addEventListener('mouseleave', dragStop); carrusel.addEventListener('touchend', dragStop); carrusel.addEventListener('mouseenter', stopCarousel); carrusel.addEventListener('mouseleave', dragStop); startCarousel(); } updateActiveIndicator(); }
 
 // ====================================================================
-// == LÓGICA DE DATOS (antes en data.js)                            ==
+// == LÓGICA DE DATOS (integrada)                                   ==
 // ====================================================================
 let clienteData = null;
 let clienteRef = null;
@@ -49,7 +68,7 @@ function getFechaProximoVencimiento(cliente) { if (!cliente.historialPuntos || c
 function getPuntosEnProximoVencimiento(cliente) { const fechaProximoVencimiento = getFechaProximoVencimiento(cliente); if (!fechaProximoVencimiento) return 0; let puntosAVencer = 0; cliente.historialPuntos.forEach(grupo => { if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') { const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z'); const fechaCaducidad = new Date(fechaObtencion); fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + (grupo.diasCaducidad || 90)); if (fechaCaducidad.getTime() === fechaProximoVencimiento.getTime()) { puntosAVencer += grupo.puntosDisponibles; } } }); return puntosAVencer; }
 
 // ====================================================================
-// == LÓGICA DE AUTENTICACIÓN (antes en auth.js)                    ==
+// == LÓGICA DE AUTENTICACIÓN (integrada)                           ==
 // ====================================================================
 async function login() { const email = document.getElementById('login-email').value.trim(); const password = document.getElementById('login-password').value; const boton = document.getElementById('login-btn'); if (!email || !password) return showToast("Ingresa tu email y contraseña.", "error"); boton.disabled = true; boton.textContent = 'Ingresando...'; try { await auth.signInWithEmailAndPassword(email, password); } catch (error) { if (['auth/user-not-found', 'auth/wrong-password', 'auth/invalid-credential'].includes(error.code)) { showToast("Email o contraseña incorrectos.", "error"); } else { showToast("Error al iniciar sesión.", "error"); } } finally { boton.disabled = false; boton.textContent = 'Ingresar'; } }
 async function sendPasswordResetFromLogin() { const email = prompt("Por favor, ingresa tu dirección de email:"); if (!email) return; try { await auth.sendPasswordResetEmail(email); showToast(`Si existe una cuenta para ${email}, recibirás un correo.`, "success", 10000); } catch (error) { showToast("Ocurrió un problema al enviar el correo.", "error"); } }
@@ -58,26 +77,9 @@ async function changePassword() { const currentPassword = document.getElementByI
 async function logout() { try { await auth.signOut(); } catch (error) { showToast("Error al cerrar sesión.", "error"); } }
 
 // ====================================================================
-// == LÓGICA DE NOTIFICACIONES (antes en notifications.js)          ==
+// == LÓGICA DE NOTIFICACIONES (integrada)                          ==
 // ====================================================================
-function gestionarPermisoNotificaciones() {
-    if (!isMessagingSupported || !auth.currentUser) return;
-    const promptCard = document.getElementById('notif-prompt-card');
-    const switchCard = document.getElementById('notif-card');
-    const blockedWarning = document.getElementById('notif-blocked-warning');
-    const popUpYaGestionado = localStorage.getItem(`notifGestionado_${auth.currentUser.uid}`);
-    promptCard.style.display = 'none';
-    switchCard.style.display = 'none';
-    blockedWarning.style.display = 'none';
-    if (Notification.permission === 'granted') { obtenerYGuardarToken(); return; }
-    if (Notification.permission === 'denied') { blockedWarning.style.display = 'block'; return; }
-    if (!popUpYaGestionado) {
-        promptCard.style.display = 'block';
-    } else {
-        switchCard.style.display = 'block';
-        document.getElementById('notif-switch').checked = false;
-    }
-}
+function gestionarPermisoNotificaciones() { if (!isMessagingSupported || !auth.currentUser) return; const promptCard = document.getElementById('notif-prompt-card'); const switchCard = document.getElementById('notif-card'); const blockedWarning = document.getElementById('notif-blocked-warning'); const popUpYaGestionado = localStorage.getItem(`notifGestionado_${auth.currentUser.uid}`); promptCard.style.display = 'none'; switchCard.style.display = 'none'; blockedWarning.style.display = 'none'; if (Notification.permission === 'granted') { obtenerYGuardarToken(); return; } if (Notification.permission === 'denied') { blockedWarning.style.display = 'block'; return; } if (!popUpYaGestionado) { promptCard.style.display = 'block'; } else { switchCard.style.display = 'block'; document.getElementById('notif-switch').checked = false; } }
 async function obtenerYGuardarToken() { if (!isMessagingSupported || !auth.currentUser) return; try { const querySnapshot = await db.collection('clientes').where('authUID', '==', auth.currentUser.uid).limit(1).get(); if (querySnapshot.empty) return; const clienteRef = querySnapshot.docs[0].ref; const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js'); await navigator.serviceWorker.ready; const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA"; const currentToken = await messaging.getToken({ vapidKey, serviceWorkerRegistration: registration }); if (currentToken) { await clienteRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) }); } } catch (err) { console.error('Error al obtener y guardar token:', err); } }
 function handlePermissionRequest() { localStorage.setItem(`notifGestionado_${auth.currentUser.uid}`, 'true'); document.getElementById('notif-prompt-card').style.display = 'none'; Notification.requestPermission().then(permission => { if (permission === 'granted') { showToast("¡Notificaciones activadas!", "success"); obtenerYGuardarToken(); } else { document.getElementById('notif-card').style.display = 'block'; document.getElementById('notif-switch').checked = false; } }); }
 function dismissPermissionRequest() { localStorage.setItem(`notifGestionado_${auth.currentUser.uid}`, 'true'); document.getElementById('notif-prompt-card').style.display = 'none'; document.getElementById('notif-card').style.display = 'block'; document.getElementById('notif-switch').checked = false; }
@@ -113,7 +115,6 @@ function initializeApp() {
     });
     auth.onAuthStateChanged(user => {
         if (user) {
-            showScreen('loading-screen');
             listenToClientData(user);
         } else {
             cleanupListener();
