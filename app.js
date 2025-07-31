@@ -38,10 +38,14 @@ function setupMainAppScreenListeners() {
 function main() {
     setupFirebase();
 
-    auth.onAuthStateChanged(user => {
+        auth.onAuthStateChanged(user => {
         if (user) {
+            // 1. Mostramos la pantalla de "Cargando..." INMEDIATAMENTE.
+            UI.showScreen('loading-screen'); 
+            
+            // 2. Luego, iniciamos la escucha de datos.
             setupMainAppScreenListeners();
-            Data.listenToClientData(user);
+            Data.listenToClientData(user); // Esta función ahora solo carga datos, no cambia la UI.
         } else {
             setupAuthScreenListeners();
             UI.showScreen('login-screen');
