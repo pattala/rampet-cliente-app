@@ -35,36 +35,35 @@ export async function listenToClientData(user) {
         clienteData = doc.data();
         clienteRef = doc.ref;
 
-        // --- INICIO DE LA NUEVA LÓGICA ---
-        // Se ejecuta en paralelo a la carga del cliente para más velocidad.
         try {
-            // Cargar premios si aún no se han cargado
             if (premiosData.length === 0) {
                 const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
                 premiosData = premiosSnapshot.docs.map(p => p.data());
             }
 
-            // Cargar campañas activas
+            // --- INICIO DE LA LÓGICA DEPURADA DE CAMPAÑAS ---
+            console.log("1. Ejecutando consulta de campañas...");
             const hoy = new Date().toISOString().split('T')[0];
             const campanasSnapshot = await db.collection('campanas')
                 .where('estaActiva', '==', true)
                 .where('fechaInicio', '<=', hoy)
                 .get();
             
-            // Filtramos por fechaFin en el cliente, ya que Firestore no permite dos rangos
+            console.log("2. Documentos recibidos de Firestore ANTES de filtrar por fecha de fin:", campanasSnapshot.docs.length);
+
             const campanasVisibles = campanasSnapshot.docs
                 .map(doc => doc.data())
                 .filter(campana => hoy <= campana.fechaFin);
 
-            // Pasamos todos los datos a la función de renderizado
+            // --->>> ¡ESTE ES EL LOG MÁS IMPORTANTE! <<<---
+            console.log("3. Campañas visibles DESPUÉS de filtrar por fecha de fin:", campanasVisibles);
+            
             UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
 
         } catch (e) {
             console.error("Error cargando datos adicionales (premios/campañas):", e);
-            // Renderizamos la pantalla principal igualmente, aunque fallen los datos secundarios
             UI.renderMainScreen(clienteData, premiosData, []);
         }
-        // --- FIN DE LA NUEVA LÓGICA ---
 
         Notifications.gestionarPermisoNotificaciones(clienteData); 
 
