@@ -2,7 +2,7 @@
 // Gestiona el estado de la app y la comunicación con Firestore.
 
 import { db } from './firebase.js';
-import * as UI from './ui.js';
+//import * as UI from './ui.js';
 import * as Auth from './auth.js';
 import * as Notifications from './notifications.js';
 
