@@ -1,4 +1,4 @@
-// app.js (PWA del Cliente - ARQUITECTURA FINAL Y ROBUSTA)
+// app.js (PWA - VERSIÓN FINAL REESTRUCTURADA)
 
 import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -6,61 +6,55 @@ import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 import * as Notifications from './modules/notifications.js';
 
-function safeAddEventListener(id, event, handler) {
-    const element = document.getElementById(id);
-    if (element) {
-        element.addEventListener(event, handler);
-    }
-}
-
-function setupAuthScreenListeners() {
-    safeAddEventListener('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
-    safeAddEventListener('show-login-link', 'click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
-    safeAddEventListener('login-btn', 'click', Auth.login);
-    safeAddEventListener('register-btn', 'click', Auth.registerNewAccount);
-    safeAddEventListener('show-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
-    safeAddEventListener('close-terms-modal', 'click', UI.closeTermsModal);
-    safeAddEventListener('forgot-password-link', 'click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
-}
-
-function setupMainAppScreenListeners() {
-    safeAddEventListener('logout-btn', 'click', Auth.logout);
-    safeAddEventListener('change-password-btn', 'click', UI.openChangePasswordModal); 
-    safeAddEventListener('show-terms-link-banner', 'click', (e) => { e.preventDefault(); UI.openTermsModal(true); });
-    safeAddEventListener('footer-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
-    safeAddEventListener('accept-terms-btn-modal', 'click', Data.acceptTerms);
-    
-    // LISTENERS PARA EL MODAL DE CONTRASEÑA
-    safeAddEventListener('close-password-modal', 'click', UI.closeChangePasswordModal);
-    safeAddEventListener('save-new-password-btn', 'click', Auth.changePassword);
-}
-
-function main() {
+/**
+ * Función central que inicializa toda la aplicación y sus listeners.
+ */
+function initializeApp() {
     setupFirebase();
 
-        auth.onAuthStateChanged(user => {
-        if (user) {
-            // 1. Mostramos la pantalla de "Cargando..." INMEDIATAMENTE.
-            UI.showScreen('loading-screen'); 
-            
-            // 2. Luego, iniciamos la escucha de datos.
-            setupMainAppScreenListeners();
-            Data.listenToClientData(user); // Esta función ahora solo carga datos, no cambia la UI.
-        } else {
-            setupAuthScreenListeners();
-            UI.showScreen('login-screen');
-        }
-    });
+    // -- LISTENERS PANTALLA DE LOGIN/REGISTRO --
+    document.getElementById('show-register-link')?.addEventListener('click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
+    document.getElementById('show-login-link')?.addEventListener('click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
+    document.getElementById('login-btn')?.addEventListener('click', Auth.login);
+    document.getElementById('register-btn')?.addEventListener('click', Auth.registerNewAccount);
+    document.getElementById('forgot-password-link')?.addEventListener('click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
 
+    // -- LISTENERS PANTALLA PRINCIPAL DE LA APP --
+    document.getElementById('logout-btn')?.addEventListener('click', Auth.logout);
+    document.getElementById('change-password-btn')?.addEventListener('click', UI.openChangePasswordModal);
+    document.getElementById('accept-terms-btn-modal')?.addEventListener('click', Data.acceptTerms);
+    
+    // -- LISTENERS MODALES --
+    document.getElementById('show-terms-link')?.addEventListener('click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
+    document.getElementById('show-terms-link-banner')?.addEventListener('click', (e) => { e.preventDefault(); UI.openTermsModal(true); });
+    document.getElementById('footer-terms-link')?.addEventListener('click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
+    document.getElementById('close-terms-modal')?.addEventListener('click', UI.closeTermsModal);
+    document.getElementById('close-password-modal')?.addEventListener('click', UI.closeChangePasswordModal);
+    document.getElementById('save-new-password-btn')?.addEventListener('click', Auth.changePassword);
+
+    // -- LISTENER DE NOTIFICACIONES (si son compatibles) --
     checkMessagingSupport().then(isSupported => {
         if (isSupported) {
-            // Conectamos los 3 listeners de notificaciones
-            safeAddEventListener('btn-activar-notif-prompt', 'click', Notifications.handlePermissionRequest);
-            safeAddEventListener('btn-rechazar-notif-prompt', 'click', Notifications.dismissPermissionRequest);
-            safeAddEventListener('notif-switch', 'change', Notifications.handlePermissionSwitch);
+            document.getElementById('btn-activar-notif-prompt')?.addEventListener('click', Notifications.handlePermissionRequest);
+            document.getElementById('btn-rechazar-notif-prompt')?.addEventListener('click', Notifications.dismissPermissionRequest);
+            document.getElementById('notif-switch')?.addEventListener('change', Notifications.handlePermissionSwitch);
             Notifications.listenForInAppMessages();
         }
     });
+
+    // --- MANEJADOR PRINCIPAL DEL ESTADO DE AUTENTICACIÓN ---
+    auth.onAuthStateChanged(user => {
+        if (user) {
+            // Si hay un usuario, mostrar "Cargando..." y luego obtener sus datos.
+            UI.showScreen('loading-screen');
+            Data.listenToClientData(user);
+        } else {
+            // Si no hay usuario, mostrar la pantalla de login.
+            Data.cleanupListener(); // Limpiar cualquier escucha de datos anterior.
+            UI.showScreen('login-screen');
+        }
+    });
 }
 
-document.addEventListener('DOMContentLoaded', main);
+// Iniciar la aplicación cuando el DOM esté listo.
+document.addEventListener('DOMContentLoaded', initializeApp);
