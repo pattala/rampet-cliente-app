@@ -19,7 +19,7 @@ export function cleanupListener() {
 }
 
 export async function listenToClientData(user) {
-    UI.showScreen('loading-screen');
+    //UI.showScreen('loading-screen');
     if (unsubscribeCliente) unsubscribeCliente();
 
     const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
