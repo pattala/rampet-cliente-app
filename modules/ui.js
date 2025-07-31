@@ -1,13 +1,22 @@
-//AAA pwa/modules/ui.js
+// pwa/modules/ui.js (VERSIÓN FINAL CON CARRUSEL MEJORADO)
 
 import * as Data from './data.js';
+
+// --- Variable global para el intervalo y estado del carrusel ---
+let carouselIntervalId = null;
+let isDragging = false, startX, startScrollLeft;
+
+
+// ====================================================================
+// == FUNCIONES DE AYUDA Y RENDERIZADO GENERAL                      ==
+// ====================================================================
 
 function safeSetText(id, content) {
     const element = document.getElementById(id);
     if (element) {
         element.textContent = content;
     } else {
-        console.warn(`[UI SafeSet] Elemento con ID "${id}" no encontrado al intentar actualizar.`);
+        console.warn(`[UI SafeSet] Elemento con ID "${id}" no encontrado.`);
     }
 }
 
@@ -100,7 +109,10 @@ export function renderMainScreen(clienteData, premiosData, campanasData = []) {
             premiosLista.innerHTML = '<li>No hay premios disponibles en este momento.</li>';
         }
     }
-renderCampanasCarousel(campanasData);
+    
+    // Llamada a la nueva función del carrusel
+    renderCampanasCarousel(campanasData);
+
     showScreen('main-app-screen');
 }
 
@@ -130,54 +142,141 @@ export function closeChangePasswordModal() {
     const modal = document.getElementById('change-password-modal');
     if (modal) modal.style.display = 'none';
 }
+
+// ====================================================================
+// == FUNCIONALIDAD DEL CARRUSEL DE CAMPAÑAS                        ==
+// ====================================================================
+
 function renderCampanasCarousel(campanasData) {
     const container = document.getElementById('carrusel-campanas-container');
     const carrusel = document.getElementById('carrusel-campanas');
-    if (!container || !carrusel) return;
+    const indicadoresContainer = document.getElementById('carrusel-indicadores');
+    if (!container || !carrusel || !indicadoresContainer) return;
 
-    // Verificación de seguridad: Asegurarnos de que campanasData sea un array.
+    if (carouselIntervalId) clearInterval(carouselIntervalId);
+
     const campanasVisibles = Array.isArray(campanasData) ? campanasData : [];
-
     if (campanasVisibles.length === 0) {
         container.style.display = 'none';
         return;
     }
 
     container.style.display = 'block';
-    carrusel.innerHTML = ''; // Limpiar contenido anterior
+    carrusel.innerHTML = '';
+    indicadoresContainer.innerHTML = '';
 
-    campanasVisibles.forEach(campana => {
-        // --- INICIO DE LA LÓGICA CONDICIONAL ---
+    campanasVisibles.forEach((campana, index) => {
+        // Crear item del carrusel (banner o tarjeta de texto)
+        const item = campana.urlBanner ? document.createElement('a') : document.createElement('div');
         if (campana.urlBanner) {
-            // Caso 1: La campaña SÍ tiene un banner
-            const link = document.createElement('a');
-            link.href = campana.urlBanner;
-            link.target = '_blank';
-            link.rel = 'noopener noreferrer';
-            link.className = 'banner-item';
-
+            item.href = campana.urlBanner;
+            item.target = '_blank';
+            item.rel = 'noopener noreferrer';
+            item.className = 'banner-item';
             const img = document.createElement('img');
             img.src = campana.urlBanner;
             img.alt = campana.nombre;
-
-            link.appendChild(img);
-            carrusel.appendChild(link);
+            item.appendChild(img);
         } else {
-            // Caso 2: La campaña NO tiene banner, creamos una tarjeta de texto
-            const textCard = document.createElement('div');
-            textCard.className = 'banner-item-texto';
-
+            item.className = 'banner-item-texto';
             const title = document.createElement('h4');
             title.textContent = campana.nombre;
-            textCard.appendChild(title);
-
+            item.appendChild(title);
             if (campana.cuerpo) {
                 const description = document.createElement('p');
                 description.textContent = campana.cuerpo;
-                textCard.appendChild(description);
+                item.appendChild(description);
             }
-            carrusel.appendChild(textCard);
         }
-        // --- FIN DE LA LÓGICA CONDICIONAL ---
+        carrusel.appendChild(item);
+
+        // Crear indicador (puntito)
+        const indicador = document.createElement('span');
+        indicador.className = 'indicador';
+        indicador.dataset.index = index;
+        indicador.addEventListener('click', () => {
+            const itemWidth = carrusel.children[index].offsetLeft;
+            carrusel.scrollTo({ left: itemWidth, behavior: 'smooth' });
+        });
+        indicadoresContainer.appendChild(indicador);
     });
+
+    // --- LÓGICA DE ACTUALIZACIÓN DE INDICADORES ---
+    const updateActiveIndicator = () => {
+        // Usamos un umbral para detectar qué item está más centrado
+        const scrollLeft = carrusel.scrollLeft;
+        const carouselCenter = scrollLeft + carrusel.offsetWidth / 2;
+        let currentIndex = 0;
+        for (let i = 0; i < carrusel.children.length; i++) {
+            const item = carrusel.children[i];
+            const itemCenter = item.offsetLeft + item.offsetWidth / 2;
+            if (Math.abs(itemCenter - carouselCenter) < item.offsetWidth / 2) {
+                currentIndex = i;
+                break;
+            }
+        }
+        
+        indicadoresContainer.querySelectorAll('.indicador').forEach((ind, idx) => {
+            ind.classList.toggle('activo', idx === currentIndex);
+        });
+    };
+    
+    // --- LÓGICA DE AUTO-SCROLL ---
+    const startCarousel = () => {
+        if (carouselIntervalId) clearInterval(carouselIntervalId);
+        carouselIntervalId = setInterval(() => {
+            if (isDragging) return;
+            const scrollEnd = carrusel.scrollWidth - carrusel.clientWidth;
+            // Si está cerca del final, volver al principio
+            if (carrusel.scrollLeft >= scrollEnd - 1) {
+                carrusel.scrollTo({ left: 0, behavior: 'smooth' });
+            } else {
+                // Si no, avanzar al siguiente item
+                carrusel.scrollBy({ left: carrusel.firstElementChild.offsetWidth + 15, behavior: 'smooth' });
+            }
+        }, 4000); // Cambiar cada 4 segundos
+    };
+
+    const stopCarousel = () => clearInterval(carouselIntervalId);
+
+    // --- LÓGICA DE ARRASTRE (SWIPE) ---
+    const dragStart = (e) => {
+        isDragging = true;
+        carrusel.classList.add('arrastrando');
+        startX = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft;
+        startScrollLeft = carrusel.scrollLeft;
+        stopCarousel();
+    };
+
+    const dragStop = () => {
+        isDragging = false;
+        carrusel.classList.remove('arrastrando');
+        startCarousel();
+    };
+    
+    const dragging = (e) => {
+        if (!isDragging) return;
+        e.preventDefault();
+        const x = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft;
+        const walk = (x - startX) * 2; // El *2 es para que se sienta más rápido
+        carrusel.scrollLeft = startScrollLeft - walk;
+        updateActiveIndicator(); // Actualizar indicador mientras se arrastra
+    };
+
+    carrusel.addEventListener('mousedown', dragStart);
+    carrusel.addEventListener('touchstart', dragStart, { passive: true });
+    carrusel.addEventListener('mousemove', dragging);
+    carrusel.addEventListener('touchmove', dragging, { passive: true });
+    carrusel.addEventListener('mouseup', dragStop);
+    carrusel.addEventListener('mouseleave', dragStop);
+    carrusel.addEventListener('touchend', dragStop);
+    carrusel.addEventListener('scroll', () => {
+        if(!isDragging) updateActiveIndicator(); // Solo actualizar en scroll si no es por arrastre
+    });
+
+    // Iniciar todo
+    updateActiveIndicator();
+    if (campanasVisibles.length > 1) {
+        startCarousel();
+    }
 }
