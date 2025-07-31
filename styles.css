@@ -210,3 +210,33 @@ input:checked + .slider:before { transform: translateX(26px); }
     box-shadow: var(--box-shadow); /* Misma sombra que las cards */
     display: block;
 }
+/* --- Estilos para los banners de solo texto en el carrusel --- */
+.carrusel .banner-item-texto {
+    flex: 0 0 70%; /* Un poco más angosto que los banners con imagen */
+    max-width: 250px;
+    padding: 15px;
+    background-color: var(--card-background);
+    border-radius: 12px;
+    box-shadow: var(--box-shadow);
+    display: flex;
+    flex-direction: column;
+    justify-content: center; /* Centrar el contenido verticalmente */
+}
+
+.carrusel .banner-item-texto h4 {
+    margin: 0 0 5px 0;
+    font-size: 1.1em;
+    color: var(--primary-color);
+}
+
+.carrusel .banner-item-texto p {
+    margin: 0;
+    font-size: 0.9em;
+    color: var(--text-color);
+    /* Limitar el texto a 3 líneas para que no se haga muy alto */
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+}
