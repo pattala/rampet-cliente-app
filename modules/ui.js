@@ -43,7 +43,7 @@ function formatearFecha(isoDateString) {
     return `${dia}/${mes}/${anio}`;
 }
 
-export function renderMainScreen(clienteData, premiosData) {
+export function renderMainScreen(clienteData, premiosData, campanasData = []) {
     if (!clienteData) return;
 
     safeSetText('cliente-nombre', clienteData.nombre.split(' ')[0]);
@@ -100,7 +100,7 @@ export function renderMainScreen(clienteData, premiosData) {
             premiosLista.innerHTML = '<li>No hay premios disponibles en este momento.</li>';
         }
     }
-
+renderCampanasCarousel(campanasData);
     showScreen('main-app-screen');
 }
 
@@ -129,4 +129,36 @@ export function openChangePasswordModal() {
 export function closeChangePasswordModal() {
     const modal = document.getElementById('change-password-modal');
     if (modal) modal.style.display = 'none';
+}
+function renderCampanasCarousel(campanasData) {
+    const container = document.getElementById('carrusel-campanas-container');
+    const carrusel = document.getElementById('carrusel-campanas');
+    if (!container || !carrusel) return;
+
+    // Si no hay campañas o ninguna tiene banner, ocultamos toda la sección
+    const campanasConBanner = campanasData.filter(c => c.urlBanner);
+
+    if (campanasConBanner.length === 0) {
+        container.style.display = 'none';
+        return;
+    }
+
+    container.style.display = 'block';
+    carrusel.innerHTML = ''; // Limpiar contenido anterior
+
+    campanasConBanner.forEach(campana => {
+        // Creamos un enlace que abre la imagen del banner en una nueva pestaña
+        const link = document.createElement('a');
+        link.href = campana.urlBanner;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.className = 'banner-item';
+
+        const img = document.createElement('img');
+        img.src = campana.urlBanner;
+        img.alt = campana.nombre; // Texto alternativo para accesibilidad
+
+        link.appendChild(img);
+        carrusel.appendChild(link);
+    });
 }
