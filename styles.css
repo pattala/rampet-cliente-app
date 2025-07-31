@@ -163,3 +163,50 @@ input:checked + .slider:before { transform: translateX(26px); }
 #notif-prompt-card .prompt-actions .secondary-btn {
     flex-grow: 1; 
 }
+/* --- Estilos para el Carrusel de Campañas --- */
+.carrusel-container {
+    margin-bottom: 20px;
+}
+.carrusel-container h3 {
+    margin-bottom: 15px; /* Espacio entre el título y el carrusel */
+}
+
+.carrusel {
+    display: flex;
+    gap: 15px; /* Espacio entre los banners */
+    overflow-x: auto; /* Permite el scroll horizontal */
+    padding-bottom: 15px; /* Espacio para que la barra de scroll no pegue con el borde */
+    -webkit-overflow-scrolling: touch; /* Scroll suave en iOS */
+    scrollbar-width: thin; /* Barra de scroll más fina en Firefox */
+}
+
+/* Estilo de la barra de scroll para Chrome/Safari */
+.carrusel::-webkit-scrollbar {
+    height: 8px;
+}
+.carrusel::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 4px;
+}
+.carrusel::-webkit-scrollbar-thumb {
+    background: #ccc;
+    border-radius: 4px;
+}
+.carrusel::-webkit-scrollbar-thumb:hover {
+    background: #aaa;
+}
+
+.carrusel .banner-item {
+    flex: 0 0 80%; /* Cada banner ocupa el 80% del ancho del contenedor */
+    max-width: 300px; /* Pero con un máximo para pantallas grandes */
+    display: block;
+    text-decoration: none;
+}
+
+.carrusel .banner-item img {
+    width: 100%;
+    height: auto;
+    border-radius: 12px; /* Mismos bordes que las cards */
+    box-shadow: var(--box-shadow); /* Misma sombra que las cards */
+    display: block;
+}
