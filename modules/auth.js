@@ -1,7 +1,7 @@
 // pwa/modules/auth.js
 
 import { auth, db, firebase } from './firebase.js';
-import * as UI from './ui.js';
+//import * as UI from './ui.js';
 import { cleanupListener } from './data.js';
 
 export async function login() {
