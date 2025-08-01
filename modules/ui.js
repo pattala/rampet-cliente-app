@@ -234,7 +234,7 @@ function renderCampanasCarousel(campanasData) {
                 // Si no, avanzar al siguiente item
                 carrusel.scrollBy({ left: carrusel.firstElementChild.offsetWidth + 15, behavior: 'smooth' });
             }
-        }, 4000); // Cambiar cada 4 segundos
+        }, 3000); // Cambiar cada 4 segundos
     };
 
     const stopCarousel = () => clearInterval(carouselIntervalId);
