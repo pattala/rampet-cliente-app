@@ -226,17 +226,40 @@ function renderCampanasCarousel(campanasData) {
         if (carouselIntervalId) clearInterval(carouselIntervalId);
         carouselIntervalId = setInterval(() => {
             if (isDragging) return;
-            const scrollEnd = carrusel.scrollWidth - carrusel.clientWidth;
-            // Si está cerca del final, volver al principio
-            if (carrusel.scrollLeft >= scrollEnd - 1) {
-                carrusel.scrollTo({ left: 0, behavior: 'smooth' });
-            } else {
-                // Si no, avanzar al siguiente item
-                carrusel.scrollBy({ left: carrusel.firstElementChild.offsetWidth + 15, behavior: 'smooth' });
-            }
-        }, 4000); // Cambiar cada 4 segundos
-    };
 
+            // 1. Encontrar el índice del banner actual (el que está más centrado)
+            const scrollLeft = carrusel.scrollLeft;
+            const carouselCenter = scrollLeft + carrusel.offsetWidth / 2;
+            let currentIndex = 0;
+            let minDistance = Infinity;
+
+            for (let i = 0; i < carrusel.children.length; i++) {
+                const item = carrusel.children[i];
+                const itemCenter = item.offsetLeft + item.offsetWidth / 2;
+                const distance = Math.abs(itemCenter - carouselCenter);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    currentIndex = i;
+                }
+            }
+
+            // 2. Calcular el índice del siguiente banner, volviendo al inicio si es necesario
+            const nextIndex = (currentIndex + 1) % carrusel.children.length;
+            const nextBanner = carrusel.children[nextIndex];
+
+            if (nextBanner) {
+                // 3. Calculamos la posición de scroll exacta para centrar el siguiente banner.
+                // Esto es clave para que funcione perfectamente con `scroll-snap-align: center`.
+                const scrollTarget = nextBanner.offsetLeft + (nextBanner.offsetWidth / 2) - (carrusel.offsetWidth / 2);
+                
+                // 4. Usamos scrollTo con el objetivo preciso para un movimiento fluido.
+                carrusel.scrollTo({
+                    left: scrollTarget,
+                    behavior: 'smooth'
+                });
+            }
+        }, 3000); // Cambiar cada 4 segundos
+    };
     const stopCarousel = () => clearInterval(carouselIntervalId);
 
     // --- LÓGICA DE ARRASTRE (SWIPE) ---
