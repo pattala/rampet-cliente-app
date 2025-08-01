@@ -1,62 +1,71 @@
-// pwa/modules/data.js (Versión Modular Correcta y Limpia)
+// modules/data.js (PWA)
+// Gestiona el estado de la app y la comunicación con Firestore.
 
 import { db } from './firebase.js';
 import * as UI from './ui.js';
 import * as Auth from './auth.js';
 import * as Notifications from './notifications.js';
 
+let clienteData = null;
 let clienteRef = null;
+let premiosData = [];
 let unsubscribeCliente = null;
 
 export function cleanupListener() {
     if (unsubscribeCliente) unsubscribeCliente();
+    clienteData = null;
     clienteRef = null;
+    premiosData = [];
 }
 
 export async function listenToClientData(user) {
+    UI.showScreen('loading-screen');
     if (unsubscribeCliente) unsubscribeCliente();
 
     const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
     
     unsubscribeCliente = clienteQuery.onSnapshot(async (snapshot) => {
         if (snapshot.empty) {
-            UI.showToast("Error: Tu cuenta no está vinculada a una ficha de cliente.", "error");
+            UI.showToast("Error: Tu cuenta no está vinculada a ninguna ficha de cliente.", "error");
             Auth.logout();
             return;
         }
         
-        const clienteData = snapshot.docs[0].data();
-        clienteRef = snapshot.docs[0].ref;
+        const doc = snapshot.docs[0];
+        clienteData = doc.data();
+        clienteRef = doc.ref;
 
         try {
-            // Obtenemos premios y campañas en paralelo para mayor eficiencia
-            const [premiosSnapshot, campanasSnapshot] = await Promise.all([
-                db.collection('premios').orderBy('puntos', 'asc').get(),
-                db.collection('campanas')
-                    .where('estaActiva', '==', true)
-                    .where('fechaInicio', '<=', new Date().toISOString().split('T')[0])
-                    .get()
-            ]);
+            if (premiosData.length === 0) {
+                const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
+                premiosData = premiosSnapshot.docs.map(p => p.data());
+            }
 
-            const premiosData = premiosSnapshot.docs.map(p => p.data());
-            
+            // --- INICIO DE LA LÓGICA DEPURADA DE CAMPAÑAS ---
+            console.log("1. Ejecutando consulta de campañas...");
             const hoy = new Date().toISOString().split('T')[0];
+            const campanasSnapshot = await db.collection('campanas')
+                .where('estaActiva', '==', true)
+                .where('fechaInicio', '<=', hoy)
+                .get();
+            
+            console.log("2. Documentos recibidos de Firestore ANTES de filtrar por fecha de fin:", campanasSnapshot.docs.length);
+
             const campanasVisibles = campanasSnapshot.docs
                 .map(doc => doc.data())
                 .filter(campana => hoy <= campana.fechaFin);
+
+            // --->>> ¡ESTE ES EL LOG MÁS IMPORTANTE! <<<---
+            console.log("3. Campañas visibles DESPUÉS de filtrar por fecha de fin:", campanasVisibles);
             
-            // Pasamos todos los datos a la UI para que los renderice
             UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
-            
-            // Le decimos al módulo de notificaciones que revise los permisos
-            Notifications.gestionarPermisoNotificaciones();
 
         } catch (e) {
             console.error("Error cargando datos adicionales (premios/campañas):", e);
-            // Si algo falla (ej. el índice de Firebase), renderizamos la app sin esos datos
-            UI.renderMainScreen(clienteData, [], []);
-            Notifications.gestionarPermisoNotificaciones();
+            UI.renderMainScreen(clienteData, premiosData, []);
         }
+
+        Notifications.gestionarPermisoNotificaciones(clienteData); 
 
     }, (error) => {
         console.error("Error en listener de cliente:", error);
@@ -74,71 +83,44 @@ export async function acceptTerms() {
         UI.closeTermsModal();
     } catch (error) {
         UI.showToast("No se pudo actualizar. Inténtalo de nuevo.", "error");
+        console.error("Error aceptando términos:", error);
     } finally {
-        if (boton) boton.disabled = false;
+        boton.disabled = false;
     }
-}```
-
----
-
-### **Acción 5: Modificar `app.js`**
-
-Finalmente, ajustamos `app.js` para que maneje el flujo de carga inicial correctamente.
-
-1.  Abre tu archivo `app.js` original.
-2.  **Reemplaza todo el contenido** con el siguiente código.
-
-```javascript
-// app.js (PWA - Versión Modular Correcta y Robusta)
-
-import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
-import * as UI from './modules/ui.js';
-import * as Data from './modules/data.js';
-import * as Auth from './modules/auth.js';
-import * as Notifications from './modules/notifications.js';
-
-function initializeApp() {
-    setupFirebase();
-
-    // --- Listeners de Eventos ---
-    document.getElementById('show-register-link')?.addEventListener('click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
-    document.getElementById('show-login-link')?.addEventListener('click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
-    document.getElementById('login-btn')?.addEventListener('click', Auth.login);
-    document.getElementById('register-btn')?.addEventListener('click', Auth.registerNewAccount);
-    document.getElementById('forgot-password-link')?.addEventListener('click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
-    document.getElementById('logout-btn')?.addEventListener('click', Auth.logout);
-    document.getElementById('change-password-btn')?.addEventListener('click', UI.openChangePasswordModal);
-    document.getElementById('accept-terms-btn-modal')?.addEventListener('click', Data.acceptTerms);
-    document.getElementById('show-terms-link')?.addEventListener('click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
-    document.getElementById('show-terms-link-banner')?.addEventListener('click', (e) => { e.preventDefault(); UI.openTermsModal(true); });
-    document.getElementById('footer-terms-link')?.addEventListener('click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
-    document.getElementById('close-terms-modal')?.addEventListener('click', UI.closeTermsModal);
-    document.getElementById('close-password-modal')?.addEventListener('click', UI.closeChangePasswordModal);
-    document.getElementById('save-new-password-btn')?.addEventListener('click', Auth.changePassword);
-
-    checkMessagingSupport().then(isSupported => {
-        if (isSupported) {
-            document.getElementById('btn-activar-notif-prompt')?.addEventListener('click', Notifications.handlePermissionRequest);
-            document.getElementById('btn-rechazar-notif-prompt')?.addEventListener('click', Notifications.dismissPermissionRequest);
-            document.getElementById('notif-switch')?.addEventListener('change', Notifications.handlePermissionSwitch);
-            Notifications.listenForInAppMessages();
-        }
-    });
-
-    // --- Manejador Principal de Autenticación (Flujo de Carga Corregido) ---
-    auth.onAuthStateChanged(user => {
-        if (user) {
-            // Si Firebase detecta un usuario, mostramos "Cargando..."
-            // y luego Data.listenToClientData se encargará de mostrar la app principal.
-            UI.showScreen('loading-screen');
-            Data.listenToClientData(user);
-        } else {
-            // Si no hay usuario, limpiamos cualquier dato residual y mostramos el Login.
-            Data.cleanupListener();
-            UI.showScreen('login-screen');
-        }
-    });
 }
 
-// Iniciar la app cuando el DOM esté listo
-document.addEventListener('DOMContentLoaded', initializeApp);
+// Funciones de cálculo
+export function getFechaProximoVencimiento(cliente) {
+    if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
+    let fechaMasProxima = null;
+    const hoy = new Date();
+    hoy.setUTCHours(0, 0, 0, 0);
+    cliente.historialPuntos.forEach(grupo => {
+        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
+            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
+            const fechaCaducidad = new Date(fechaObtencion);
+            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + (grupo.diasCaducidad || 90));
+            if (fechaCaducidad >= hoy && (fechaMasProxima === null || fechaCaducidad < fechaMasProxima)) {
+                fechaMasProxima = fechaCaducidad;
+            }
+        }
+    });
+    return fechaMasProxima;
+}
+
+export function getPuntosEnProximoVencimiento(cliente) {
+    const fechaProximoVencimiento = getFechaProximoVencimiento(cliente);
+    if (!fechaProximoVencimiento) return 0;
+    let puntosAVencer = 0;
+    cliente.historialPuntos.forEach(grupo => {
+        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
+            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
+            const fechaCaducidad = new Date(fechaObtencion);
+            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + (grupo.diasCaducidad || 90));
+            if (fechaCaducidad.getTime() === fechaProximoVencimiento.getTime()) {
+                puntosAVencer += grupo.puntosDisponibles;
+            }
+        }
+    });
+    return puntosAVencer;
+}

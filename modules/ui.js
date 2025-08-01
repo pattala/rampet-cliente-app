@@ -1,49 +1,13 @@
-// pwa/modules/ui.js (Versión Modular Correcta)
+//AAA pwa/modules/ui.js
 
-// Las funciones de cálculo de vencimiento ya no necesitan importar de data.js
-// porque los datos del cliente se pasan como parámetro. Esto rompe el ciclo.
-function getFechaProximoVencimiento(cliente) {
-    if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
-    let fechaMasProxima = null;
-    const hoy = new Date();
-    hoy.setUTCHours(0, 0, 0, 0);
-    cliente.historialPuntos.forEach(grupo => {
-        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
-            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
-            const fechaCaducidad = new Date(fechaObtencion);
-            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + (grupo.diasCaducidad || 90));
-            if (fechaCaducidad >= hoy && (fechaMasProxima === null || fechaCaducidad < fechaMasProxima)) {
-                fechaMasProxima = fechaCaducidad;
-            }
-        }
-    });
-    return fechaMasProxima;
-}
-
-function getPuntosEnProximoVencimiento(cliente) {
-    const fechaProximoVencimiento = getFechaProximoVencimiento(cliente);
-    if (!fechaProximoVencimiento) return 0;
-    let puntosAVencer = 0;
-    cliente.historialPuntos.forEach(grupo => {
-        if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') {
-            const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z');
-            const fechaCaducidad = new Date(fechaObtencion);
-            fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + (grupo.diasCaducidad || 90));
-            if (fechaCaducidad.getTime() === fechaProximoVencimiento.getTime()) {
-                puntosAVencer += grupo.puntosDisponibles;
-            }
-        }
-    });
-    return puntosAVencer;
-}
-
-
-// --- Resto de las funciones de UI ---
+import * as Data from './data.js';
 
 function safeSetText(id, content) {
     const element = document.getElementById(id);
     if (element) {
         element.textContent = content;
+    } else {
+        console.warn(`[UI SafeSet] Elemento con ID "${id}" no encontrado al intentar actualizar.`);
     }
 }
 
@@ -62,6 +26,8 @@ export function showScreen(screenId) {
     const screenToShow = document.getElementById(screenId);
     if (screenToShow) {
         screenToShow.classList.add('active');
+    } else {
+        console.error(`[UI ShowScreen] No se encontró la pantalla con ID "${screenId}".`);
     }
 }
 
@@ -77,7 +43,6 @@ function formatearFecha(isoDateString) {
     return `${dia}/${mes}/${anio}`;
 }
 
-// --- MODIFICACIÓN: Acepta campanasData ---
 export function renderMainScreen(clienteData, premiosData, campanasData = []) {
     if (!clienteData) return;
 
@@ -91,8 +56,8 @@ export function renderMainScreen(clienteData, premiosData, campanasData = []) {
     }
 
     const vencimientoCard = document.getElementById('vencimiento-card');
-    const puntosPorVencer = getPuntosEnProximoVencimiento(clienteData);
-    const fechaVencimiento = getFechaProximoVencimiento(clienteData);
+    const puntosPorVencer = Data.getPuntosEnProximoVencimiento(clienteData);
+    const fechaVencimiento = Data.getFechaProximoVencimiento(clienteData);
 
     if (vencimientoCard) {
         if (puntosPorVencer > 0 && fechaVencimiento) {
@@ -135,10 +100,7 @@ export function renderMainScreen(clienteData, premiosData, campanasData = []) {
             premiosLista.innerHTML = '<li>No hay premios disponibles en este momento.</li>';
         }
     }
-    
-    // --- NUEVO: Llamada a la función del carrusel ---
-    renderCampanasCarousel(campanasData);
-
+renderCampanasCarousel(campanasData);
     showScreen('main-app-screen');
 }
 
@@ -168,130 +130,54 @@ export function closeChangePasswordModal() {
     const modal = document.getElementById('change-password-modal');
     if (modal) modal.style.display = 'none';
 }
-
-
-// --- NUEVO: TODA LA LÓGICA DEL CARRUSEL ---
-let carouselIntervalId = null;
-let isDragging = false, startX, startScrollLeft;
-
 function renderCampanasCarousel(campanasData) {
     const container = document.getElementById('carrusel-campanas-container');
     const carrusel = document.getElementById('carrusel-campanas');
-    const indicadoresContainer = document.getElementById('carrusel-indicadores');
-    if (!container || !carrusel || !indicadoresContainer) return;
+    if (!container || !carrusel) return;
 
-    if (carouselIntervalId) clearInterval(carouselIntervalId);
-
+    // Verificación de seguridad: Asegurarnos de que campanasData sea un array.
     const campanasVisibles = Array.isArray(campanasData) ? campanasData : [];
+
     if (campanasVisibles.length === 0) {
         container.style.display = 'none';
         return;
     }
 
     container.style.display = 'block';
-    carrusel.innerHTML = '';
-    indicadoresContainer.innerHTML = '';
+    carrusel.innerHTML = ''; // Limpiar contenido anterior
 
-    campanasVisibles.forEach((campana, index) => {
-        const item = campana.urlBanner ? document.createElement('a') : document.createElement('div');
+    campanasVisibles.forEach(campana => {
+        // --- INICIO DE LA LÓGICA CONDICIONAL ---
         if (campana.urlBanner) {
-            item.href = campana.urlBanner;
-            item.target = '_blank';
-            item.rel = 'noopener noreferrer';
-            item.className = 'banner-item';
+            // Caso 1: La campaña SÍ tiene un banner
+            const link = document.createElement('a');
+            link.href = campana.urlBanner;
+            link.target = '_blank';
+            link.rel = 'noopener noreferrer';
+            link.className = 'banner-item';
+
             const img = document.createElement('img');
             img.src = campana.urlBanner;
             img.alt = campana.nombre;
-            item.appendChild(img);
+
+            link.appendChild(img);
+            carrusel.appendChild(link);
         } else {
-            item.className = 'banner-item-texto';
+            // Caso 2: La campaña NO tiene banner, creamos una tarjeta de texto
+            const textCard = document.createElement('div');
+            textCard.className = 'banner-item-texto';
+
             const title = document.createElement('h4');
             title.textContent = campana.nombre;
-            item.appendChild(title);
+            textCard.appendChild(title);
+
             if (campana.cuerpo) {
                 const description = document.createElement('p');
                 description.textContent = campana.cuerpo;
-                item.appendChild(description);
+                textCard.appendChild(description);
             }
+            carrusel.appendChild(textCard);
         }
-        carrusel.appendChild(item);
-
-        const indicador = document.createElement('span');
-        indicador.className = 'indicador';
-        indicador.dataset.index = index;
-        indicador.addEventListener('click', () => {
-            const itemWidth = carrusel.children[index].offsetLeft;
-            carrusel.scrollTo({ left: itemWidth, behavior: 'smooth' });
-        });
-        indicadoresContainer.appendChild(indicador);
+        // --- FIN DE LA LÓGICA CONDICIONAL ---
     });
-
-    const updateActiveIndicator = () => {
-        if (!carrusel.firstElementChild) return;
-        const itemWidth = carrusel.firstElementChild.offsetWidth + 15;
-        const currentIndex = Math.round(carrusel.scrollLeft / itemWidth);
-        indicadoresContainer.querySelectorAll('.indicador').forEach((ind, idx) => {
-            ind.classList.toggle('activo', idx === currentIndex);
-        });
-    };
-    
-    const startCarousel = () => {
-        if (carouselIntervalId || isDragging) return;
-        carouselIntervalId = setInterval(() => {
-            if (!carrusel.firstElementChild) return;
-            const scrollEnd = carrusel.scrollWidth - carrusel.clientWidth;
-            if (carrusel.scrollLeft >= scrollEnd - 5) {
-                carrusel.scrollTo({ left: 0, behavior: 'smooth' });
-            } else {
-                carrusel.scrollBy({ left: carrusel.firstElementChild.offsetWidth + 15, behavior: 'smooth' });
-            }
-        }, 4000);
-    };
-
-    const stopCarousel = () => {
-        clearInterval(carouselIntervalId);
-        carouselIntervalId = null;
-    };
-    
-    const dragStart = (e) => {
-        stopCarousel();
-        isDragging = true;
-        carrusel.classList.add('arrastrando');
-        startX = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft;
-        startScrollLeft = carrusel.scrollLeft;
-    };
-
-    const dragStop = () => {
-        isDragging = false;
-        carrusel.classList.remove('arrastrando');
-        if (!carrusel.matches(':hover')) {
-             startCarousel();
-        }
-    };
-    
-    const dragging = (e) => {
-        if (!isDragging) return;
-        e.preventDefault();
-        const x = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft;
-        const walk = (x - startX) * 2;
-        carrusel.scrollLeft = startScrollLeft - walk;
-        updateActiveIndicator();
-    };
-
-    carrusel.addEventListener('scroll', () => { if (!isDragging) updateActiveIndicator(); });
-
-    if (campanasVisibles.length > 1) {
-        carrusel.addEventListener('mousedown', dragStart);
-        carrusel.addEventListener('touchstart', dragStart, { passive: true });
-        carrusel.addEventListener('mousemove', dragging);
-        carrusel.addEventListener('touchmove', dragging, { passive: true });
-        carrusel.addEventListener('mouseup', dragStop);
-        carrusel.addEventListener('mouseleave', dragStop);
-        carrusel.addEventListener('touchend', dragStop);
-        carrusel.addEventListener('mouseenter', stopCarousel);
-        carrusel.addEventListener('mouseleave', dragStop);
-        startCarousel();
-    }
-    
-    updateActiveIndicator();
 }
