@@ -163,7 +163,7 @@ input:checked + .slider:before { transform: translateX(26px); }
 #notif-prompt-card .prompt-actions .secondary-btn {
     flex-grow: 1; 
 }
-/* --- Estilos para el Carrusel de Campañas --- */
+/* --- Estilos MEJORADOS para el Carrusel de Campañas --- */
 .carrusel-container {
     margin-bottom: 20px;
 }
@@ -177,23 +177,20 @@ input:checked + .slider:before { transform: translateX(26px); }
     overflow-x: auto; /* Permite el scroll horizontal */
     padding-bottom: 15px; /* Espacio para que la barra de scroll no pegue con el borde */
     -webkit-overflow-scrolling: touch; /* Scroll suave en iOS */
-    scrollbar-width: thin; /* Barra de scroll más fina en Firefox */
+
+    /* --- INICIO DE LA MEJORA --- */
+
+    /* 1. Comportamiento de scroll fluido y con "snap" (imán) */
+    scroll-behavior: smooth;       /* Hace que el autoscroll y el clic en indicadores sea suave */
+    scroll-snap-type: x mandatory; /* Activa el efecto "imán" en el eje horizontal */
+
+    /* 2. Ocultar la barra de scroll visualmente */
+    scrollbar-width: none; /* Para Firefox */
 }
 
-/* Estilo de la barra de scroll para Chrome/Safari */
+/* Oculta la barra de scroll en Chrome, Safari y Edge */
 .carrusel::-webkit-scrollbar {
-    height: 8px;
-}
-.carrusel::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 4px;
-}
-.carrusel::-webkit-scrollbar-thumb {
-    background: #ccc;
-    border-radius: 4px;
-}
-.carrusel::-webkit-scrollbar-thumb:hover {
-    background: #aaa;
+    display: none;
 }
 
 .carrusel .banner-item {
@@ -201,6 +198,9 @@ input:checked + .slider:before { transform: translateX(26px); }
     max-width: 300px; /* Pero con un máximo para pantallas grandes */
     display: block;
     text-decoration: none;
+    
+    /* 3. Definir dónde debe alinearse cada item al hacer "snap" */
+    scroll-snap-align: center; /* Cada banner se centrará automáticamente */
 }
 
 .carrusel .banner-item img {
@@ -210,6 +210,7 @@ input:checked + .slider:before { transform: translateX(26px); }
     box-shadow: var(--box-shadow); /* Misma sombra que las cards */
     display: block;
 }
+
 /* --- Estilos para los banners de solo texto en el carrusel --- */
 .carrusel .banner-item-texto {
     flex: 0 0 70%; /* Un poco más angosto que los banners con imagen */
@@ -221,6 +222,9 @@ input:checked + .slider:before { transform: translateX(26px); }
     display: flex;
     flex-direction: column;
     justify-content: center; /* Centrar el contenido verticalmente */
+
+    /* 3. También aplicamos el snap a las tarjetas de texto */
+    scroll-snap-align: center; 
 }
 
 .carrusel .banner-item-texto h4 {
@@ -233,7 +237,6 @@ input:checked + .slider:before { transform: translateX(26px); }
     margin: 0;
     font-size: 0.9em;
     color: var(--text-color);
-    /* Limitar el texto a 3 líneas para que no se haga muy alto */
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
