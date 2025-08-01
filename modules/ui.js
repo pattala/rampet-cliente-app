@@ -135,8 +135,13 @@ function renderCampanasCarousel(campanasData) {
     const carrusel = document.getElementById('carrusel-campanas');
     if (!container || !carrusel) return;
 
-    // Si no hay campañas o ninguna tiene banner, ocultamos toda la sección
-    const campanasConBanner = campanasData.filter(c => c.urlBanner);
+    // --- INICIO DE LA CORRECCIÓN ---
+    // 1. Verificación de seguridad: Asegurarnos de que campanasData sea un array.
+    // 2. Filtrar campañas que tengan una urlBanner válida y no nula.
+    const campanasConBanner = Array.isArray(campanasData) 
+        ? campanasData.filter(c => c.urlBanner) 
+        : [];
+    // --- FIN DE LA CORRECCIÓN ---
 
     if (campanasConBanner.length === 0) {
         container.style.display = 'none';
@@ -144,10 +149,9 @@ function renderCampanasCarousel(campanasData) {
     }
 
     container.style.display = 'block';
-    carrusel.innerHTML = ''; // Limpiar contenido anterior
+    carrusel.innerHTML = ''; 
 
     campanasConBanner.forEach(campana => {
-        // Creamos un enlace que abre la imagen del banner en una nueva pestaña
         const link = document.createElement('a');
         link.href = campana.urlBanner;
         link.target = '_blank';
@@ -156,7 +160,7 @@ function renderCampanasCarousel(campanasData) {
 
         const img = document.createElement('img');
         img.src = campana.urlBanner;
-        img.alt = campana.nombre; // Texto alternativo para accesibilidad
+        img.alt = campana.nombre;
 
         link.appendChild(img);
         carrusel.appendChild(link);
