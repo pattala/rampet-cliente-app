@@ -183,55 +183,43 @@ input:checked + .slider:before { transform: translateX(26px); }
     flex-grow: 1; 
 }
 /* --- Estilos para el Carrusel de Campañas --- */
+/* --- Estilos para el Carrusel de Campañas --- */
 .carrusel-container {
     margin-bottom: 20px;
 }
 .carrusel-container h3 {
-    margin-bottom: 15px; /* Espacio entre el título y el carrusel */
+    margin-bottom: 15px;
 }
-
 .carrusel {
     display: flex;
-    gap: 15px; /* Espacio entre los banners */
-    overflow-x: auto; /* Permite el scroll horizontal */
-    padding-bottom: 15px; /* Espacio para que la barra de scroll no pegue con el borde */
-    -webkit-overflow-scrolling: touch; /* Scroll suave en iOS */
-    scrollbar-width: thin; /* Barra de scroll más fina en Firefox */
+    gap: 15px;
+    overflow-x: auto;
+    padding-bottom: 15px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none; /* Oculta la barra de scroll en Firefox */
+    position: relative;
+    user-select: none; /* Evita que se seleccione el texto al arrastrar */
 }
-
-/* Estilo de la barra de scroll para Chrome/Safari */
+/* Oculta la barra de scroll en Chrome/Safari */
 .carrusel::-webkit-scrollbar {
-    height: 8px;
+    display: none;
 }
-.carrusel::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 4px;
-}
-.carrusel::-webkit-scrollbar-thumb {
-    background: #ccc;
-    border-radius: 4px;
-}
-.carrusel::-webkit-scrollbar-thumb:hover {
-    background: #aaa;
-}
-
 .carrusel .banner-item {
-    flex: 0 0 80%; /* Cada banner ocupa el 80% del ancho del contenedor */
-    max-width: 300px; /* Pero con un máximo para pantallas grandes */
+    flex: 0 0 80%;
+    max-width: 300px;
     display: block;
     text-decoration: none;
 }
-
 .carrusel .banner-item img {
     width: 100%;
     height: auto;
-    border-radius: 12px; /* Mismos bordes que las cards */
-    box-shadow: var(--box-shadow); /* Misma sombra que las cards */
+    border-radius: 12px;
+    box-shadow: var(--box-shadow);
     display: block;
+    pointer-events: none; /* Evita que la imagen interfiera con el arrastre */
 }
-/* --- Estilos para los banners de solo texto en el carrusel --- */
 .carrusel .banner-item-texto {
-    flex: 0 0 70%; /* Un poco más angosto que los banners con imagen */
+    flex: 0 0 70%;
     max-width: 250px;
     padding: 15px;
     background-color: var(--card-background);
@@ -239,32 +227,27 @@ input:checked + .slider:before { transform: translateX(26px); }
     box-shadow: var(--box-shadow);
     display: flex;
     flex-direction: column;
-    justify-content: center; /* Centrar el contenido verticalmente */
+    justify-content: center;
 }
-
 .carrusel .banner-item-texto h4 {
     margin: 0 0 5px 0;
     font-size: 1.1em;
     color: var(--primary-color);
 }
-
 .carrusel .banner-item-texto p {
     margin: 0;
     font-size: 0.9em;
     color: var(--text-color);
-    /* Limitar el texto a 3 líneas para que no se haga muy alto */
     overflow: hidden;
     text-overflow: ellipsis;
     display: -webkit-box;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
 }
-/* --- Estilos para los Indicadores del Carrusel --- */
 .carrusel-indicadores {
     text-align: center;
     margin-top: 10px;
 }
-
 .carrusel-indicadores .indicador {
     display: inline-block;
     width: 8px;
@@ -275,13 +258,10 @@ input:checked + .slider:before { transform: translateX(26px); }
     cursor: pointer;
     transition: background-color 0.3s;
 }
-
 .carrusel-indicadores .indicador.activo {
     background-color: var(--primary-color);
 }
-
-/* --- Estilo para el arrastre --- */
 .carrusel.arrastrando {
-    cursor: grabbing; /* Cambia el cursor mientras se arrastra */
-    scroll-behavior: auto; /* Desactiva el scroll suave para un arrastre más directo */
+    cursor: grabbing;
+    scroll-behavior: auto;
 }
