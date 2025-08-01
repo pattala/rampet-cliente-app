@@ -1,112 +1,62 @@
-// app.js (PWA - VERSIÓN FINAL CON GESTIÓN DE ESTADO)
+// app.js (PWA del Cliente - ARQUITECTURA FINAL Y ROBUSTA)
 
-import { setupFirebase, checkMessagingSupport, auth, db, firebase, isMessagingSupported, messaging } from './modules/firebase.js';
+import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
+import * as UI from './modules/ui.js';
+import * as Data from './modules/data.js';
+import * as Auth from './modules/auth.js';
+import * as Notifications from './modules/notifications.js';
 
-// ====================================================================
-// == LÓGICA DE UI (versión final)                                  ==
-// ====================================================================
-let activeScreenId = '';
-function showScreen(screenState) { // ej: 'loading', 'logged-out', 'logged-in'
-    const newState = `state-${screenState}`;
-    if (document.body.className !== newState) {
-        document.body.className = newState;
-    }
-    // Para el caso de login/registro
-    if (screenState === 'logged-out') {
-        document.getElementById('login-screen').style.display = 'block';
-        document.getElementById('register-screen').style.display = 'none';
-        activeScreenId = 'login-screen';
+function safeAddEventListener(id, event, handler) {
+    const element = document.getElementById(id);
+    if (element) {
+        element.addEventListener(event, handler);
     }
 }
-function showSubScreen(screenId) { // ej: 'register-screen'
-    if (activeScreenId) document.getElementById(activeScreenId).style.display = 'none';
-    document.getElementById(screenId).style.display = 'block';
-    activeScreenId = screenId;
+
+function setupAuthScreenListeners() {
+    safeAddEventListener('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
+    safeAddEventListener('show-login-link', 'click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
+    safeAddEventListener('login-btn', 'click', Auth.login);
+    safeAddEventListener('register-btn', 'click', Auth.registerNewAccount);
+    safeAddEventListener('show-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
+    safeAddEventListener('close-terms-modal', 'click', UI.closeTermsModal);
+    safeAddEventListener('forgot-password-link', 'click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
 }
 
-// ... (El resto de las funciones de UI que no cambian)
-function showToast(message, type = 'info', duration = 5000) { const container = document.getElementById('toast-container'); if (!container) return; const toast = document.createElement('div'); toast.className = `toast ${type}`; toast.textContent = message; container.appendChild(toast); setTimeout(() => { toast.remove(); }, duration); }
-function formatearFecha(isoDateString) { if (!isoDateString) return 'N/A'; const parts = isoDateString.split('T')[0].split('-'); if (parts.length !== 3) return 'Fecha inválida'; const fecha = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2])); if (isNaN(fecha.getTime())) return 'Fecha inválida'; const dia = String(fecha.getUTCDate()).padStart(2, '0'); const mes = String(fecha.getUTCMonth() + 1).padStart(2, '0'); const anio = fecha.getUTCFullYear(); return `${dia}/${mes}/${anio}`; }
-function renderMainScreen(clienteData, premiosData, campanasData = []) { if (!clienteData) return; document.getElementById('cliente-nombre').textContent = clienteData.nombre.split(' ')[0]; document.getElementById('cliente-numero-socio').textContent = clienteData.numeroSocio ? `#${clienteData.numeroSocio}` : 'N° Pendiente'; document.getElementById('cliente-puntos').textContent = clienteData.puntos || 0; const termsBanner = document.getElementById('terms-banner'); if (termsBanner) termsBanner.style.display = !clienteData.terminosAceptados ? 'block' : 'none'; const vencimientoCard = document.getElementById('vencimiento-card'); const puntosPorVencer = getPuntosEnProximoVencimiento(clienteData); const fechaVencimiento = getFechaProximoVencimiento(clienteData); if (vencimientoCard) { if (puntosPorVencer > 0 && fechaVencimiento) { vencimientoCard.style.display = 'block'; document.getElementById('cliente-puntos-vencimiento').textContent = puntosPorVencer; document.getElementById('cliente-fecha-vencimiento').textContent = formatearFecha(fechaVencimiento.toISOString()); } else { vencimientoCard.style.display = 'none'; } } const historialLista = document.getElementById('lista-historial'); if (historialLista) { historialLista.innerHTML = ''; const historialReciente = [...(clienteData.historialPuntos || [])].sort((a,b) => new Date(b.fechaObtencion) - new Date(a.fechaObtencion)).slice(0, 5); if (historialReciente.length > 0) { historialReciente.forEach(item => { const li = document.createElement('li'); const puntos = item.puntosObtenidos > 0 ? `+${item.puntosObtenidos}` : item.puntosObtenidos; li.innerHTML = `<span>${formatearFecha(item.fechaObtencion)}</span> <strong>${item.origen}</strong> <span class="puntos ${puntos > 0 ? 'ganados':'gastados'}">${puntos} pts</span>`; historialLista.appendChild(li); }); } else { historialLista.innerHTML = '<li>Aún no tienes movimientos.</li>'; } } const premiosLista = document.getElementById('lista-premios-cliente'); if (premiosLista) { premiosLista.innerHTML = ''; if (premiosData && premiosData.length > 0) { premiosData.forEach(premio => { const li = document.createElement('li'); const puedeCanjear = clienteData.puntos >= premio.puntos; li.className = puedeCanjear ? 'canjeable' : 'no-canjeable'; li.innerHTML = `<strong>${premio.nombre}</strong> <span class="puntos-premio">${premio.puntos} Puntos</span>`; premiosLista.appendChild(li); }); } else { premiosLista.innerHTML = '<li>No hay premios disponibles en este momento.</li>'; } } renderCampanasCarousel(campanasData); showScreen('logged-in'); }
-function openTermsModal(showAcceptButton) { const modal = document.getElementById('terms-modal'); const button = document.getElementById('accept-terms-btn-modal'); if(modal) modal.style.display = 'flex'; if(button) button.style.display = showAcceptButton ? 'block' : 'none'; }
-function closeTermsModal() { const modal = document.getElementById('terms-modal'); if(modal) modal.style.display = 'none'; }
-function openChangePasswordModal() { const modal = document.getElementById('change-password-modal'); if (modal) { document.getElementById('current-password').value = ''; document.getElementById('new-password').value = ''; document.getElementById('confirm-new-password').value = ''; modal.style.display = 'flex'; } }
-function closeChangePasswordModal() { const modal = document.getElementById('change-password-modal'); if (modal) modal.style.display = 'none'; }
-let carouselIntervalId = null; let isDragging = false, startX, startScrollLeft;
-function renderCampanasCarousel(campanasData) { const container = document.getElementById('carrusel-campanas-container'); const carrusel = document.getElementById('carrusel-campanas'); const indicadoresContainer = document.getElementById('carrusel-indicadores'); if (!container || !carrusel || !indicadoresContainer) return; if (carouselIntervalId) clearInterval(carouselIntervalId); const campanasVisibles = Array.isArray(campanasData) ? campanasData : []; if (campanasVisibles.length === 0) { container.style.display = 'none'; return; } container.style.display = 'block'; carrusel.innerHTML = ''; indicadoresContainer.innerHTML = ''; campanasVisibles.forEach((campana, index) => { const item = campana.urlBanner ? document.createElement('a') : document.createElement('div'); if (campana.urlBanner) { item.href = campana.urlBanner; item.target = '_blank'; item.rel = 'noopener noreferrer'; item.className = 'banner-item'; const img = document.createElement('img'); img.src = campana.urlBanner; img.alt = campana.nombre; item.appendChild(img); } else { item.className = 'banner-item-texto'; const title = document.createElement('h4'); title.textContent = campana.nombre; item.appendChild(title); if (campana.cuerpo) { const description = document.createElement('p'); description.textContent = campana.cuerpo; item.appendChild(description); } } carrusel.appendChild(item); const indicador = document.createElement('span'); indicador.className = 'indicador'; indicador.dataset.index = index; indicador.addEventListener('click', () => { const itemWidth = carrusel.children[index].offsetLeft; carrusel.scrollTo({ left: itemWidth, behavior: 'smooth' }); }); indicadoresContainer.appendChild(indicador); }); const updateActiveIndicator = () => { if (!carrusel.firstElementChild) return; const itemWidth = carrusel.firstElementChild.offsetWidth + 15; const currentIndex = Math.round(carrusel.scrollLeft / itemWidth); indicadoresContainer.querySelectorAll('.indicador').forEach((ind, idx) => { ind.classList.toggle('activo', idx === currentIndex); }); }; const startCarousel = () => { if (carouselIntervalId || isDragging) return; carouselIntervalId = setInterval(() => { if (!carrusel.firstElementChild) return; const scrollEnd = carrusel.scrollWidth - carrusel.clientWidth; if (carrusel.scrollLeft >= scrollEnd - 5) { carrusel.scrollTo({ left: 0, behavior: 'smooth' }); } else { carrusel.scrollBy({ left: carrusel.firstElementChild.offsetWidth + 15, behavior: 'smooth' }); } }, 4000); }; const stopCarousel = () => { clearInterval(carouselIntervalId); carouselIntervalId = null; }; const dragStart = (e) => { stopCarousel(); isDragging = true; carrusel.classList.add('arrastrando'); startX = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft; startScrollLeft = carrusel.scrollLeft; }; const dragStop = () => { isDragging = false; carrusel.classList.remove('arrastrando'); if (!carrusel.matches(':hover')) { startCarousel(); } }; const dragging = (e) => { if (!isDragging) return; e.preventDefault(); const x = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft; const walk = (x - startX) * 2; carrusel.scrollLeft = startScrollLeft - walk; updateActiveIndicator(); }; carrusel.addEventListener('scroll', () => { if (!isDragging) updateActiveIndicator(); }); if (campanasVisibles.length > 1) { carrusel.addEventListener('mousedown', dragStart); carrusel.addEventListener('touchstart', dragStart, { passive: true }); carrusel.addEventListener('mousemove', dragging); carrusel.addEventListener('touchmove', dragging, { passive: true }); carrusel.addEventListener('mouseup', dragStop); carrusel.addEventListener('mouseleave', dragStop); carrusel.addEventListener('touchend', dragStop); carrusel.addEventListener('mouseenter', stopCarousel); carrusel.addEventListener('mouseleave', dragStop); startCarousel(); } updateActiveIndicator(); }
+function setupMainAppScreenListeners() {
+    safeAddEventListener('logout-btn', 'click', Auth.logout);
+    safeAddEventListener('change-password-btn', 'click', UI.openChangePasswordModal); 
+    safeAddEventListener('show-terms-link-banner', 'click', (e) => { e.preventDefault(); UI.openTermsModal(true); });
+    safeAddEventListener('footer-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
+    safeAddEventListener('accept-terms-btn-modal', 'click', Data.acceptTerms);
+    
+    // LISTENERS PARA EL MODAL DE CONTRASEÑA
+    safeAddEventListener('close-password-modal', 'click', UI.closeChangePasswordModal);
+    safeAddEventListener('save-new-password-btn', 'click', Auth.changePassword);
+}
 
-// ====================================================================
-// == LÓGICA DE DATOS (integrada)                                   ==
-// ====================================================================
-let clienteRef = null;
-let unsubscribeCliente = null;
-function cleanupListener() { if (unsubscribeCliente) unsubscribeCliente(); clienteRef = null; }
-async function listenToClientData(user) { if (unsubscribeCliente) unsubscribeCliente(); const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1); unsubscribeCliente = clienteQuery.onSnapshot(async (snapshot) => { if (snapshot.empty) { showToast("Error: Cuenta no vinculada.", "error"); logout(); return; } const clienteData = snapshot.docs[0].data(); clienteRef = snapshot.docs[0].ref; try { const [premiosSnapshot, campanasSnapshot] = await Promise.all([ db.collection('premios').orderBy('puntos', 'asc').get(), db.collection('campanas').where('estaActiva', '==', true).where('fechaInicio', '<=', new Date().toISOString().split('T')[0]).get() ]); const premiosData = premiosSnapshot.docs.map(p => p.data()); const hoy = new Date().toISOString().split('T')[0]; const campanasVisibles = campanasSnapshot.docs.map(doc => doc.data()).filter(campana => hoy <= campana.fechaFin); renderMainScreen(clienteData, premiosData, campanasVisibles); gestionarPermisoNotificaciones(); } catch (e) { console.error("Error cargando datos adicionales:", e); renderMainScreen(clienteData, [], []); gestionarPermisoNotificaciones(); } }, (error) => { console.error("Error en listener de cliente:", error); logout(); }); }
-async function acceptTerms() { if (!clienteRef) return; const boton = document.getElementById('accept-terms-btn-modal'); boton.disabled = true; try { await clienteRef.update({ terminosAceptados: true }); showToast("¡Gracias por aceptar los términos!", "success"); closeTermsModal(); } catch (error) { showToast("No se pudo actualizar.", "error"); } finally { if (boton) boton.disabled = false; } }
-function getFechaProximoVencimiento(cliente) { if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null; let fechaMasProxima = null; const hoy = new Date(); hoy.setUTCHours(0, 0, 0, 0); cliente.historialPuntos.forEach(grupo => { if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') { const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z'); const fechaCaducidad = new Date(fechaObtencion); fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + (grupo.diasCaducidad || 90)); if (fechaCaducidad >= hoy && (fechaMasProxima === null || fechaCaducidad < fechaMasProxima)) { fechaMasProxima = fechaCaducidad; } } }); return fechaMasProxima; }
-function getPuntosEnProximoVencimiento(cliente) { const fechaProximoVencimiento = getFechaProximoVencimiento(cliente); if (!fechaProximoVencimiento) return 0; let puntosAVencer = 0; cliente.historialPuntos.forEach(grupo => { if (grupo.puntosDisponibles > 0 && grupo.estado !== 'Caducado') { const fechaObtencion = new Date(grupo.fechaObtencion.split('T')[0] + 'T00:00:00Z'); const fechaCaducidad = new Date(fechaObtencion); fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + (grupo.diasCaducidad || 90)); if (fechaCaducidad.getTime() === fechaProximoVencimiento.getTime()) { puntosAVencer += grupo.puntosDisponibles; } } }); return puntosAVencer; }
-
-// ====================================================================
-// == LÓGICA DE AUTENTICACIÓN (integrada)                           ==
-// ====================================================================
-async function login() { const email = document.getElementById('login-email').value.trim(); const password = document.getElementById('login-password').value; const boton = document.getElementById('login-btn'); if (!email || !password) return showToast("Ingresa tu email y contraseña.", "error"); boton.disabled = true; boton.textContent = 'Ingresando...'; try { await auth.signInWithEmailAndPassword(email, password); } catch (error) { if (['auth/user-not-found', 'auth/wrong-password', 'auth/invalid-credential'].includes(error.code)) { showToast("Email o contraseña incorrectos.", "error"); } else { showToast("Error al iniciar sesión.", "error"); } } finally { boton.disabled = false; boton.textContent = 'Ingresar'; } }
-async function sendPasswordResetFromLogin() { const email = prompt("Por favor, ingresa tu dirección de email:"); if (!email) return; try { await auth.sendPasswordResetEmail(email); showToast(`Si existe una cuenta para ${email}, recibirás un correo.`, "success", 10000); } catch (error) { showToast("Ocurrió un problema al enviar el correo.", "error"); } }
-async function registerNewAccount() { const nombre = document.getElementById('register-nombre').value.trim(); const dni = document.getElementById('register-dni').value.trim(); const email = document.getElementById('register-email').value.trim().toLowerCase(); const telefono = document.getElementById('register-telefono').value.trim(); const fechaNacimiento = document.getElementById('register-fecha-nacimiento').value; const password = document.getElementById('register-password').value; const termsAccepted = document.getElementById('register-terms').checked; if (!nombre || !dni || !email || !password || !fechaNacimiento) return showToast("Completa todos los campos.", "error"); if (!/^[0-9]+$/.test(dni) || dni.length < 6) return showToast("El DNI debe tener al menos 6 números.", "error"); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showToast("Ingresa un email válido.", "error"); if (password.length < 6) return showToast("La contraseña debe tener al menos 6 caracteres.", "error"); if (!termsAccepted) return showToast("Debes aceptar los Términos y Condiciones.", "error"); const boton = document.getElementById('register-btn'); boton.disabled = true; boton.textContent = 'Creando...'; try { const userCredential = await auth.createUserWithEmailAndPassword(email, password); await db.collection('clientes').add({ authUID: userCredential.user.uid, numeroSocio: null, nombre, dni, email, telefono, fechaNacimiento, fechaInscripcion: new Date().toISOString().split('T')[0], puntos: 0, saldoAcumulado: 0, totalGastado: 0, historialPuntos: [], historialCanjes: [], fcmTokens: [], terminosAceptados: termsAccepted, passwordPersonalizada: true }); } catch (error) { if (error.code === 'auth/email-already-in-use') { showToast("Este email ya ha sido registrado.", "error"); } else { showToast("No se pudo crear la cuenta.", "error"); } } finally { boton.disabled = false; boton.textContent = 'Crear Cuenta'; } }
-async function changePassword() { const currentPassword = document.getElementById('current-password').value; const newPassword = document.getElementById('new-password').value; const confirmNewPassword = document.getElementById('confirm-new-password').value; if (!currentPassword || !newPassword || !confirmNewPassword) return showToast("Completa todos los campos.", "error"); if (newPassword.length < 6) return showToast("La nueva contraseña debe tener al menos 6 caracteres.", "error"); if (newPassword !== confirmNewPassword) return showToast("Las nuevas contraseñas no coinciden.", "error"); const boton = document.getElementById('save-new-password-btn'); boton.disabled = true; boton.textContent = 'Guardando...'; try { const user = auth.currentUser; const credential = firebase.auth.EmailAuthProvider.credential(user.email, currentPassword); await user.reauthenticateWithCredential(credential); await user.updatePassword(newPassword); showToast("¡Contraseña actualizada con éxito!", "success"); closeChangePasswordModal(); } catch (error) { if (error.code === 'auth/wrong-password') { showToast("La contraseña actual es incorrecta.", "error"); } else { showToast("No se pudo actualizar la contraseña.", "error"); } } finally { boton.disabled = false; boton.textContent = 'Guardar Nueva Contraseña'; } }
-async function logout() { try { await auth.signOut(); } catch (error) { showToast("Error al cerrar sesión.", "error"); } }
-
-// ====================================================================
-// == LÓGICA DE NOTIFICACIONES (integrada)                          ==
-// ====================================================================
-function gestionarPermisoNotificaciones() { if (!isMessagingSupported || !auth.currentUser) return; const promptCard = document.getElementById('notif-prompt-card'); const switchCard = document.getElementById('notif-card'); const blockedWarning = document.getElementById('notif-blocked-warning'); const popUpYaGestionado = localStorage.getItem(`notifGestionado_${auth.currentUser.uid}`); promptCard.style.display = 'none'; switchCard.style.display = 'none'; blockedWarning.style.display = 'none'; if (Notification.permission === 'granted') { obtenerYGuardarToken(); return; } if (Notification.permission === 'denied') { blockedWarning.style.display = 'block'; return; } if (!popUpYaGestionado) { promptCard.style.display = 'block'; } else { switchCard.style.display = 'block'; document.getElementById('notif-switch').checked = false; } }
-async function obtenerYGuardarToken() { if (!isMessagingSupported || !auth.currentUser) return; try { const querySnapshot = await db.collection('clientes').where('authUID', '==', auth.currentUser.uid).limit(1).get(); if (querySnapshot.empty) return; const clienteRef = querySnapshot.docs[0].ref; const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js'); await navigator.serviceWorker.ready; const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA"; const currentToken = await messaging.getToken({ vapidKey, serviceWorkerRegistration: registration }); if (currentToken) { await clienteRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) }); } } catch (err) { console.error('Error al obtener y guardar token:', err); } }
-function handlePermissionRequest() { localStorage.setItem(`notifGestionado_${auth.currentUser.uid}`, 'true'); document.getElementById('notif-prompt-card').style.display = 'none'; Notification.requestPermission().then(permission => { if (permission === 'granted') { showToast("¡Notificaciones activadas!", "success"); obtenerYGuardarToken(); } else { document.getElementById('notif-card').style.display = 'block'; document.getElementById('notif-switch').checked = false; } }); }
-function dismissPermissionRequest() { localStorage.setItem(`notifGestionado_${auth.currentUser.uid}`, 'true'); document.getElementById('notif-prompt-card').style.display = 'none'; document.getElementById('notif-card').style.display = 'block'; document.getElementById('notif-switch').checked = false; }
-function handlePermissionSwitch(event) { if (event.target.checked) { Notification.requestPermission().then(permission => { if (permission === 'granted') { showToast("¡Notificaciones activadas!", "success"); document.getElementById('notif-card').style.display = 'none'; obtenerYGuardarToken(); } else { event.target.checked = false; } }); } }
-function listenForInAppMessages() { if (messaging) { messaging.onMessage((payload) => { const notificacion = payload.notification || payload.data; showToast(`📢 ${notificacion.title}: ${notificacion.body}`, 'info', 10000); }); } }
-
-// ====================================================================
-// == INICIALIZACIÓN DE LA APLICACIÓN                               ==
-// ====================================================================
-function initializeApp() {
+function main() {
     setupFirebase();
-    
-    // Iniciar con el estado de carga
-    showScreen('loading');
 
-    // -- Listeners --
-    document.getElementById('show-register-link')?.addEventListener('click', (e) => { e.preventDefault(); showSubScreen('register-screen'); });
-    document.getElementById('show-login-link')?.addEventListener('click', (e) => { e.preventDefault(); showSubScreen('login-screen'); });
-    document.getElementById('login-btn')?.addEventListener('click', login);
-    document.getElementById('register-btn')?.addEventListener('click', registerNewAccount);
-    // ... y el resto de listeners ...
-    document.getElementById('forgot-password-link')?.addEventListener('click', (e) => { e.preventDefault(); sendPasswordResetFromLogin(); });
-    document.getElementById('logout-btn')?.addEventListener('click', logout);
-    document.getElementById('change-password-btn')?.addEventListener('click', openChangePasswordModal);
-    document.getElementById('accept-terms-btn-modal')?.addEventListener('click', acceptTerms);
-    document.getElementById('show-terms-link')?.addEventListener('click', (e) => { e.preventDefault(); openTermsModal(false); });
-    document.getElementById('show-terms-link-banner')?.addEventListener('click', (e) => { e.preventDefault(); openTermsModal(true); });
-    document.getElementById('footer-terms-link')?.addEventListener('click', (e) => { e.preventDefault(); openTermsModal(false); });
-    document.getElementById('close-terms-modal')?.addEventListener('click', closeTermsModal);
-    document.getElementById('close-password-modal')?.addEventListener('click', closeChangePasswordModal);
-    document.getElementById('save-new-password-btn')?.addEventListener('click', changePassword);
-    checkMessagingSupport().then(isSupported => {
-        if (isSupported) {
-            document.getElementById('btn-activar-notif-prompt')?.addEventListener('click', handlePermissionRequest);
-            document.getElementById('btn-rechazar-notif-prompt')?.addEventListener('click', dismissPermissionRequest);
-            document.getElementById('notif-switch')?.addEventListener('change', handlePermissionSwitch);
-            listenForInAppMessages();
-        }
-    });
-    
     auth.onAuthStateChanged(user => {
         if (user) {
-            listenToClientData(user);
+            setupMainAppScreenListeners();
+            Data.listenToClientData(user);
         } else {
-            cleanupListener();
-            showScreen('logged-out');
+            setupAuthScreenListeners();
+            UI.showScreen('login-screen');
+        }
+    });
+
+    checkMessagingSupport().then(isSupported => {
+        if (isSupported) {
+            // Conectamos los 3 listeners de notificaciones
+            safeAddEventListener('btn-activar-notif-prompt', 'click', Notifications.handlePermissionRequest);
+            safeAddEventListener('btn-rechazar-notif-prompt', 'click', Notifications.dismissPermissionRequest);
+            safeAddEventListener('notif-switch', 'change', Notifications.handlePermissionSwitch);
+            Notifications.listenForInAppMessages();
         }
     });
 }
 
-document.addEventListener('DOMContentLoaded', initializeApp);
+document.addEventListener('DOMContentLoaded', main);
