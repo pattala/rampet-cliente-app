@@ -135,10 +135,10 @@ function renderCampanasCarousel(campanasData) {
     const carrusel = document.getElementById('carrusel-campanas');
     if (!container || !carrusel) return;
 
-    // Verificación de seguridad: Asegurarnos de que campanasData sea un array.
-    const campanasVisibles = Array.isArray(campanasData) ? campanasData : [];
+    // Si no hay campañas o ninguna tiene banner, ocultamos toda la sección
+    const campanasConBanner = campanasData.filter(c => c.urlBanner);
 
-    if (campanasVisibles.length === 0) {
+    if (campanasConBanner.length === 0) {
         container.style.display = 'none';
         return;
     }
@@ -146,38 +146,19 @@ function renderCampanasCarousel(campanasData) {
     container.style.display = 'block';
     carrusel.innerHTML = ''; // Limpiar contenido anterior
 
-    campanasVisibles.forEach(campana => {
-        // --- INICIO DE LA LÓGICA CONDICIONAL ---
-        if (campana.urlBanner) {
-            // Caso 1: La campaña SÍ tiene un banner
-            const link = document.createElement('a');
-            link.href = campana.urlBanner;
-            link.target = '_blank';
-            link.rel = 'noopener noreferrer';
-            link.className = 'banner-item';
+    campanasConBanner.forEach(campana => {
+        // Creamos un enlace que abre la imagen del banner en una nueva pestaña
+        const link = document.createElement('a');
+        link.href = campana.urlBanner;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.className = 'banner-item';
 
-            const img = document.createElement('img');
-            img.src = campana.urlBanner;
-            img.alt = campana.nombre;
+        const img = document.createElement('img');
+        img.src = campana.urlBanner;
+        img.alt = campana.nombre; // Texto alternativo para accesibilidad
 
-            link.appendChild(img);
-            carrusel.appendChild(link);
-        } else {
-            // Caso 2: La campaña NO tiene banner, creamos una tarjeta de texto
-            const textCard = document.createElement('div');
-            textCard.className = 'banner-item-texto';
-
-            const title = document.createElement('h4');
-            title.textContent = campana.nombre;
-            textCard.appendChild(title);
-
-            if (campana.cuerpo) {
-                const description = document.createElement('p');
-                description.textContent = campana.cuerpo;
-                textCard.appendChild(description);
-            }
-            carrusel.appendChild(textCard);
-        }
-        // --- FIN DE LA LÓGICA CONDICIONAL ---
+        link.appendChild(img);
+        carrusel.appendChild(link);
     });
 }
