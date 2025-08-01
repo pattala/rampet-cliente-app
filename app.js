@@ -1,4 +1,4 @@
-// app.js (PWA del Cliente - ARQUITECTURA FINAL Y ROBUSTA)
+//  app.js (PWA del Cliente - ARQUITECTURA FINAL Y ROBUSTA)
 
 import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -60,3 +60,4 @@ function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
