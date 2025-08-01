@@ -267,5 +267,5 @@ input:checked + .slider:before { transform: translateX(26px); }
 /* --- Estilo para el arrastre --- */
 .carrusel.arrastrando {
     cursor: grabbing; /* Cambia el cursor mientras se arrastra */
-    scroll-behavior: auto; /* Desactiva el scroll suave para un arrastre más directo */
+    //scroll-behavior: auto; /* Desactiva el scroll suave para un arrastre más directo */
 }
