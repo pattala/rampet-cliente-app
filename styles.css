@@ -240,3 +240,29 @@ input:checked + .slider:before { transform: translateX(26px); }
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
 }
+/* --- Estilos para los Indicadores del Carrusel --- */
+.carrusel-indicadores {
+    text-align: center;
+    margin-top: 10px;
+}
+
+.carrusel-indicadores .indicador {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: #ccc;
+    margin: 0 4px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.carrusel-indicadores .indicador.activo {
+    background-color: var(--primary-color);
+}
+
+/* --- Estilo para el arrastre --- */
+.carrusel.arrastrando {
+    cursor: grabbing; /* Cambia el cursor mientras se arrastra */
+    scroll-behavior: auto; /* Desactiva el scroll suave para un arrastre más directo */
+}
