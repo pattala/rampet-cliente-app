@@ -177,12 +177,13 @@ input:checked + .slider:before { transform: translateX(26px); }
     overflow-x: auto; /* Permite el scroll horizontal */
     padding-bottom: 15px; /* Espacio para que la barra de scroll no pegue con el borde */
     -webkit-overflow-scrolling: touch; /* Scroll suave en iOS */
-    scrollbar-width: thin; /* Barra de scroll más fina en Firefox */
+    scrollbar-width: none; /* Barra de scroll más fina en Firefox */
 }
 
 /* Estilo de la barra de scroll para Chrome/Safari */
 .carrusel::-webkit-scrollbar {
-    height: 8px;
+   display: none;   
+    /*height: 8px;*/
 }
 .carrusel::-webkit-scrollbar-track {
     background: #f1f1f1;
