@@ -149,13 +149,14 @@ export function closeChangePasswordModal() {
 
 // pwa/modules/ui.js -> REEMPLAZAR ESTA FUNCIÓN COMPLETA
 
+// pwa/modules/ui.js -> REEMPLAZAR ESTA FUNCIÓN COMPLETA CON LA VERSIÓN FINAL
+
 function renderCampanasCarousel(campanasData) {
     const container = document.getElementById('carrusel-campanas-container');
     const carrusel = document.getElementById('carrusel-campanas');
     const indicadoresContainer = document.getElementById('carrusel-indicadores');
     if (!container || !carrusel || !indicadoresContainer) return;
 
-    // Detenemos cualquier intervalo anterior para evitar fugas de memoria
     if (carouselIntervalId) clearInterval(carouselIntervalId);
 
     const campanasVisibles = Array.isArray(campanasData) ? campanasData : [];
@@ -168,11 +169,65 @@ function renderCampanasCarousel(campanasData) {
     carrusel.innerHTML = '';
     indicadoresContainer.innerHTML = '';
 
-    // --- NUEVA LÓGICA CON ÍNDICE ---
-    let currentIndex = 0; // Este es nuestro contador de estado
-    let isDragging = false, startX, startScrollLeft;
+    let currentIndex = 0; // Índice del banner actual.
 
+    // Función para desplazarse a un banner por su índice.
+    const scrollToIndex = (index) => {
+        const targetItem = carrusel.children[index];
+        if (targetItem) {
+            // El scroll-snap del CSS hará el trabajo de centrado.
+            // Solo necesitamos desplazarlo a su posición de inicio.
+            carrusel.scrollTo({
+                left: targetItem.offsetLeft,
+                behavior: 'smooth'
+            });
+        }
+    };
+
+    // Función para actualizar qué punto indicador está activo.
+    const updateActiveIndicator = (index) => {
+        indicadoresContainer.querySelectorAll('.indicador').forEach((ind, idx) => {
+            ind.classList.toggle('activo', idx === index);
+        });
+    };
+
+    // Lógica de auto-scroll
+    const startCarousel = () => {
+        if (carouselIntervalId) clearInterval(carouselIntervalId);
+        if (campanasVisibles.length <= 1) return; // No iniciar si no hay suficientes banners
+        
+        carouselIntervalId = setInterval(() => {
+            currentIndex = (currentIndex + 1) % campanasVisibles.length;
+            scrollToIndex(currentIndex);
+        }, 3000); // Cambia cada 4 segundos
+    };
+
+    const stopCarousel = () => clearInterval(carouselIntervalId);
+
+    // --- LA CLAVE: Intersection Observer ---
+    // Este observador se encarga de sincronizar el estado (currentIndex y los puntos)
+    // de forma eficiente cada vez que el scroll del usuario se detiene.
+    const observer = new IntersectionObserver(
+        (entries) => {
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                    // entry.target es el banner que se ha vuelto visible.
+                    // Buscamos su índice dentro de la lista de banners.
+                    const newIndex = Array.from(carrusel.children).indexOf(entry.target);
+                    currentIndex = newIndex; // Actualizamos nuestro índice de estado.
+                    updateActiveIndicator(currentIndex); // Actualizamos los puntos.
+                }
+            });
+        },
+        {
+            root: carrusel, // El scroll ocurre dentro del propio carrusel.
+            threshold: 0.75, // Se activa cuando el 75% del banner está visible.
+        }
+    );
+
+    // Creamos los banners y los indicadores
     campanasVisibles.forEach((campana, index) => {
+        // --- Creación del banner (código sin cambios) ---
         const item = campana.urlBanner ? document.createElement('a') : document.createElement('div');
         if (campana.urlBanner) {
             item.href = campana.urlBanner;
@@ -195,121 +250,23 @@ function renderCampanasCarousel(campanasData) {
             }
         }
         carrusel.appendChild(item);
+        observer.observe(item); // <- ¡Importante! Le decimos al observador que vigile este banner.
 
+        // --- Creación del indicador ---
         const indicador = document.createElement('span');
         indicador.className = 'indicador';
-        indicador.dataset.index = index;
-        indicador.addEventListener('click', () => {
-            currentIndex = index; // Actualizamos el contador
-            scrollToIndex(currentIndex);
-        });
+        indicador.addEventListener('click', () => scrollToIndex(index));
         indicadoresContainer.appendChild(indicador);
     });
-    
-    // Función para desplazarse a un índice específico
-    const scrollToIndex = (index) => {
-        const targetItem = carrusel.children[index];
-        if (targetItem) {
-            const scrollTarget = targetItem.offsetLeft + (targetItem.offsetWidth / 2) - (carrusel.offsetWidth / 2);
-            carrusel.scrollTo({ left: scrollTarget, behavior: 'smooth' });
-        }
-    };
-    
-    // Función para actualizar los indicadores (puntitos)
-    const updateActiveIndicator = () => {
-        // En lugar de calcular con el scroll, usamos nuestro contador `currentIndex`
-        indicadoresContainer.querySelectorAll('.indicador').forEach((ind, idx) => {
-            ind.classList.toggle('activo', idx === currentIndex);
-        });
-    };
-    
-    // --- LÓGICA DE AUTO-SCROLL MEJORADA ---
-    const startCarousel = () => {
-        if (carouselIntervalId) clearInterval(carouselIntervalId);
-        carouselIntervalId = setInterval(() => {
-            if (isDragging) return;
-            // Simplemente incrementamos el contador y lo reiniciamos si llega al final
-            currentIndex = (currentIndex + 1) % campanasVisibles.length;
-            scrollToIndex(currentIndex);
-            updateActiveIndicator(); // Actualizamos los puntitos
-        }, 3000);  //tiempo desplazamiento
-    };
 
-    const stopCarousel = () => clearInterval(carouselIntervalId);
-
-    // --- LÓGICA DE ARRASTRE (SWIPE) ---
-    const dragStart = (e) => {
-        isDragging = true;
-        carrusel.classList.add('arrastrando');
-        startX = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft;
-        startScrollLeft = carrusel.scrollLeft;
-        stopCarousel();
-    };
-
-    const dragStop = () => {
-        isDragging = false;
-        carrusel.classList.remove('arrastrando');
-        // RE-SINCRONIZAMOS el contador después del arrastre
-        const scrollLeft = carrusel.scrollLeft;
-        const carouselCenter = scrollLeft + carrusel.offsetWidth / 2;
-        let newIndex = 0;
-        let minDistance = Infinity;
-        for (let i = 0; i < carrusel.children.length; i++) {
-            const item = carrusel.children[i];
-            const itemCenter = item.offsetLeft + item.offsetWidth / 2;
-            const distance = Math.abs(itemCenter - carouselCenter);
-            if (distance < minDistance) {
-                minDistance = distance;
-                newIndex = i;
-            }
-        }
-        currentIndex = newIndex; // Actualizamos el contador
-        updateActiveIndicator();
-        startCarousel();
-    };
-    
-    const dragging = (e) => {
-        if (!isDragging) return;
-        e.preventDefault();
-        const x = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft;
-        const walk = (x - startX) * 2;
-        carrusel.scrollLeft = startScrollLeft - walk;
-    };
-    
-    // Escuchador de 'scroll' para actualizar los puntitos durante el arrastre
-    const onScroll = () => {
-        const scrollLeft = carrusel.scrollLeft;
-        const carouselCenter = scrollLeft + carrusel.offsetWidth / 2;
-        let newIndex = 0;
-        let minDistance = Infinity;
-        for (let i = 0; i < carrusel.children.length; i++) {
-            const item = carrusel.children[i];
-            const itemCenter = item.offsetLeft + item.offsetWidth / 2;
-            const distance = Math.abs(itemCenter - carouselCenter);
-            if (distance < minDistance) {
-                minDistance = distance;
-                newIndex = i;
-            }
-        }
-        // Solo actualizamos los puntitos, no el contador principal `currentIndex`
-        indicadoresContainer.querySelectorAll('.indicador').forEach((ind, idx) => {
-            ind.classList.toggle('activo', idx === newIndex);
-        });
-    };
-
-    // Añadimos los listeners
-    carrusel.addEventListener('mousedown', dragStart);
-    carrusel.addEventListener('touchstart', dragStart, { passive: true });
-    carrusel.addEventListener('mousemove', dragging);
-    carrusel.addEventListener('touchmove', dragging, { passive: true });
-    carrusel.addEventListener('mouseup', dragStop);
-    carrusel.addEventListener('mouseleave', dragStop);
-    carrusel.addEventListener('touchend', dragStop);
-    carrusel.addEventListener('scroll', onScroll, { passive: true });
+    // --- Mejorar la Experiencia de Usuario ---
+    // Pausamos el auto-scroll cuando el usuario interactúa con el carrusel.
+    carrusel.addEventListener('mouseenter', stopCarousel);
+    carrusel.addEventListener('mouseleave', startCarousel);
+    carrusel.addEventListener('touchstart', stopCarousel, { passive: true });
+    carrusel.addEventListener('touchend', startCarousel);
 
     // Iniciar todo
-    updateActiveIndicator();
-    if (campanasVisibles.length > 1) {
-        startCarousel();
-    }
+    updateActiveIndicator(0); // Activamos el primer punto al cargar.
+    startCarousel(); // Iniciamos el auto-scroll.
 }
