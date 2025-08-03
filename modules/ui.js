@@ -164,31 +164,50 @@ function renderCampanasCarousel(campanasData) {
     container.style.display = 'block';
     carrusel.innerHTML = '';
     indicadoresContainer.innerHTML = '';
+campanasVisibles.forEach((campana, index) => {
+    let item;
+    
+    if (campana.urlBanner) {
+        // Caso 1: Hay una imagen (puede tener texto o no)
+        item = document.createElement('a');
+        item.href = '#'; // Hacemos que no navegue para poder poner texto encima
+        item.target = '_blank';
+        item.rel = 'noopener noreferrer';
+        item.className = 'banner-item banner-con-imagen'; // Nueva clase para estilos
+        
+        const img = document.createElement('img');
+        img.src = campana.urlBanner;
+        img.alt = campana.nombre;
+        item.appendChild(img);
 
-    campanasVisibles.forEach((campana, index) => {
-        // Crear item del carrusel (banner o tarjeta de texto)
-        const item = campana.urlBanner ? document.createElement('a') : document.createElement('div');
-        if (campana.urlBanner) {
-            item.href = campana.urlBanner;
-            item.target = '_blank';
-            item.rel = 'noopener noreferrer';
-            item.className = 'banner-item';
-            const img = document.createElement('img');
-            img.src = campana.urlBanner;
-            img.alt = campana.nombre;
-            item.appendChild(img);
-        } else {
-            item.className = 'banner-item-texto';
-            const title = document.createElement('h4');
-            title.textContent = campana.nombre;
-            item.appendChild(title);
-            if (campana.cuerpo) {
-                const description = document.createElement('p');
-                description.textContent = campana.cuerpo;
-                item.appendChild(description);
-            }
+        // NUEVA LÓGICA: Si ADEMÁS hay texto, lo superponemos
+        if (campana.cuerpo) {
+            const textoOverlay = document.createElement('div');
+            textoOverlay.className = 'banner-texto-overlay';
+            const titulo = document.createElement('h4');
+            titulo.textContent = campana.nombre;
+            const parrafo = document.createElement('p');
+            parrafo.textContent = campana.cuerpo;
+            textoOverlay.appendChild(titulo);
+            textoOverlay.appendChild(parrafo);
+            item.appendChild(textoOverlay);
         }
-        carrusel.appendChild(item);
+
+    } else {
+        // Caso 2: Solo hay texto, no hay imagen
+        item = document.createElement('div');
+        item.className = 'banner-item-texto';
+        const title = document.createElement('h4');
+        title.textContent = campana.nombre;
+        item.appendChild(title);
+        if (campana.cuerpo) {
+            const description = document.createElement('p');
+            description.textContent = campana.cuerpo;
+            item.appendChild(description);
+        }
+    }
+    carrusel.appendChild(item);
+
 
         // Crear indicador (puntito)
         const indicador = document.createElement('span');
@@ -280,3 +299,4 @@ function renderCampanasCarousel(campanasData) {
         startCarousel();
     }
 }
+
