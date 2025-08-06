@@ -1,4 +1,4 @@
-// app.js (PWA del Cliente - ARQUITECTURA FINAL Y ROBUSTA)
+//  app.js (PWA del Cliente - ARQUITECTURA FINAL Y ROBUSTA)
 
 import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -19,7 +19,7 @@ function setupAuthScreenListeners() {
     safeAddEventListener('login-btn', 'click', Auth.login);
     safeAddEventListener('register-btn', 'click', Auth.registerNewAccount);
     safeAddEventListener('show-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
-    // CORRECCIÓN BUG MODAL: La línea de 'close-terms-modal' se movió a main()
+    // La línea para 'close-terms-modal' se ha movido a main() para asegurar su funcionamiento.
     safeAddEventListener('forgot-password-link', 'click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
 }
 
