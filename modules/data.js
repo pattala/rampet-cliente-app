@@ -1,4 +1,4 @@
-// modules/data.js (PWA - VERSIÓN CON LÓGICA DE VISIBILIDAD POR TESTER)
+// modules/data.js (PWA - VERSIÓN CON CORRECCIÓN EN CÁLCULO DE VENCIMIENTO)
 // Gestiona el estado de la app y la comunicación con Firestore.
 
 import { db } from './firebase.js';
@@ -41,27 +41,21 @@ export async function listenToClientData(user) {
                 premiosData = premiosSnapshot.docs.map(p => p.data());
             }
 
-            // --- INICIO DE LA NUEVA LÓGICA DE VISIBILIDAD ---
             const hoy = new Date().toISOString().split('T')[0];
             
             let campanasQuery = db.collection('campanas')
                 .where('estaActiva', '==', true)
                 .where('fechaInicio', '<=', hoy);
 
-            // Si el usuario NO es un tester, añadimos el filtro para ver solo las públicas.
-            // Si SÍ es un tester, la consulta NO lleva este filtro, por lo que traerá
-            // tanto las campañas con visibilidad 'publica' como 'prueba' (y las antiguas sin el campo).
             if (!clienteData.esTester) {
                 campanasQuery = campanasQuery.where('visibilidad', '==', 'publica');
             }
             
             const campanasSnapshot = await campanasQuery.get();
             
-            // Filtramos por fechaFin en el cliente, que es el único filtro que no se puede encadenar en Firestore.
             const campanasVisibles = campanasSnapshot.docs
                 .map(doc => doc.data())
                 .filter(campana => hoy <= campana.fechaFin);
-            // --- FIN DE LA NUEVA LÓGICA DE VISIBILIDAD ---
 
             UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
 
@@ -106,7 +100,10 @@ export function getFechaProximoVencimiento(cliente) {
             const fechaCaducidad = new Date(fechaObtencion);
             fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + (grupo.diasCaducidad || 90));
             if (fechaCaducidad >= hoy && (fechaMasProxima === null || fechaCaducidad < fechaMasProxima)) {
-                fechaMasProxima = fechaMasProxima;
+                // --- ¡AQUÍ ESTABA EL ERROR! ---
+                // La línea correcta es:
+                fechaMasProxima = fechaCaducidad;
+                // --- FIN DE LA CORRECCIÓN ---
             }
         }
     });
