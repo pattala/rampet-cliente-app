@@ -1,4 +1,4 @@
-// modules/data.js (PWA)
+// modules/data.js (PWA - VERSIÓN CON LÓGICA DE VISIBILIDAD POR TESTER)
 // Gestiona el estado de la app y la comunicación con Firestore.
 
 import { db } from './firebase.js';
@@ -35,36 +35,40 @@ export async function listenToClientData(user) {
         clienteData = doc.data();
         clienteRef = doc.ref;
 
-        // --- INICIO DE LA NUEVA LÓGICA ---
-        // Se ejecuta en paralelo a la carga del cliente para más velocidad.
         try {
-            // Cargar premios si aún no se han cargado
             if (premiosData.length === 0) {
                 const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
                 premiosData = premiosSnapshot.docs.map(p => p.data());
             }
 
-            // Cargar campañas activas
+            // --- INICIO DE LA NUEVA LÓGICA DE VISIBILIDAD ---
             const hoy = new Date().toISOString().split('T')[0];
-            const campanasSnapshot = await db.collection('campanas')
-                .where('estaActiva', '==', true)
-                .where('fechaInicio', '<=', hoy)
-                .get();
             
-            // Filtramos por fechaFin en el cliente, ya que Firestore no permite dos rangos
+            let campanasQuery = db.collection('campanas')
+                .where('estaActiva', '==', true)
+                .where('fechaInicio', '<=', hoy);
+
+            // Si el usuario NO es un tester, añadimos el filtro para ver solo las públicas.
+            // Si SÍ es un tester, la consulta NO lleva este filtro, por lo que traerá
+            // tanto las campañas con visibilidad 'publica' como 'prueba' (y las antiguas sin el campo).
+            if (!clienteData.esTester) {
+                campanasQuery = campanasQuery.where('visibilidad', '==', 'publica');
+            }
+            
+            const campanasSnapshot = await campanasQuery.get();
+            
+            // Filtramos por fechaFin en el cliente, que es el único filtro que no se puede encadenar en Firestore.
             const campanasVisibles = campanasSnapshot.docs
                 .map(doc => doc.data())
                 .filter(campana => hoy <= campana.fechaFin);
+            // --- FIN DE LA NUEVA LÓGICA DE VISIBILIDAD ---
 
-            // Pasamos todos los datos a la función de renderizado
             UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
 
         } catch (e) {
             console.error("Error cargando datos adicionales (premios/campañas):", e);
-            // Renderizamos la pantalla principal igualmente, aunque fallen los datos secundarios
             UI.renderMainScreen(clienteData, premiosData, []);
         }
-        // --- FIN DE LA NUEVA LÓGICA ---
 
         Notifications.gestionarPermisoNotificaciones(clienteData); 
 
@@ -102,7 +106,7 @@ export function getFechaProximoVencimiento(cliente) {
             const fechaCaducidad = new Date(fechaObtencion);
             fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + (grupo.diasCaducidad || 90));
             if (fechaCaducidad >= hoy && (fechaMasProxima === null || fechaCaducidad < fechaMasProxima)) {
-                fechaMasProxima = fechaCaducidad;
+                fechaMasProxima = fechaMasProxima;
             }
         }
     });
