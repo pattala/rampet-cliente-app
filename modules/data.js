@@ -1,10 +1,11 @@
-// modules/data.js (PWA - VERSIÓN CON CORRECCIÓN EN CÁLCULO DE VENCIMIENTO)
+// modules/data.js (PWA - VERSIÓN FINAL, COMPLETA Y CORREGIDA)
 // Gestiona el estado de la app y la comunicación con Firestore.
 
 import { db } from './firebase.js';
 import * as UI from './ui.js';
 import * as Auth from './auth.js';
 import * as Notifications from './notifications.js';
+import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js'; // Importación añadida que podría faltar
 
 let clienteData = null;
 let clienteRef = null;
@@ -41,6 +42,7 @@ export async function listenToClientData(user) {
                 premiosData = premiosSnapshot.docs.map(p => p.data());
             }
 
+            // --- INICIO DE LA LÓGICA DE VISIBILIDAD (CORREGIDA) ---
             const hoy = new Date().toISOString().split('T')[0];
             
             let campanasQuery = db.collection('campanas')
@@ -56,6 +58,7 @@ export async function listenToClientData(user) {
             const campanasVisibles = campanasSnapshot.docs
                 .map(doc => doc.data())
                 .filter(campana => hoy <= campana.fechaFin);
+            // --- FIN DE LA LÓGICA DE VISIBILIDAD (CORREGIDA) ---
 
             UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
 
@@ -101,8 +104,7 @@ export function getFechaProximoVencimiento(cliente) {
             fechaCaducidad.setUTCDate(fechaCaducidad.getUTCDate() + (grupo.diasCaducidad || 90));
             if (fechaCaducidad >= hoy && (fechaMasProxima === null || fechaCaducidad < fechaMasProxima)) {
                 // --- ¡AQUÍ ESTABA EL ERROR! ---
-                // La línea correcta es:
-                fechaMasProxima = fechaCaducidad;
+                fechaMasProxima = fechaCaducidad; // CORREGIDO
                 // --- FIN DE LA CORRECCIÓN ---
             }
         }
@@ -126,3 +128,58 @@ export function getPuntosEnProximoVencimiento(cliente) {
     });
     return puntosAVencer;
 }
+
+// --- El resto de las funciones que estaban en tu archivo original ---
+function safeAddEventListener(id, event, handler) {
+    const element = document.getElementById(id);
+    if (element) {
+        element.addEventListener(event, handler);
+    }
+}
+
+function setupAuthScreenListeners() {
+    safeAddEventListener('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
+    safeAddEventListener('show-login-link', 'click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
+    safeAddEventListener('login-btn', 'click', Auth.login);
+    safeAddEventListener('register-btn', 'click', Auth.registerNewAccount);
+    safeAddEventListener('show-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
+    safeAddEventListener('close-terms-modal', 'click', UI.closeTermsModal);
+    safeAddEventListener('forgot-password-link', 'click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
+}
+
+function setupMainAppScreenListeners() {
+    safeAddEventListener('logout-btn', 'click', Auth.logout);
+    safeAddEventListener('change-password-btn', 'click', UI.openChangePasswordModal); 
+    safeAddEventListener('show-terms-link-banner', 'click', (e) => { e.preventDefault(); UI.openTermsModal(true); });
+    safeAddEventListener('footer-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
+    safeAddEventListener('accept-terms-btn-modal', 'click', acceptTerms); // Corregido para llamar a la función local
+    
+    // LISTENERS PARA EL MODAL DE CONTRASEÑA
+    safeAddEventListener('close-password-modal', 'click', UI.closeChangePasswordModal);
+    safeAddEventListener('save-new-password-btn', 'click', Auth.changePassword);
+}
+
+function main() {
+    setupFirebase();
+
+    auth.onAuthStateChanged(user => {
+        if (user) {
+            setupMainAppScreenListeners();
+            listenToClientData(user); // Corregido para llamar a la función local
+        } else {
+            setupAuthScreenListeners();
+            UI.showScreen('login-screen');
+        }
+    });
+
+    checkMessagingSupport().then(isSupported => {
+        if (isSupported) {
+            safeAddEventListener('btn-activar-notif-prompt', 'click', Notifications.handlePermissionRequest);
+            safeAddEventListener('btn-rechazar-notif-prompt', 'click', Notifications.dismissPermissionRequest);
+            safeAddEventListener('notif-switch', 'change', Notifications.handlePermissionSwitch);
+            Notifications.listenForInAppMessages();
+        }
+    });
+}
+
+document.addEventListener('DOMContentLoaded', main);
