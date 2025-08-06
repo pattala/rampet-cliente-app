@@ -1,4 +1,4 @@
-//  app.js (PWA del Cliente - ARQUITECTURA FINAL Y ROBUSTA)
+// app.js (PWA del Cliente - ARQUITECTURA FINAL Y ROBUSTA)
 
 import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -19,7 +19,7 @@ function setupAuthScreenListeners() {
     safeAddEventListener('login-btn', 'click', Auth.login);
     safeAddEventListener('register-btn', 'click', Auth.registerNewAccount);
     safeAddEventListener('show-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
-    safeAddEventListener('close-terms-modal', 'click', UI.closeTermsModal);
+    // CORRECCIÓN BUG MODAL: La línea de 'close-terms-modal' se movió a main()
     safeAddEventListener('forgot-password-link', 'click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
 }
 
@@ -37,6 +37,12 @@ function setupMainAppScreenListeners() {
 
 function main() {
     setupFirebase();
+
+    // --- CORRECCIÓN DEL BUG DEL MODAL ---
+    // Este listener se añade aquí para que el botón de cerrar los términos
+    // funcione siempre, sin importar si el usuario ha iniciado sesión o no.
+    safeAddEventListener('close-terms-modal', 'click', UI.closeTermsModal);
+    // --- FIN DE LA CORRECCIÓN ---
 
     auth.onAuthStateChanged(user => {
         if (user) {
@@ -60,4 +66,3 @@ function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
