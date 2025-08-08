@@ -76,6 +76,31 @@ function setupMainAppScreenListeners() {
 
 function main() {
     setupFirebase();
+
+    // --- INICIO: LÓGICA DE ACTUALIZACIÓN FORZADA DEL SERVICE WORKER ---
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('/firebase-messaging-sw.js')
+            .then(registration => {
+                registration.onupdatefound = () => {
+                    const installingWorker = registration.installing;
+                    if (installingWorker) {
+                        installingWorker.onstatechange = () => {
+                            if (installingWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                                // ¡Nueva versión encontrada!
+                                // Mostramos un toast para que el usuario recargue.
+                                const toast = document.createElement('div');
+                                toast.className = 'toast info';
+                                toast.innerHTML = 'Nueva versión disponible. <a href="#" onclick="window.location.reload();" style="color:white; text-decoration:underline; margin-left:10px;">Recargar</a>';
+                                document.getElementById('toast-container').appendChild(toast);
+                            }
+                        };
+                    }
+                };
+            }).catch(error => {
+                console.error('Error durante el registro del Service Worker:', error);
+            });
+    }
+    // --- FIN: LÓGICA DE ACTUALIZACIÓN FORZADA ---
     safeAddEventListener('close-terms-modal', 'click', UI.closeTermsModal);
 
     auth.onAuthStateChanged(user => {
@@ -101,3 +126,4 @@ function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
