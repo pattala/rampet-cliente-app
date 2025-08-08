@@ -1,4 +1,4 @@
-// pwa/modules/auth.js (VERSIÓN CON "AVISO" A LA API)
+// pwa/modules/auth.js (VERSIÓN FINAL CON TOAST DE BIENVENIDA)
 
 import { auth, db, firebase } from './firebase.js';
 import * as UI from './ui.js';
@@ -84,8 +84,6 @@ export async function registerNewAccount() {
     try {
         const userCredential = await auth.createUserWithEmailAndPassword(email, password);
         
-        // --- INICIO: CAMBIO DE LÓGICA ---
-        // Ahora guardamos la referencia del nuevo documento para obtener su ID
         const clienteDocRef = await db.collection('clientes').add({
             authUID: userCredential.user.uid,
             numeroSocio: null,
@@ -97,14 +95,17 @@ export async function registerNewAccount() {
             passwordPersonalizada: true
         });
 
-        // --- INICIO: LÓGICA DE AVISO A LA API ---
-        // Usamos el ID del documento para "avisarle" a nuestra API que debe actuar.
+        // Avisamos a nuestra API que debe actuar.
         fetch('https://rampet-notification-server-three.vercel.app/api/assign-socio-number', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ docId: clienteDocRef.id })
         }).catch(err => console.error("Fallo al avisar a la API para asignar N° Socio:", err));
-        // --- FIN: LÓGICA DE AVISO A LA API ---
+        
+        // === LÍNEA AÑADIDA ===
+        // Mostramos un mensaje de éxito inmediato al usuario.
+        UI.showToast("¡Registro exitoso! Bienvenido/a al Club.", "success");
+        // =======================
 
     } catch (error) {
         if (error.code === 'auth/email-already-in-use') {
