@@ -1,4 +1,4 @@
-// app.js (PWA del Cliente - CON LÓGICA DE INSTALACIÓN)
+// app.js (PWA del Cliente - CON LÓGICA DE INSTALACIÓN ROBUSTA)
 
 import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -6,48 +6,42 @@ import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 import * as Notifications from './modules/notifications.js';
 
-// == INICIO: LÓGICA DE INSTALACIÓN PWA ==
-// Variable global para guardar el evento que nos permitirá mostrar el prompt de instalación.
+// --- LÓGICA DE INSTALACIÓN PWA (VERSIÓN MEJORADA) ---
 let deferredInstallPrompt = null;
 
-// Escuchamos el evento que dispara el navegador cuando la PWA es instalable.
 window.addEventListener('beforeinstallprompt', (e) => {
-    // Prevenimos que el navegador muestre su propio mini-banner.
     e.preventDefault();
-    // Guardamos el evento para poder usarlo más tarde.
     deferredInstallPrompt = e;
     console.log('✅ Evento "beforeinstallprompt" capturado. La app es instalable.');
 });
 
-// Función para mostrar el prompt de instalación.
-async function handleInstallPrompt() {
-    if (!deferredInstallPrompt) {
-        console.log('El evento de instalación no está disponible.');
-        return;
+// Función para mostrar el banner de instalación si corresponde.
+function showInstallPromptIfAvailable() {
+    // Comprobamos si la app es instalable Y si el usuario no lo ha rechazado antes.
+    if (deferredInstallPrompt && !localStorage.getItem('installDismissed')) {
+        const installCard = document.getElementById('install-prompt-card');
+        if (installCard) {
+            installCard.style.display = 'block';
+        }
     }
-    // Mostramos el diálogo de instalación nativo del sistema operativo.
+}
+
+async function handleInstallPrompt() {
+    if (!deferredInstallPrompt) return;
     deferredInstallPrompt.prompt();
-    // Esperamos a que el usuario tome una decisión.
     const { outcome } = await deferredInstallPrompt.userChoice;
     console.log(`El usuario ha elegido: ${outcome}`);
-    // Limpiamos la variable, ya que el prompt solo se puede usar una vez.
     deferredInstallPrompt = null;
-    // Ocultamos nuestro banner personalizado.
     document.getElementById('install-prompt-card').style.display = 'none';
 }
 
-// Función para ocultar el banner si el usuario no quiere instalar.
+// Si el usuario rechaza, lo guardamos para no volver a preguntar.
 function handleDismissInstall() {
-    deferredInstallPrompt = null;
+    localStorage.setItem('installDismissed', 'true');
     document.getElementById('install-prompt-card').style.display = 'none';
     console.log('El usuario ha descartado la instalación.');
 }
-
-// Exportamos la variable para que otros módulos puedan comprobar si la app es instalable.
-export function isInstallable() {
-    return deferredInstallPrompt !== null;
-}
-// == FIN: LÓGICA DE INSTALACIÓN PWA ==
+// --- FIN LÓGICA DE INSTALACIÓN ---
 
 
 function safeAddEventListener(id, event, handler) {
@@ -76,7 +70,6 @@ function setupMainAppScreenListeners() {
     safeAddEventListener('close-password-modal', 'click', UI.closeChangePasswordModal);
     safeAddEventListener('save-new-password-btn', 'click', Auth.changePassword);
 
-    // Conectamos los listeners para los botones del nuevo banner de instalación.
     safeAddEventListener('btn-install-pwa', 'click', handleInstallPrompt);
     safeAddEventListener('btn-dismiss-install', 'click', handleDismissInstall);
 }
@@ -89,6 +82,8 @@ function main() {
         if (user) {
             setupMainAppScreenListeners();
             Data.listenToClientData(user);
+            // == ¡NUEVA LÍNEA CLAVE! Mostramos el prompt de instalación al iniciar sesión. ==
+            showInstallPromptIfAvailable(); 
         } else {
             setupAuthScreenListeners();
             UI.showScreen('login-screen');
