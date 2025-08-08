@@ -36,22 +36,42 @@ export function gestionarPermisoNotificaciones() {
 }
 
 async function obtenerYGuardarToken() {
-    if (!isMessagingSupported || !auth.currentUser) return;
+    // Añadimos una comprobación extra para asegurarnos de que 'messaging' está disponible
+    if (!isMessagingSupported || !auth.currentUser || !messaging) {
+        console.warn("Messaging no soportado o no inicializado, no se puede obtener el token.");
+        return;
+    }
+    
     try {
         const querySnapshot = await db.collection('clientes').where('authUID', '==', auth.currentUser.uid).limit(1).get();
         if (querySnapshot.empty) return;
         const clienteRef = querySnapshot.docs[0].ref;
 
-        const registration = await navigator.service-worker.register('/firebase-messaging-sw.js');
-        await navigator.service-worker.ready;
+        // --- INICIO DE LA CORRECCIÓN CLAVE ---
+        // Nos aseguramos de que el Service Worker esté registrado y completamente activo ANTES de pedir el token.
+        // navigator.serviceWorker.ready es una promesa que se resuelve cuando el SW está listo.
+        const registration = await navigator.serviceWorker.ready;
+        
         const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
-        const currentToken = await messaging.getToken({ vapidKey, serviceWorkerRegistration: registration });
+        
+        const currentToken = await messaging.getToken({ 
+            vapidKey: vapidKey,
+            serviceWorkerRegistration: registration // Pasamos el registro activo
+        });
+        // --- FIN DE LA CORRECCIÓN CLAVE ---
         
         if (currentToken) {
             await clienteRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) });
+            console.log("Token de notificación guardado/actualizado con éxito.");
+        } else {
+            console.warn("No se pudo obtener el token de registro. Esto puede ocurrir si el usuario revocó el permiso.");
         }
     } catch (err) {
         console.error('Error al obtener y guardar token:', err);
+        // Si el error es de permisos, mostramos la advertencia de bloqueo.
+        if (err.code === 'messaging/permission-blocked' || err.code === 'messaging/permission-default') {
+            document.getElementById('notif-blocked-warning').style.display = 'block';
+        }
     }
 }
 
@@ -99,3 +119,4 @@ export function listenForInAppMessages() {
         });
     }
 }
+
