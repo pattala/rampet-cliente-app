@@ -82,7 +82,7 @@ function main() {
         if (user) {
             setupMainAppScreenListeners();
             Data.listenToClientData(user);
-            // == ¡NUEVA LÍNEA CLAVE! Mostramos el prompt de instalación al iniciar sesión. ==
+            // ¡Mostramos el prompt de instalación al iniciar sesión!
             showInstallPromptIfAvailable(); 
         } else {
             setupAuthScreenListeners();
