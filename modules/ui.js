@@ -20,7 +20,7 @@ function safeSetText(id, content) {
     }
 }
 
-export function showToast(message, type = 'info', duration = 5000) {
+export function showToast(message, type = 'info', duration = 6000) {
     const container = document.getElementById('toast-container');
     if (!container) return;
     const toast = document.createElement('div');
@@ -56,7 +56,7 @@ export function renderMainScreen(clienteData, premiosData, campanasData = []) {
     if (!clienteData) return;
 
     safeSetText('cliente-nombre', clienteData.nombre.split(' ')[0]);
-    safeSetText('cliente-numero-socio', clienteData.numeroSocio ? `#${clienteData.numeroSocio}` : 'N° Pendiente');
+    safeSetText('cliente-numero-socio', clienteData.numeroSocio ? `#${clienteData.numeroSocio}` : 'N° De Socio Pendiente de Aceptacion');
     safeSetText('cliente-puntos', clienteData.puntos || 0);
 
     const termsBanner = document.getElementById('terms-banner');
@@ -299,4 +299,5 @@ campanasVisibles.forEach((campana, index) => {
         startCarousel();
     }
 }
+
 
