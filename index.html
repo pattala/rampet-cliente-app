@@ -4,6 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Club RAMPET - Mis Puntos</title>
+    
+    <meta name="theme-color" content="#007bff"/>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="images/mi_logo_192.png">
+
     <link rel="stylesheet" href="styles.css">
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-analytics-compat.js"></script>
@@ -73,20 +78,12 @@
                 <p>Tus Puntos Disponibles</p>
                 <h2 id="cliente-puntos">--</h2>
             </div>
-<!-- ============================================= -->
-            <!-- ==  INICIO: CONTENEDOR CARRUSEL DE CAMPAÑAS  == -->
-            <!-- ============================================= -->
             <div id="carrusel-campanas-container" class="carrusel-container" style="display: none;">
                 <h3>Promociones para ti</h3>
-                <div id="carrusel-campanas" class="carrusel">
-                    <!-- Los banners se generarán aquí con JavaScript -->
-                </div>
-                <!-- NUEVO: Contenedor para los puntitos de paginación -->
+                <div id="carrusel-campanas" class="carrusel"></div>
                 <div id="carrusel-indicadores" class="carrusel-indicadores"></div>
             </div>
-            <!-- ============================================= -->
-            <!-- ==  FIN: CONTENEDOR CARRUSEL DE CAMPAÑAS     == -->
-            <!-- ============================================= -->
+            
             <div id="notif-prompt-card" class="card notif-prompt" style="display: none;">
                 <h3>¡Activa tus Beneficios Exclusivos! 🚀</h3>
                 <p>Al activar las notificaciones, te aseguras de no perderte nada importante. Si no lo haces, te perderás de:</p>
@@ -98,6 +95,15 @@
                 <div class="prompt-actions">
                     <button id="btn-activar-notif-prompt" class="primary-btn">Sí, ¡Quiero los beneficios!</button>
                     <button id="btn-rechazar-notif-prompt" class="secondary-btn">Quizás más tarde</button>
+                </div>
+            </div>
+
+            <div id="install-prompt-card" class="card install-prompt" style="display: none;">
+                <h3>📲 ¡Lleva el Club Contigo!</h3>
+                <p>Instala la aplicación en tu dispositivo para un acceso más rápido y directo a tus puntos y beneficios, ¡igual que una app nativa!</p>
+                <div class="prompt-actions">
+                    <button id="btn-install-pwa" class="primary-btn">Instalar Ahora</button>
+                    <button id="btn-dismiss-install" class="secondary-btn">No, gracias</button>
                 </div>
             </div>
 
@@ -113,7 +119,7 @@
             </div>
 
             <div id="notif-blocked-warning" class="card warning-banner" style="display: none;">
-                <p>⚠️ Has bloqueado las notificaciones. Para recibir alertas de puntos y promociones, por favor, habilítalas en la configuración de tu navegador para este sitio.</p>
+                <p>⚠️ Has bloqueado las notificaciones. Para recibir alertas, habilítalas en la configuración de tu navegador.</p>
             </div>
 
             <div id="vencimiento-card" class="card vencimiento-card" style="display: none;">
