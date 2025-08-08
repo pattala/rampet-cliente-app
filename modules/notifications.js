@@ -1,21 +1,9 @@
-// pwa/modules/notifications.js (CON TRIGGER PARA INSTALACIÓN)
+// pwa/modules/notifications.js (VERSIÓN SIMPLIFICADA)
 
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
-// Importamos la función que nos dice si la app se puede instalar.
-import { isInstallable } from '../app.js';
 
-/**
- * Muestra el banner de instalación si está disponible.
- */
-function showInstallPromptIfAvailable() {
-    if (isInstallable()) {
-        const installCard = document.getElementById('install-prompt-card');
-        if (installCard) {
-            installCard.style.display = 'block';
-        }
-    }
-}
+// Ya no necesitamos la lógica de instalación aquí.
 
 export function gestionarPermisoNotificaciones() {
     if (!isMessagingSupported || !auth.currentUser) return;
@@ -54,8 +42,8 @@ async function obtenerYGuardarToken() {
         if (querySnapshot.empty) return;
         const clienteRef = querySnapshot.docs[0].ref;
 
-        const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-        await navigator.serviceWorker.ready;
+        const registration = await navigator.service-worker.register('/firebase-messaging-sw.js');
+        await navigator.service-worker.ready;
         const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
         const currentToken = await messaging.getToken({ vapidKey, serviceWorkerRegistration: registration });
         
@@ -79,8 +67,6 @@ export function handlePermissionRequest() {
             document.getElementById('notif-card').style.display = 'block';
             document.getElementById('notif-switch').checked = false;
         }
-        // == LÍNEA AÑADIDA: Mostramos el prompt de instalación después de la decisión. ==
-        showInstallPromptIfAvailable();
     });
 }
 
@@ -89,8 +75,6 @@ export function dismissPermissionRequest() {
     document.getElementById('notif-prompt-card').style.display = 'none';
     document.getElementById('notif-card').style.display = 'block';
     document.getElementById('notif-switch').checked = false;
-    // == LÍNEA AÑADIDA: Mostramos el prompt de instalación también si lo pospone. ==
-    showInstallPromptIfAvailable();
 }
 
 export function handlePermissionSwitch(event) {
