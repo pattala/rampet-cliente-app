@@ -1,5 +1,4 @@
-// modules/data.js (PWA - VERSIÓN CON LÓGICA DE TESTER)
-// Gestiona el estado de la app y la comunicación con Firestore.
+// modules/data.js (PWA - CON CORRECCIÓN EN CONSULTA DE CAMPAÑAS)
 
 import { db } from './firebase.js';
 import * as UI from './ui.js';
@@ -15,6 +14,9 @@ export function cleanupListener() {
     if (unsubscribeCliente) unsubscribeCliente();
     clienteData = null;
     clienteRef = null;
+
+    // CORRECCIÓN: También reseteamos los premios para que se recarguen
+    // si otro usuario inicia sesión.
     premiosData = [];
 }
 
@@ -36,40 +38,44 @@ export async function listenToClientData(user) {
         clienteRef = doc.ref;
 
         try {
+            // Cargar premios si aún no se han cargado
             if (premiosData.length === 0) {
                 const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
-                premiosData = premiosSnapshot.docs.map(p => p.data());
+                premiosData = premiosSnapshot.docs.map(p => ({ id: p.id, ...p.data() }));
             }
 
-            // --- INICIO DE LA NUEVA LÓGICA DE VISIBILIDAD ---
+            // --- INICIO DE LA LÓGICA DE CAMPAÑAS CORREGIDA ---
             const hoy = new Date().toISOString().split('T')[0];
             
-            let campanasQuery = db.collection('campanas')
+            // 1. Simplificamos la consulta: Traemos TODAS las campañas que están marcadas como activas.
+            const campanasSnapshot = await db.collection('campanas')
                 .where('estaActiva', '==', true)
-                .where('fechaInicio', '<=', hoy);
-
-            // Si el usuario NO es un tester, añadimos el filtro para ver solo las públicas.
-            // Si SÍ es un tester, la consulta NO lleva este filtro, por lo que Firestore traerá
-            // tanto las campañas con visibilidad 'publica' como 'prueba' (y las antiguas sin el campo).
-            if (!clienteData.esTester) {
-                campanasQuery = campanasQuery.where('visibilidad', '==', 'publica');
-            }
+                .get();
             
-            const campanasSnapshot = await campanasQuery.get();
-            
-            // Filtramos por fechaFin en el cliente, que es el único filtro que no se puede encadenar en Firestore.
+            // 2. Hacemos todo el filtrado de fechas en el código, que es más flexible.
             const campanasVisibles = campanasSnapshot.docs
                 .map(doc => doc.data())
-                .filter(campana => hoy <= campana.fechaFin);
-            // --- FIN DE LA NUEVA LÓGICA DE VISIBILIDAD ---
+                .filter(campana => {
+                    const esPublica = campana.visibilidad !== 'prueba';
+                    const esTesterYVePrueba = clienteData.esTester === true && campana.visibilidad === 'prueba';
+                    
+                    const estaEnRangoDeFechas = hoy >= campana.fechaInicio && hoy <= campana.fechaFin;
 
+                    // Una campaña es visible si:
+                    // - Está en el rango de fechas correcto Y
+                    // - Es pública O (el usuario es tester Y la campaña es de prueba)
+                    return estaEnRangoDeFechas && (esPublica || esTesterYVePrueba);
+                });
+            // --- FIN DE LA LÓGICA DE CAMPAÑAS CORREGIDA ---
+
+            // Pasamos todos los datos a la función de renderizado
             UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
 
         } catch (e) {
             console.error("Error cargando datos adicionales (premios/campañas):", e);
             UI.renderMainScreen(clienteData, premiosData, []);
         }
-
+        
         Notifications.gestionarPermisoNotificaciones(clienteData); 
 
     }, (error) => {
@@ -94,7 +100,7 @@ export async function acceptTerms() {
     }
 }
 
-// Funciones de cálculo
+// ... (El resto de las funciones como getFechaProximoVencimiento y getPuntosEnProximoVencimiento no cambian)
 export function getFechaProximoVencimiento(cliente) {
     if (!cliente.historialPuntos || cliente.historialPuntos.length === 0) return null;
     let fechaMasProxima = null;
