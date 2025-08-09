@@ -179,8 +179,26 @@
             <button id="save-new-password-btn" class="primary-btn">Guardar Nueva Contraseña</button>
         </div>
     </div>
+<!-- Registro del Service Worker para Firebase Messaging -->
+<script>
+(function(){
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', async function() {
+      try {
+        const reg = await navigator.serviceWorker.register('./firebase-messaging-sw.js');
+        console.log('✅ SW FCM registrado:', reg.scope);
+      } catch (err) {
+        console.error('❌ Error registrando SW FCM:', err);
+      }
+    });
+  } else {
+    console.warn('Service Worker no soportado en este navegador.');
+  }
+})();
+</script>
 
     <script src="app.js" type="module"></script>
 </body>
 </html>
+
 
