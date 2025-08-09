@@ -196,9 +196,36 @@
   }
 })();
 </script>
+<!-- Registro del Service Worker para Firebase Messaging (recarga 1 vez cuando toma control) -->
+<script>
+(function () {
+  if (!('serviceWorker' in navigator)) {
+    console.warn('Service Worker no soportado.');
+    return;
+  }
+  window.addEventListener('load', async () => {
+    try {
+      // Ruta ABSOLUTA porque la app está en el root de Vercel:
+      const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+      console.log('✅ SW FCM registrado:', reg.scope);
+
+      // Si esta pestaña todavía NO está controlada por el SW,
+      // recargamos UNA vez cuando el SW tome control, así PushManager.subscribe no falla.
+      if (!navigator.serviceWorker.controller) {
+        navigator.serviceWorker.addEventListener('controllerchange', () => {
+          window.location.reload();
+        });
+      }
+    } catch (err) {
+      console.error('❌ Error registrando el SW FCM:', err);
+    }
+  });
+})();
+</script>
 
     <script src="app.js" type="module"></script>
 </body>
 </html>
+
 
 
