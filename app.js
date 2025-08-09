@@ -84,6 +84,13 @@ function main() {
         if (user) {
             setupMainAppScreenListeners();
             Data.listenToClientData(user);
+
+            checkMessagingSupport().then(isSupported => {
+  if (isSupported) {
+    Notifications.gestionarPermisoNotificaciones(); // si ya hay permiso, guarda el token en fcmTokens[]
+  }
+});
+
             // ¡Mostramos el prompt de instalación al iniciar sesión!
             showInstallPromptIfAvailable(); 
         } else {
@@ -103,5 +110,6 @@ function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
