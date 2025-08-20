@@ -1,61 +1,35 @@
-/* RAMPET – FCM Service Worker (modo compat/híbrido) */
+importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js');
 
-importScripts('https://www.gstatic.com/firebasejs/10.12.3/firebase-app-compat.js');
-importScripts('https://www.gstatic.com/firebasejs/10.12.3/firebase-messaging-compat.js');
+const firebaseConfig = {
+    apiKey: "AIzaSyAvBw_Cc-t8lfip_FtQ1w_w3DrPDYpxINs",
+    authDomain: "sistema-fidelizacion.firebaseapp.com",
+    projectId: "sistema-fidelizacion",
+    storageBucket: "sistema-fidelizacion.appspot.com",
+    messagingSenderId: "357176214962",
+    appId: "1:357176214962:web:6c1df9b74ff0f3779490ab"
+};
 
-const SW_VERSION = 'rampet-sw-2025-08-20-h1';
-
-// ⚠️ Con compat alcanza con el senderId para FCM:
-firebase.initializeApp({
-  messagingSenderId: '357176214962'
-});
-
-self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', () => self.clients.claim());
-
+firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-// Normalizamos título/cuerpo y mostramos UNA sola notificación en background
-messaging.onBackgroundMessage((payload) => {
-  const n = payload?.notification || {};
-  const d = payload?.data || {};
+messaging.onBackgroundMessage(function(payload) {
+  console.log('[SW] Mensaje de datos recibido:', payload);
 
-  const title = n.title || d.title || 'RAMPET';
-  const body  = n.body  || d.body  || '';
-  const icon  = d.icon || n.icon || '/images/icon-192.png';
-  const badge = d.badge; // opcional
-  const tag   = d.tag;   // opcional
+  // ===== CAMBIO CLAVE: Leemos desde "payload.data" y definimos el ícono =====
+  const notificationTitle = payload.data.title;
+  const notificationBody = payload.data.body;
+  const notificationIcon = 'https://raw.githubusercontent.com/pattala/rampet-cliente-app/main/images/mi_logo.png'; 
 
-  const data = {
-    url: d.click_action || d.url || '/', // adónde abrir al click
-    payload
+   
+
+  // =======================================================================
+
+  const notificationOptions = {
+    body: notificationBody,
+    icon: notificationIcon,
+    badge: notificationIcon // El badge es para Android
   };
 
-  self.registration.showNotification(title, {
-    body,
-    icon,
-    badge,
-    tag,
-    data
-  });
-});
-
-// Foco/abrir la PWA al click
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  const targetUrl = event.notification?.data?.url || '/';
-  event.waitUntil(
-    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
-      for (const client of list) {
-        // Si ya hay una pestaña abierta, enfócala
-        if ('focus' in client && client.url.includes(self.location.origin)) {
-          return client.focus();
-        }
-      }
-      // Si no, abrimos una nueva
-      if (self.clients.openWindow) {
-        return self.clients.openWindow(targetUrl);
-      }
-    })
-  );
+  return self.registration.showNotification(notificationTitle, notificationOptions);
 });
