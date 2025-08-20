@@ -1,4 +1,4 @@
-/* v3 – evita doble notificación y usa ícono nuevo */
+/* v3 – evita doble notificación */
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js');
 
@@ -14,24 +14,15 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-// Solo mostrar nosotros si es DATA-ONLY.
-// Si viene `notification` (Chrome ya muestra), NO duplicar.
+// Si viene "notification", deja que el navegador la muestre. No dupliques.
 messaging.onBackgroundMessage((payload) => {
-  // Si el payload trae 'notification', dejamos que el navegador lo muestre.
-  if (payload && payload.notification) {
-    // nada: evita doble toast
-    return;
-  }
-  const data = payload && payload.data ? payload.data : null;
+  if (payload && payload.notification) return;
+
+  const data = payload?.data;
   if (!data) return;
 
   const title = data.title || "RAMPET";
   const body  = data.body  || "";
   const icon  = 'https://raw.githubusercontent.com/pattala/rampet-cliente-app/main/images/mi_logo.png';
-
-  return self.registration.showNotification(title, {
-    body,
-    icon
-    // sin badge
-  });
+  return self.registration.showNotification(title, { body, icon });
 });
