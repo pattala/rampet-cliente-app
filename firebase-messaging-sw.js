@@ -1,3 +1,4 @@
+/* v3 – evita doble notificación y usa ícono nuevo */
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js');
 
@@ -13,29 +14,24 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-const DEFAULT_ICON = 'https://raw.githubusercontent.com/pattala/rampet-cliente-app/main/images/mi_logo.png';
-
+// Solo mostrar nosotros si es DATA-ONLY.
+// Si viene `notification` (Chrome ya muestra), NO duplicar.
 messaging.onBackgroundMessage((payload) => {
-  // Si el servidor envió "notification", Chrome ya mostró el push.
-  // NO mostramos otro para evitar duplicados.
-  const n = payload?.notification;
-  if (n && (n.title || n.body)) return;
+  // Si el payload trae 'notification', dejamos que el navegador lo muestre.
+  if (payload && payload.notification) {
+    // nada: evita doble toast
+    return;
+  }
+  const data = payload && payload.data ? payload.data : null;
+  if (!data) return;
 
-  // Si no vino "notification", renderizamos nosotros desde data.
-  const d = payload?.data || {};
-  const title = d.title || 'RAMPET';
-  const body  = d.body  || '';
-  const icon  = d.icon  || DEFAULT_ICON;
-  const badge = d.badge || icon;
-  const link  = d.link  || d.url || 'https://rampet.vercel.app';
+  const title = data.title || "RAMPET";
+  const body  = data.body  || "";
+  const icon  = 'https://raw.githubusercontent.com/pattala/rampet-cliente-app/main/images/mi_logo.png';
 
   return self.registration.showNotification(title, {
-    body, icon, badge, data: { link }
+    body,
+    icon
+    // sin badge
   });
-});
-
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-  const url = event.notification?.data?.link || 'https://rampet.vercel.app';
-  event.waitUntil(clients.openWindow(url));
 });
