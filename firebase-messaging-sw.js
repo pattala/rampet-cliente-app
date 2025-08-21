@@ -14,53 +14,47 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-/**
- * Normaliza el payload para data-only.
- * Soporta claves legacy: titulo/cuerpo/click_action.
- */
+/** Normaliza payload data-only (soporta legacy) */
 function normalizeData(raw = {}) {
   const d = raw.data || {};
-  // compat legacy
-  const title = d.title || d.titulo || 'RAMPET';
-  const body  = d.body  || d.cuerpo || '';
-  const icon  = d.icon  || 'https://rampet.vercel.app/images/mi_logo.png';
-  const url   = d.url   || d.click_action || '/';
-  const tag   = d.tag   || '';
-
   return {
-    title: String(title),
-    body:  String(body),
-    icon:  String(icon),
-    url:   String(url),
-    tag:   String(tag),
+    title: String(d.title || d.titulo || 'RAMPET'),
+    body:  String(d.body  || d.cuerpo || ''),
+    icon:  String(d.icon  || 'https://rampet.vercel.app/images/mi_logo.png'),
+    url:   String(d.url   || d.click_action || '/notificaciones'),
+    tag:   d.tag ? String(d.tag) : undefined
   };
 }
 
-// Solo background (cuando la PWA no está en foco)
+// Solo background (app NO enfocada)
 messaging.onBackgroundMessage((payload) => {
-  // console.log('[SW] Background message:', payload);
   const d = normalizeData(payload);
 
-  const options = {
+  // Avisar a la(s) pestaña(s) abierta(s) para subir contador
+  self.clients.matchAll({ includeUncontrolled: true, type: "window" })
+    .then(list => list.forEach(c => c.postMessage({ type: "PUSH_DELIVERED", data: d })));
+
+  return self.registration.showNotification(d.title, {
     body: d.body,
     icon: d.icon,
-    badge: d.icon,
-    tag: d.tag || undefined, // ayuda a colapsar duplicados si coincidiera
-    data: { url: d.url }     // guardamos el deep link para el click
-  };
-  return self.registration.showNotification(d.title, options);
+    tag: d.tag,        // si repetís tag, colapsa/renotify
+    renotify: true,
+    data: { url: d.url }
+  });
 });
 
-// Deep link al hacer click
-self.addEventListener('notificationclick', (event) => {
+// Click → abrir o enfocar la PWA en la URL indicada
+self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = event.notification?.data?.url || '/';
+  const targetUrl = (event.notification && event.notification.data && event.notification.data.url) || "/notificaciones";
+
   event.waitUntil((async () => {
-    const allClients = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const url = new URL(targetUrl, self.location.origin).href;
-    // Reutiliza ventana si ya está abierta
-    const client = allClients.find(c => c.url === url);
-    if (client) return client.focus();
-    return clients.openWindow(url);
+    const all = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const absolute = new URL(targetUrl, self.location.origin).href;
+
+    // Si ya hay una ventana en esa URL, enfocar; si no, abrir nueva
+    const existing = all.find(c => c.url === absolute);
+    if (existing) return existing.focus();
+    return clients.openWindow(absolute);
   })());
 });
