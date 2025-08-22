@@ -1,4 +1,4 @@
-// app.js (PWA del Cliente – versión integrada y ordenada)
+// app.js (PWA del Cliente – versión integrada con instalación persistente)
 
 import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -15,7 +15,7 @@ import {
 } from './modules/notifications.js';
 
 // ──────────────────────────────────────────────────────────────
-// LÓGICA DE INSTALACIÓN PWA (MEJORADA)
+// LÓGICA DE INSTALACIÓN PWA (MEJORADA + fallback)
 // ──────────────────────────────────────────────────────────────
 let deferredInstallPrompt = null;
 
@@ -25,8 +25,22 @@ window.addEventListener('beforeinstallprompt', (e) => {
   console.log('✅ Evento "beforeinstallprompt" capturado. La app es instalable.');
 });
 
+window.addEventListener('appinstalled', () => {
+  console.log('✅ App instalada');
+  localStorage.removeItem('installDismissed');
+  deferredInstallPrompt = null;
+  document.getElementById('install-prompt-card')?.style?.setProperty('display','none');
+  document.getElementById('install-entrypoint')?.style?.setProperty('display','none');
+  document.getElementById('install-help-modal')?.style?.setProperty('display','none');
+});
+
+function isStandalone() {
+  const displayModeStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+  const iosStandalone = window.navigator.standalone === true;
+  return displayModeStandalone || iosStandalone;
+}
+
 function showInstallPromptIfAvailable() {
-  // Mostrar card sólo si hay prompt y el usuario no lo descartó antes
   if (deferredInstallPrompt && !localStorage.getItem('installDismissed')) {
     const card = document.getElementById('install-prompt-card');
     if (card) card.style.display = 'block';
@@ -48,6 +62,41 @@ function handleDismissInstall() {
   const card = document.getElementById('install-prompt-card');
   if (card) card.style.display = 'none';
   console.log('El usuario descartó la instalación.');
+}
+
+// Instrucciones según plataforma (fallback cuando no hay prompt)
+function getInstallInstructionsHTML() {
+  const ua = navigator.userAgent.toLowerCase();
+  const isIOS = /iphone|ipad|ipod/.test(ua);
+  const isAndroid = /android/.test(ua);
+
+  if (isIOS) {
+    return `
+      <p>En iPhone/iPad:</p>
+      <ol>
+        <li>Tocá el botón <strong>Compartir</strong> (cuadrado con flecha hacia arriba).</li>
+        <li>Elegí <strong>Añadir a pantalla de inicio</strong>.</li>
+        <li>Confirmá con <strong>Añadir</strong>.</li>
+      </ol>`;
+  }
+
+  if (isAndroid) {
+    return `
+      <p>En Android (Chrome/Edge):</p>
+      <ol>
+        <li>Abrí el menú <strong>⋮</strong> del navegador.</li>
+        <li>Tocá <strong>Instalar app</strong> o <strong>Añadir a pantalla principal</strong>.</li>
+        <li>Confirmá.</li>
+      </ol>`;
+  }
+
+  return `
+    <p>En escritorio (Chrome/Edge):</p>
+    <ol>
+      <li>Mir&aacute; en la barra de direcciones: icono <strong>Instalar</strong> o el menú del navegador.</li>
+      <li>Eleg&iacute; <strong>Instalar app</strong>.</li>
+      <li>Confirm&aacute;.</li>
+    </ol>`;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -84,11 +133,32 @@ function setupMainAppScreenListeners() {
   on('footer-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
   on('accept-terms-btn-modal', 'click', Data.acceptTerms);
 
-  // instalación
+  // Instalación (prompt card)
   on('btn-install-pwa', 'click', handleInstallPrompt);
   on('btn-dismiss-install', 'click', handleDismissInstall);
 
-  // controles de notificaciones (banner/switch)
+  // Entrada fija de instalación (botón header)
+  on('install-entrypoint', 'click', async () => {
+    if (deferredInstallPrompt) {
+      try {
+        await handleInstallPrompt();
+        return;
+      } catch (e) {
+        console.warn('Error al mostrar prompt nativo:', e);
+      }
+    }
+    // Fallback a instrucciones
+    const modal = document.getElementById('install-help-modal');
+    const instructions = document.getElementById('install-instructions');
+    if (instructions) instructions.innerHTML = getInstallInstructionsHTML();
+    if (modal) modal.style.display = 'block';
+  });
+  on('close-install-help', 'click', () => {
+    const modal = document.getElementById('install-help-modal');
+    if (modal) modal.style.display = 'none';
+  });
+
+  // Notificaciones (banner/switch)
   on('btn-activar-notif-prompt', 'click', handlePermissionRequest);
   on('btn-rechazar-notif-prompt', 'click', dismissPermissionRequest);
   on('notif-switch', 'change', handlePermissionSwitch);
@@ -96,7 +166,7 @@ function setupMainAppScreenListeners() {
 
 // ──────────────────────────────────────────────────────────────
 async function main() {
-  // Firebase base (auth, db, etc.)
+  // Firebase base
   setupFirebase();
 
   // ¿Hay soporte real de Messaging en este navegador?
@@ -105,24 +175,24 @@ async function main() {
   // Escucha auth: cuando entra a la app, conectamos todo lo necesario
   auth.onAuthStateChanged(async (user) => {
     if (user) {
-      // Listeners de la pantalla principal (una sola vez es suficiente)
       setupMainAppScreenListeners();
-
-      // Carga de datos en tiempo real del cliente
       Data.listenToClientData(user);
 
       // Notificaciones: si hay soporte, gestionamos permisos/token y onMessage
       if (messagingSupported) {
-        // Muestra el banner/switch correcto y, si ya hay permiso, guarda token (VAPID + SW.ready)
         gestionarPermisoNotificaciones();
-        // Escucha mensajes data-only en primer plano (toasts)
         listenForInAppMessages();
       }
 
       // Mostrar banner de instalación si aplica
       showInstallPromptIfAvailable();
+
+      // Mostrar/ocultar botón fijo de instalación según estado
+      const installBtn = document.getElementById('install-entrypoint');
+      if (installBtn) {
+        installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
+      }
     } else {
-      // Usuario no logueado → pantalla login
       setupAuthScreenListeners();
       UI.showScreen('login-screen');
     }
