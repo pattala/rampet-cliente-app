@@ -1,113 +1,64 @@
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
+// firebase-messaging-sw.js  (compat, con tracking y ID limpio)
+// ------------------------------------------------------------
+importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
+importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js');
 
-    // ─────────────────────────────
-    // Helpers
-    // ─────────────────────────────
-    function isSignedIn() {
-      return request.auth != null;
-    }
+const firebaseConfig = {
+  apiKey: "AIzaSyAvBw_Cc-t8lfip_FtQ1w_w3DrPDYpxINs",
+  authDomain: "sistema-fidelizacion.firebaseapp.com",
+  projectId: "sistema-fidelizacion",
+  storageBucket: "sistema-fidelizacion.appspot.com",
+  messagingSenderId: "357176214962",
+  appId: "1:357176214962:web:6c1df9b74ff0f3779490ab"
+};
 
-    // El "owner" es el cliente cuyo doc tiene authUID == request.auth.uid
-    function isOwner(clienteId) {
-      return isSignedIn() &&
-             get(/databases/$(database)/documents/clientes/$(clienteId)).data.authUID == request.auth.uid;
-    }
+firebase.initializeApp(firebaseConfig);
+const messaging = firebase.messaging();
 
-    // Permitir actualizar SOLO estas keys en el doc del cliente
-    function onlyAllowedClienteKeysChanged() {
-      // Campos que la PWA puede tocar
-      let allowed = [
-        "fcmTokens",
-        "pwaInstalled", "pwaInstalledAt", "pwaInstallPlatform",
-        "pwaInstallDismissedAt",
-        "lastSeenAt"
-      ];
-
-      // Campos realmente modificados
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
-
-      // ¿Cambian únicamente campos permitidos?
-      return changed.hasOnly(allowed);
-    }
-
-    // Validaciones: tipos básicos para cliente
-    function validClienteUpdate() {
-      return
-        (!("fcmTokens" in request.resource.data) || request.resource.data.fcmTokens is list) &&
-        (!("pwaInstalled" in request.resource.data) || request.resource.data.pwaInstalled is bool) &&
-        (!("pwaInstalledAt" in request.resource.data) || request.resource.data.pwaInstalledAt is string) &&
-        (!("pwaInstallPlatform" in request.resource.data) || request.resource.data.pwaInstallPlatform is string) &&
-        (!("pwaInstallDismissedAt" in request.resource.data) || request.resource.data.pwaInstallDismissedAt is string) &&
-        (!("lastSeenAt" in request.resource.data) || request.resource.data.lastSeenAt is timestamp);
-    }
-
-    // En inbox: permitimos pasar sent->delivered->read y escribir timestamps
-    function isValidInboxTransition(oldStatus, newStatus) {
-      return
-        // sent -> delivered
-        (oldStatus == "sent" && newStatus == "delivered") ||
-        // delivered -> read
-        (oldStatus == "delivered" && newStatus == "read") ||
-        // idempotente (no rompe si vuelve a escribir lo mismo)
-        (oldStatus == newStatus && (newStatus == "delivered" || newStatus == "read"));
-    }
-
-    function onlyAllowedInboxKeysChanged() {
-      // Solo dejamos tocar estos campos vía cliente
-      let allowed = ["status", "deliveredAt", "readAt"];
-      let changed = request.resource.data.diff(resource.data).affectedKeys();
-      return changed.hasOnly(allowed);
-    }
-
-    function validInboxUpdate(old, neu) {
-      // Validación de transición de status
-      return isValidInboxTransition(old.status, neu.status) &&
-             // tipos de timestamps
-             (!("deliveredAt" in neu) || neu.deliveredAt is timestamp) &&
-             (!("readAt" in neu) || neu.readAt is timestamp);
-    }
-
-    // ─────────────────────────────
-    // Reglas por colección
-    // ─────────────────────────────
-    match /clientes/{clienteId} {
-      // Leer mi propio doc cliente
-      allow get, list, read: if isOwner(clienteId);
-
-      // Crear cliente: probablemente lo hace el panel/servidor → cliente no crea
-      allow create: if false;
-
-      // Actualizar: solo mis campos permitidos
-      allow update: if isOwner(clienteId) &&
-                     onlyAllowedClienteKeysChanged() &&
-                     validClienteUpdate();
-
-      // Eliminar: nunca desde cliente
-      allow delete: if false;
-
-      // Subcolección inbox
-      match /inbox/{notifId} {
-        // Leer mi propia bandeja
-        allow get, list, read: if isOwner(clienteId);
-
-        // Crear: solo el servidor (Admin SDK ignora rules, por lo que aquí lo denegamos)
-        allow create: if false;
-
-        // Actualizar: solo status/timestamps y transición válida
-        allow update: if isOwner(clienteId) &&
-                       onlyAllowedInboxKeysChanged() &&
-                       validInboxUpdate(resource.data, request.resource.data);
-
-        // Eliminar: no desde cliente
-        allow delete: if false;
-      }
-    }
-
-    // CUALQUIER OTRA RUTA: denegada por defecto
-    match /{document=**} {
-      allow read, write: if false;
-    }
-  }
+/** Normaliza payload data-only y **conserva el id** */
+function normalizeData(raw = {}) {
+  const d = raw.data || {};
+  return {
+    id:   d.id ? String(d.id) : undefined,           // ⬅️ clave para marcar delivered/read
+    title:String(d.title || d.titulo || 'RAMPET'),
+    body: String(d.body  || d.cuerpo || ''),
+    icon: String(d.icon  || 'https://rampet.vercel.app/images/mi_logo.png'),
+    url:  String(d.url   || d.click_action || '/notificaciones'),
+    tag:  d.tag ? String(d.tag) : undefined
+  };
 }
+
+// Cuando llega en **background**
+messaging.onBackgroundMessage((payload) => {
+  const d = normalizeData(payload);
+
+  // Avisar a las pestañas abiertas para marcar "delivered" y subir la campanita
+  self.clients.matchAll({ includeUncontrolled: true, type: "window" })
+    .then(list => list.forEach(c => c.postMessage({ type: "PUSH_DELIVERED", data: d })));
+
+  return self.registration.showNotification(d.title, {
+    body: d.body,
+    icon: d.icon,
+    tag: d.tag,           // si repetís tag, colapsa y renotify
+    renotify: true,
+    data: { id: d.id, url: d.url }  // ⬅️ guardamos id/url en la notificación
+  });
+});
+
+// Click en la notificación → enfoca/abre la PWA y marca "read"
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const d = (event.notification && event.notification.data) || {};
+  const targetUrl = d.url || "/notificaciones";
+
+  event.waitUntil((async () => {
+    // Informar a las ventanas que se leyó
+    const clientsList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    clientsList.forEach(c => c.postMessage({ type: "PUSH_READ", data: { id: d.id } }));
+
+    const absolute = new URL(targetUrl, self.location.origin).href;
+    const existing = clientsList.find(c => c.url === absolute);
+    if (existing) return existing.focus();
+    return clients.openWindow(absolute);
+  })());
+});
