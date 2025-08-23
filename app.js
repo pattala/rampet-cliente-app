@@ -1,6 +1,6 @@
 // app.js (PWA del Cliente – versión integrada con instalación persistente)
 
-import { setupFirebase, checkMessagingSupport, auth } from './modules/firebase.js';
+import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
@@ -25,13 +25,46 @@ window.addEventListener('beforeinstallprompt', (e) => {
   console.log('✅ Evento "beforeinstallprompt" capturado. La app es instalable.');
 });
 
-window.addEventListener('appinstalled', () => {
+window.addEventListener('appinstalled', async () => {
   console.log('✅ App instalada');
+
+  // UI: ocultar superficies de instalación
   localStorage.removeItem('installDismissed');
   deferredInstallPrompt = null;
   document.getElementById('install-prompt-card')?.style?.setProperty('display','none');
   document.getElementById('install-entrypoint')?.style?.setProperty('display','none');
   document.getElementById('install-help-modal')?.style?.setProperty('display','none');
+
+  // Persistencia local (opcional)
+  localStorage.setItem('pwaInstalled', 'true');
+
+  // Métrica en Firestore: marcar que instaló (por cliente autenticado)
+  const u = auth.currentUser;
+  if (!u) return; // si no está logueado, no escribimos nada
+
+  try {
+    // obtenemos doc del cliente por authUID
+    const snap = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
+    if (snap.empty) return;
+
+    const ref = snap.docs[0].ref;
+
+    // info básica de plataforma para analytics
+    const ua = navigator.userAgent || '';
+    const isIOS = /iPhone|iPad|iPod/i.test(ua);
+    const isAndroid = /Android/i.test(ua);
+    const platform = isIOS ? 'iOS' : isAndroid ? 'Android' : 'Desktop';
+
+    await ref.set({
+      pwaInstalled: true,
+      pwaInstalledAt: new Date().toISOString(),
+      pwaInstallPlatform: platform
+    }, { merge: true });
+
+    console.log('📌 Firestore: pwaInstalled=true guardado');
+  } catch (e) {
+    console.warn('No se pudo registrar la instalación en Firestore:', e);
+  }
 });
 
 function isStandalone() {
@@ -122,6 +155,24 @@ function setupAuthScreenListeners() {
 
   on('close-terms-modal', 'click', UI.closeTermsModal);
 }
+async function handleDismissInstall() {
+  localStorage.setItem('installDismissed', 'true');
+  const card = document.getElementById('install-prompt-card');
+  if (card) card.style.display = 'none';
+  console.log('El usuario descartó la instalación.');
+
+  const u = auth.currentUser;
+  if (!u) return;
+  try {
+    const snap = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
+    if (snap.empty) return;
+    await snap.docs[0].ref.set({
+      pwaInstallDismissedAt: new Date().toISOString()
+    }, { merge: true });
+  } catch (e) {
+    console.warn('No se pudo registrar el dismiss en Firestore:', e);
+  }
+}
 
 function setupMainAppScreenListeners() {
   on('logout-btn', 'click', Auth.logout);
@@ -200,3 +251,4 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
