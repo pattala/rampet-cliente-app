@@ -12,6 +12,8 @@ import {
   handlePermissionRequest,
   dismissPermissionRequest,
   handlePermissionSwitch,
+  initNotificationChannel,          
+  handleBellClick 
 } from './modules/notifications.js';
 
 // ──────────────────────────────────────────────────────────────
@@ -182,7 +184,7 @@ function setupMainAppScreenListeners() {
   // Instalación (prompt card)
   on('btn-install-pwa', 'click', handleInstallPrompt);
   on('btn-dismiss-install', 'click', handleDismissInstall);
-
+on('btn-notifs', 'click', handleBellClick);
   // Entrada fija de instalación (botón header)
   on('install-entrypoint', 'click', async () => {
     if (deferredInstallPrompt) {
@@ -230,6 +232,7 @@ async function main() {
       // Notificaciones: si hay soporte, gestionamos permisos/token y onMessage
       if (messagingSupported) {
         gestionarPermisoNotificaciones();
+        initNotificationChannel();
         listenForInAppMessages();
       }
 
@@ -249,4 +252,5 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
