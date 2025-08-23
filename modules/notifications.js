@@ -1,200 +1,180 @@
-// pwa/modules/notifications.js  (versión robusta)
-// - Garantiza soporte de FCM en runtime
-// - Pide permiso, obtiene token con VAPID + SW listo
-// - Guarda token en Firestore
-// - Maneja UI de banners/switch
-// - Escucha mensajes data-only en foreground (payload.data)
-
-import { auth, db, messaging as exportedMessaging, firebase, isMessagingSupported as supportedFlag } from './firebase.js';
+// pwa/modules/notifications.js
+import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
 
-// === TU VAPID PUBLIC KEY (Firebase Console > Cloud Messaging > Web push) ===
-const VAPID_KEY = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
+function getClienteDocRefOrNull() {
+  return db.collection('clientes').where('authUID', '==', auth.currentUser.uid).limit(1).get()
+    .then(snap => snap.empty ? null : snap.docs[0].ref)
+    .catch(() => null);
+}
 
-// -------------------------------------------------------------
-// Helpers base
-// -------------------------------------------------------------
-async function ensureMessaging() {
-  // Hay entornos donde supportedFlag puede ser false si nadie ejecutó el chequeo.
-  // Por eso chequeamos en runtime también.
-  let supported = supportedFlag;
+// ── Guardar “delivered” en Firestore
+async function markDeliveredInInbox(data) {
+  if (!data?.id || !auth.currentUser) return;
   try {
-    if (typeof firebase?.messaging?.isSupported === 'function') {
-      supported = await firebase.messaging.isSupported();
-    }
-  } catch { supported = false; }
-
-  if (!supported) return null;
-
-  // Usa la instancia exportada si existe; si no, crea una nueva
-  try {
-    return exportedMessaging || firebase.messaging();
-  } catch {
-    return null;
+    const ref = await getClienteDocRefOrNull();
+    if (!ref) return;
+    const inboxRef = ref.collection('inbox').doc(data.id);
+    await inboxRef.set({
+      title: data.title || '',
+      body:  data.body  || '',
+      url:   data.url   || '/notificaciones',
+      tag:   data.tag   || null,
+      status: 'delivered',
+      deliveredAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch (e) {
+    console.warn('markDeliveredInInbox error:', e);
   }
 }
 
-async function ensurePermission() {
-  if (!('Notification' in window)) return false;
-  if (Notification.permission === 'granted') return true;
-  if (Notification.permission === 'denied') return false;
-  const res = await Notification.requestPermission();
-  return res === 'granted';
+// ── Guardar “read” en Firestore
+async function markReadInInbox(notifId) {
+  if (!notifId || !auth.currentUser) return;
+  try {
+    const ref = await getClienteDocRefOrNull();
+    if (!ref) return;
+    await ref.collection('inbox').doc(notifId).set({
+      status: 'read',
+      readAt: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge: true });
+  } catch (e) {
+    console.warn('markReadInInbox error:', e);
+  }
 }
 
-async function getCurrentToken() {
-  const msg = await ensureMessaging();
-  if (!msg) throw new Error('FCM no soportado');
+/** UI contador en el 🔔 */
+function bumpBellCounter() {
+  const el = document.getElementById('notif-counter');
+  if (!el) return;
+  const val = Number(el.textContent || '0') + 1;
+  el.textContent = String(val);
+  el.style.display = 'inline-block';
+}
+export function resetBellCounter() {
+  const el = document.getElementById('notif-counter');
+  if (!el) return;
+  el.textContent = '';
+  el.style.display = 'none';
+}
 
-  const ok = await ensurePermission();
-  if (!ok) throw new Error('Permiso no otorgado');
+/** Mostrar toast en foreground y registrar delivered */
+function showToastAndTrack(data) {
+  // toast in-app
+  UI.showToast(`📢 ${data.title}: ${data.body}`, 'info', 8000);
+  // contador 🔔
+  bumpBellCounter();
+  // delivered
+  markDeliveredInInbox(data);
+}
 
-  // Esperar a que el SW esté activo y pasar registration + VAPID
-  const registration = await navigator.serviceWorker.ready;
-  const token = await msg.getToken({
-    vapidKey: VAPID_KEY,
-    serviceWorkerRegistration: registration
+/** Foreground listener */
+export function listenForInAppMessages() {
+  if (!messaging) return;
+  messaging.onMessage((payload) => {
+    const d = (payload?.data)
+      ? { id: payload.data.id, title: payload.data.title, body: payload.data.body, url: payload.data.url, tag: payload.data.tag }
+      : (payload?.notification)
+      ? { id: payload.data?.id, title: payload.notification.title, body: payload.notification.body, url: payload.fcmOptions?.link }
+      : null;
+
+    if (!d) return;
+    showToastAndTrack(d);
   });
-  if (!token) throw new Error('No se pudo obtener el token FCM');
-  return token;
+
+  // Mensajes del SW (background delivered / click read)
+  navigator.serviceWorker?.addEventListener('message', (evt) => {
+    const { type, data, notifId } = evt.data || {};
+    if (type === 'PUSH_DELIVERED' && data) {
+      // app estaba en background: sube contador + delivered
+      bumpBellCounter();
+      markDeliveredInInbox(data);
+    }
+    if (type === 'PUSH_READ' && notifId) {
+      // usuario clickeó la notificación del sistema
+      markReadInInbox(notifId);
+      resetBellCounter();
+    }
+  });
 }
 
-async function saveTokenInClienteDoc(token) {
-  if (!token || !auth.currentUser) return;
-  // Buscar el doc del cliente por authUID (como ya haces en tu base)
-  const q = await db.collection('clientes').where('authUID', '==', auth.currentUser.uid).limit(1).get();
-  if (q.empty) return;
-
-  const ref = q.docs[0].ref;
-  await ref.set(
-    { fcmTokens: firebase.firestore.FieldValue.arrayUnion(token) },
-    { merge: true }
-  );
-  console.log('Token de notificación guardado/actualizado con éxito.');
-}
-
-// -------------------------------------------------------------
-// UI principal (banners/switch) + obtención/guardado de token
-// -------------------------------------------------------------
-export async function gestionarPermisoNotificaciones() {
-  if (!auth.currentUser) return;
+/** Gestión de permiso / token (igual que ya tenías) */
+export function gestionarPermisoNotificaciones() {
+  if (!isMessagingSupported || !auth.currentUser) return;
 
   const promptCard = document.getElementById('notif-prompt-card');
   const switchCard = document.getElementById('notif-card');
   const blockedWarning = document.getElementById('notif-blocked-warning');
-  const switchEl = document.getElementById('notif-switch');
+  const popUpYaGestionado = localStorage.getItem(`notifGestionado_${auth.currentUser.uid}`);
 
-  // reset UI
-  if (promptCard) promptCard.style.display = 'none';
-  if (switchCard) switchCard.style.display = 'none';
-  if (blockedWarning) blockedWarning.style.display = 'none';
+  promptCard.style.display = 'none';
+  switchCard.style.display = 'none';
+  blockedWarning.style.display = 'none';
 
-  // soporte
-  const msg = await ensureMessaging();
-  if (!msg) {
-    // No hay soporte -> no mostramos nada
-    return;
-  }
-
-  // Estados de permiso
   if (Notification.permission === 'granted') {
-    try {
-      const token = await getCurrentToken();
-      await saveTokenInClienteDoc(token);
-    } catch (err) {
-      console.warn('No se pudo obtener/guardar token:', err?.message || err);
-    }
+    obtenerYGuardarToken();
     return;
   }
-
   if (Notification.permission === 'denied') {
-    if (blockedWarning) blockedWarning.style.display = 'block';
+    blockedWarning.style.display = 'block';
     return;
   }
-
-  // permission = 'default'
-  // Mostramos prompt la primera vez; si el user lo cierra, dejamos el switch
-  const key = `notifGestionado_${auth.currentUser.uid}`;
-  const yaGestionado = localStorage.getItem(key);
-
-  if (!yaGestionado && promptCard) {
+  if (!popUpYaGestionado) {
     promptCard.style.display = 'block';
-  } else if (switchCard) {
+  } else {
     switchCard.style.display = 'block';
-    if (switchEl) switchEl.checked = false;
+    document.getElementById('notif-switch').checked = false;
+  }
+}
+
+async function obtenerYGuardarToken() {
+  if (!isMessagingSupported || !auth.currentUser || !messaging) return;
+  try {
+    const snap = await db.collection('clientes').where('authUID', '==', auth.currentUser.uid).limit(1).get();
+    if (snap.empty) return;
+    const clienteRef = snap.docs[0].ref;
+
+    const registration = await navigator.serviceWorker.ready;
+    const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
+    const currentToken = await messaging.getToken({ vapidKey, serviceWorkerRegistration: registration });
+    if (currentToken) {
+      await clienteRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) });
+      console.log("Token de notificación guardado/actualizado con éxito.");
+    }
+  } catch (err) {
+    console.error('Error al obtener/guardar token:', err);
   }
 }
 
 export function handlePermissionRequest() {
-  if (!auth.currentUser) return;
-  const key = `notifGestionado_${auth.currentUser.uid}`;
-  localStorage.setItem(key, 'true');
-  const promptCard = document.getElementById('notif-prompt-card');
-  if (promptCard) promptCard.style.display = 'none';
-
-  Notification.requestPermission().then(async (permission) => {
-    if (permission === 'granted') {
-      UI.showToast('¡Notificaciones activadas!', 'success');
-      try {
-        const token = await getCurrentToken();
-        await saveTokenInClienteDoc(token);
-      } catch (err) {
-        UI.showToast('No se pudo activar del todo (token).', 'warning');
-      }
+  localStorage.setItem(`notifGestionado_${auth.currentUser.uid}`, 'true');
+  document.getElementById('notif-prompt-card').style.display = 'none';
+  Notification.requestPermission().then(p => {
+    if (p === 'granted') {
+      UI.showToast("¡Notificaciones activadas!", "success");
+      obtenerYGuardarToken();
     } else {
-      const switchCard = document.getElementById('notif-card');
-      const switchEl = document.getElementById('notif-switch');
-      if (switchCard) switchCard.style.display = 'block';
-      if (switchEl) switchEl.checked = false;
+      document.getElementById('notif-card').style.display = 'block';
+      document.getElementById('notif-switch').checked = false;
     }
   });
 }
-
 export function dismissPermissionRequest() {
-  if (!auth.currentUser) return;
-  const key = `notifGestionado_${auth.currentUser.uid}`;
-  localStorage.setItem(key, 'true');
-  const promptCard = document.getElementById('notif-prompt-card');
-  const switchCard = document.getElementById('notif-card');
-  const switchEl = document.getElementById('notif-switch');
-  if (promptCard) promptCard.style.display = 'none';
-  if (switchCard) switchCard.style.display = 'block';
-  if (switchEl) switchEl.checked = false;
+  localStorage.setItem(`notifGestionado_${auth.currentUser.uid}`, 'true');
+  document.getElementById('notif-prompt-card').style.display = 'none';
+  document.getElementById('notif-card').style.display = 'block';
+  document.getElementById('notif-switch').checked = false;
 }
-
 export function handlePermissionSwitch(e) {
-  if (!e?.target?.checked) return;
-  Notification.requestPermission().then(async (permission) => {
-    if (permission !== 'granted') {
-      e.target.checked = false;
-      return;
-    }
-    UI.showToast('¡Notificaciones activadas!', 'success');
-    try {
-      const token = await getCurrentToken();
-      await saveTokenInClienteDoc(token);
-      // Ocultamos la tarjeta del switch si querés
-      const switchCard = document.getElementById('notif-card');
-      if (switchCard) switchCard.style.display = 'none';
-    } catch (err) {
-      e.target.checked = false;
-      UI.showToast('No se pudo activar del todo (token).', 'warning');
-    }
-  });
-}
-
-// -------------------------------------------------------------
-// Foreground messages (data-only) -> toasts/actualización UI
-// -------------------------------------------------------------
-export async function listenForInAppMessages() {
-  const msg = await ensureMessaging();
-  if (!msg) return () => {};
-
-  return msg.onMessage((payload) => {
-    // En data-only, viene todo en payload.data.*
-    const d = payload?.data || {};
-    const title = d.title || 'Notificación';
-    const body  = d.body  || '';
-    UI.showToast(`📢 ${title}: ${body}`, 'info', 8000);
-  });
+  if (e.target.checked) {
+    Notification.requestPermission().then(p => {
+      if (p === 'granted') {
+        UI.showToast("¡Notificaciones activadas!", "success");
+        document.getElementById('notif-card').style.display = 'none';
+        obtenerYGuardarToken();
+      } else {
+        e.target.checked = false;
+      }
+    });
+  }
 }
