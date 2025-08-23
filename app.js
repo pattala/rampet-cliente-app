@@ -208,6 +208,7 @@ function setupMainAppScreenListeners() {
   on('btn-activar-notif-prompt', 'click', handlePermissionRequest);
   on('btn-rechazar-notif-prompt', 'click', dismissPermissionRequest);
   on('notif-switch', 'change', handlePermissionSwitch);
+  on('btn-notifs', 'click', handleBellClick); 
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -248,3 +249,4 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
