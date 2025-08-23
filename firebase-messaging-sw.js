@@ -1,22 +1,26 @@
-// firebase-messaging-sw.js  (compat, NO ESM)
+// firebase-messaging-sw.js  (compat, con tracking y ID)
+// -----------------------------------------------------
+
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js');
 
-firebase.initializeApp({
+const firebaseConfig = {
   apiKey: "AIzaSyAvBw_Cc-t8lfip_FtQ1w_w3DrPDYpxINs",
   authDomain: "sistema-fidelizacion.firebaseapp.com",
   projectId: "sistema-fidelizacion",
   storageBucket: "sistema-fidelizacion.appspot.com",
   messagingSenderId: "357176214962",
   appId: "1:357176214962:web:6c1df9b74ff0f3779490ab"
-});
+};
+
+firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-/** Normaliza payload data-only */
+/** Normaliza payload data-only y **conserva el id** */
 function normalizeData(raw = {}) {
   const d = raw.data || {};
   return {
-    id:   String(d.id || ''),              // notifId que manda el server
+    id:   d.id ? String(d.id) : undefined,           // ⬅️ clave para marcar delivered/read
     title:String(d.title || d.titulo || 'RAMPET'),
     body: String(d.body  || d.cuerpo || ''),
     icon: String(d.icon  || 'https://rampet.vercel.app/images/mi_logo.png'),
@@ -25,40 +29,36 @@ function normalizeData(raw = {}) {
   };
 }
 
-// ——— BACKGROUND (app NO enfocada) ———
-messaging.onBackgroundMessage(async (payload) => {
+// Cuando llega en **background**
+messaging.onBackgroundMessage((payload) => {
   const d = normalizeData(payload);
 
-  // Avisar a pestañas → “delivered”
-  const clientsList = await self.clients.matchAll({ includeUncontrolled: true, type: "window" });
-  clientsList.forEach(c => {
-    c.postMessage({ type: "PUSH_DELIVERED", data: d });
-  });
+  // Avisar a las pestañas abiertas para marcar "delivered" y subir la campanita
+  self.clients.matchAll({ includeUncontrolled: true, type: "window" })
+    .then(list => list.forEach(c => c.postMessage({ type: "PUSH_DELIVERED", data: d })));
 
-  // Mostrar notificación del sistema
   return self.registration.showNotification(d.title, {
     body: d.body,
     icon: d.icon,
-    tag: d.tag,
+    tag: d.tag,           // si repetís tag, colapsa y renotify
     renotify: true,
-    data: { url: d.url, id: d.id }
+    data: { id: d.id, url: d.url }  // ⬅️ guardamos id/url en la notificación
   });
 });
 
-// ——— CLICK = read + abrir/enfocar ———
+// Click en la notificación → enfoca/abre la PWA y marca "read"
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const targetUrl = (event.notification?.data?.url) || "/notificaciones";
-  const notifId = (event.notification?.data?.id) || "";
+  const d = (event.notification && event.notification.data) || {};
+  const targetUrl = d.url || "/notificaciones";
 
   event.waitUntil((async () => {
-    // Informar a una pestaña abierta que el usuario “leyó” la notificación
-    const all = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-    all.forEach(c => c.postMessage({ type: "PUSH_READ", notifId, url: targetUrl }));
+    // Informar a las ventanas que se leyó
+    const clientsList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    clientsList.forEach(c => c.postMessage({ type: "PUSH_READ", data: { id: d.id } }));
 
-    // Enfocar si ya existe, sino abrir
     const absolute = new URL(targetUrl, self.location.origin).href;
-    const existing = all.find(c => c.url === absolute);
+    const existing = clientsList.find(c => c.url === absolute);
     if (existing) return existing.focus();
     return clients.openWindow(absolute);
   })());
