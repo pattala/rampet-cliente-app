@@ -1,3 +1,4 @@
+// firebase-messaging-sw.js
 // SW de FCM (compat clásico, NO ESM)
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js');
@@ -30,7 +31,7 @@ function normalizeData(raw = {}) {
 messaging.onBackgroundMessage((payload) => {
   const d = normalizeData(payload);
 
-  // Avisar a la(s) pestaña(s) abierta(s) para subir contador
+  // Avisar a la(s) pestaña(s) abierta(s) para subir contador / tracking
   self.clients.matchAll({ includeUncontrolled: true, type: "window" })
     .then(list => list.forEach(c => c.postMessage({ type: "PUSH_DELIVERED", data: d })));
 
