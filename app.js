@@ -90,11 +90,24 @@ async function handleInstallPrompt() {
   if (card) card.style.display = 'none';
 }
 
-function handleDismissInstall() {
+// (ÚNICA) función de dismiss con métrica en Firestore
+async function handleDismissInstall() {
   localStorage.setItem('installDismissed', 'true');
   const card = document.getElementById('install-prompt-card');
   if (card) card.style.display = 'none';
   console.log('El usuario descartó la instalación.');
+
+  const u = auth.currentUser;
+  if (!u) return;
+  try {
+    const snap = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
+    if (snap.empty) return;
+    await snap.docs[0].ref.set({
+      pwaInstallDismissedAt: new Date().toISOString()
+    }, { merge: true });
+  } catch (e) {
+    console.warn('No se pudo registrar el dismiss en Firestore:', e);
+  }
 }
 
 // Instrucciones según plataforma (fallback cuando no hay prompt)
@@ -155,24 +168,6 @@ function setupAuthScreenListeners() {
 
   on('close-terms-modal', 'click', UI.closeTermsModal);
 }
-async function handleDismissInstall() {
-  localStorage.setItem('installDismissed', 'true');
-  const card = document.getElementById('install-prompt-card');
-  if (card) card.style.display = 'none';
-  console.log('El usuario descartó la instalación.');
-
-  const u = auth.currentUser;
-  if (!u) return;
-  try {
-    const snap = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
-    if (snap.empty) return;
-    await snap.docs[0].ref.set({
-      pwaInstallDismissedAt: new Date().toISOString()
-    }, { merge: true });
-  } catch (e) {
-    console.warn('No se pudo registrar el dismiss en Firestore:', e);
-  }
-}
 
 function setupMainAppScreenListeners() {
   on('logout-btn', 'click', Auth.logout);
@@ -227,6 +222,8 @@ async function main() {
   auth.onAuthStateChanged(async (user) => {
     if (user) {
       setupMainAppScreenListeners();
+
+      // Datos en tiempo real del cliente
       Data.listenToClientData(user);
 
       // Notificaciones: si hay soporte, gestionamos permisos/token y onMessage
@@ -251,4 +248,3 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
