@@ -222,7 +222,10 @@ async function main() {
 
   // Escucha auth: cuando entra a la app, conectamos todo lo necesario
   auth.onAuthStateChanged(async (user) => {
+    const bell = document.getElementById('btn-notifs');
+  const badge = document.getElementById('notif-counter');
     if (user) {
+      if (bell) bell.style.display = 'inline-block';
       setupMainAppScreenListeners();
 
       // Datos en tiempo real del cliente
@@ -244,6 +247,8 @@ async function main() {
         installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
       }
     } else {
+      if (bell) bell.style.display = 'none';
+    if (badge) badge.style.display = 'none';
       setupAuthScreenListeners();
       UI.showScreen('login-screen');
     }
@@ -251,3 +256,4 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
