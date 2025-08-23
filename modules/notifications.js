@@ -178,3 +178,55 @@ export function handlePermissionSwitch(e) {
     });
   }
 }
+// === Util interna: obtener ref del doc cliente actual ===
+async function _getClienteDocRef() {
+  try {
+    const snap = await db.collection('clientes')
+      .where('authUID', '==', auth.currentUser.uid)
+      .limit(1).get();
+    if (snap.empty) return null;
+    return snap.docs[0].ref;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Marca como READ todas las notificaciones del inbox que no estén en "read".
+ * Útil cuando el usuario abre la bandeja o toca el 🔔.
+ */
+export async function markAllDeliveredAsRead() {
+  if (!auth.currentUser) return;
+  const ref = await _getClienteDocRef();
+  if (!ref) return;
+
+  try {
+    const q = await ref.collection('inbox')
+      .where('status', 'in', ['sent', 'delivered'])
+      .get();
+
+    const batch = db.batch();
+    q.forEach(doc => {
+      batch.set(doc.ref, {
+        status: 'read',
+        readAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+    });
+    await batch.commit();
+    resetBellCounter();
+    console.log(`Marcadas como leídas: ${q.size}`);
+  } catch (e) {
+    console.warn('markAllDeliveredAsRead error:', e);
+  }
+}
+
+/**
+ * Handler para el botón 🔔 del header.
+ * Por ahora: marca todo leído y resetea contador.
+ * (Más adelante podemos abrir una vista /notificaciones)
+ */
+export async function handleBellClick() {
+  await markAllDeliveredAsRead();
+}
+
+
