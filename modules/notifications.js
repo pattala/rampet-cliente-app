@@ -73,7 +73,7 @@ export function resetBellCounter() {
 
 // ---------- Permisos + token ----------
 export function gestionarPermisoNotificaciones() {
-  if (!isMessagingSupported || !auth.currentUser) return;
+    if (!isMessagingSupported || !auth.currentUser || !messaging) return;
 
   const promptCard = document.getElementById('notif-prompt-card');
   const switchCard = document.getElementById('notif-card');
@@ -236,3 +236,4 @@ export async function markAllDeliveredAsRead() {
 export async function handleBellClick() {
   await markAllDeliveredAsRead();
 }
+
