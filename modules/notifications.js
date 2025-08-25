@@ -1,14 +1,19 @@
 // pwa/modules/notifications.js
-// Canal completo: FG (onMessage) + BG (SW -> postMessage) + helpers Firestore + campanita
+// Canal completo: FG (onMessage) + BG (SW -> postMessage) + helpers Firestore + campanita + token único
 
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
+
+// ---------- Constantes ----------
+const TOKEN_LS_KEY = 'fcmToken';
 
 // ---------- Utils Firestore ----------
 async function getClienteDocRef() {
   try {
     if (!auth.currentUser) return null;
-    const q = await db.collection('clientes').where('authUID', '==', auth.currentUser.uid).limit(1).get();
+    const q = await db.collection('clientes')
+      .where('authUID', '==', auth.currentUser.uid)
+      .limit(1).get();
     if (q.empty) return null;
     return q.docs[0].ref;
   } catch {
@@ -71,52 +76,131 @@ export function resetBellCounter() {
   el.style.display = 'none';
 }
 
+// ---------- Token FCM: único por usuario ----------
+async function saveSingleTokenForUser(token) {
+  const u = auth.currentUser;
+  if (!u || !token) return;
+
+  const qs = await db.collection('clientes')
+    .where('authUID', '==', u.uid)
+    .limit(1).get();
+  if (qs.empty) return;
+
+  const ref = qs.docs[0].ref;
+
+  // Reemplaza todo el array por [token]
+  await ref.set({ fcmTokens: [token] }, { merge: true });
+
+  // Cache local para poder limpiar en logout y dedupe
+  localStorage.setItem(TOKEN_LS_KEY, token);
+
+  console.log('✅ Token FCM guardado como único:', token);
+}
+
+export async function handleSignOutCleanup() {
+  try {
+    const token = localStorage.getItem(TOKEN_LS_KEY);
+    const u = auth.currentUser;
+
+    if (u && token) {
+      const qs = await db.collection('clientes')
+        .where('authUID', '==', u.uid)
+        .limit(1).get();
+
+      if (!qs.empty) {
+        await qs.docs[0].ref.update({
+          fcmTokens: firebase.firestore.FieldValue.arrayRemove(token),
+        });
+        console.log('🧹 Token removido de Firestore en logout.');
+      }
+    }
+
+    if (typeof messaging?.deleteToken === 'function' && token) {
+      try { await messaging.deleteToken(token); } catch {}
+    }
+
+    localStorage.removeItem(TOKEN_LS_KEY);
+  } catch (e) {
+    console.warn('handleSignOutCleanup error:', e);
+  }
+}
+
+export async function ensureSingleToken() {
+  try {
+    const u = auth.currentUser;
+    if (!u) return;
+
+    const qs = await db.collection('clientes')
+      .where('authUID', '==', u.uid)
+      .limit(1).get();
+
+    if (qs.empty) return;
+
+    const doc = qs.docs[0];
+    const data = doc.data() || {};
+    const tokens = Array.isArray(data.fcmTokens) ? data.fcmTokens : [];
+
+    if (tokens.length <= 1) return;
+
+    // Elegimos uno: el del localStorage si existe, sino el primero del array
+    const preferred = localStorage.getItem(TOKEN_LS_KEY) || tokens[0];
+
+    await doc.ref.set({ fcmTokens: [preferred] }, { merge: true });
+    localStorage.setItem(TOKEN_LS_KEY, preferred);
+
+    console.log(`🧽 Dedupe de fcmTokens: ${tokens.length} → 1`);
+  } catch (e) {
+    console.warn('ensureSingleToken error:', e);
+  }
+}
+
 // ---------- Permisos + token ----------
 export function gestionarPermisoNotificaciones() {
-    if (!isMessagingSupported || !auth.currentUser || !messaging) return;
+  if (!isMessagingSupported || !auth.currentUser || !messaging) return;
 
   const promptCard = document.getElementById('notif-prompt-card');
   const switchCard = document.getElementById('notif-card');
   const blockedWarning = document.getElementById('notif-blocked-warning');
   const popUpYaGestionado = localStorage.getItem(`notifGestionado_${auth.currentUser.uid}`);
 
-  promptCard.style.display = 'none';
-  switchCard.style.display = 'none';
-  blockedWarning.style.display = 'none';
+  if (promptCard) promptCard.style.display = 'none';
+  if (switchCard) switchCard.style.display = 'none';
+  if (blockedWarning) blockedWarning.style.display = 'none';
 
   if (Notification.permission === 'granted') {
-    obtenerYGuardarToken();
+    obtenerYGuardarToken().then(() => ensureSingleToken());
     return;
   }
   if (Notification.permission === 'denied') {
-    blockedWarning.style.display = 'block';
+    if (blockedWarning) blockedWarning.style.display = 'block';
     return;
   }
   if (!popUpYaGestionado) {
-    promptCard.style.display = 'block';
+    if (promptCard) promptCard.style.display = 'block';
   } else {
-    switchCard.style.display = 'block';
+    if (switchCard) switchCard.style.display = 'block';
     const sw = document.getElementById('notif-switch');
     if (sw) sw.checked = false;
   }
 }
 
 async function obtenerYGuardarToken() {
-  if (!isMessagingSupported || !auth.currentUser || !messaging) return;
+  if (!isMessagingSupported || !auth.currentUser || !messaging) return null;
   try {
-    const snap = await db.collection('clientes').where('authUID', '==', auth.currentUser.uid).limit(1).get();
-    if (snap.empty) return;
-    const clienteRef = snap.docs[0].ref;
-
     const registration = await navigator.serviceWorker.ready;
     const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
 
-    const currentToken = await messaging.getToken({ vapidKey, serviceWorkerRegistration: registration });
+    const currentToken = await messaging.getToken({
+      vapidKey,
+      serviceWorkerRegistration: registration
+    });
+
     if (currentToken) {
-      await clienteRef.update({ fcmTokens: firebase.firestore.FieldValue.arrayUnion(currentToken) });
-      console.log('✅ Token guardado/actualizado');
+      await saveSingleTokenForUser(currentToken); // ⬅️ SOLO 1 token en Firestore
+      return currentToken;
     } else {
       console.warn('⚠️ No se pudo obtener token');
+      return null;
     }
   } catch (err) {
     console.error('obtenerYGuardarToken error:', err);
@@ -124,6 +208,7 @@ async function obtenerYGuardarToken() {
       const warn = document.getElementById('notif-blocked-warning');
       if (warn) warn.style.display = 'block';
     }
+    return null;
   }
 }
 
@@ -132,10 +217,11 @@ export function handlePermissionRequest() {
   const card = document.getElementById('notif-prompt-card');
   if (card) card.style.display = 'none';
 
-  Notification.requestPermission().then(p => {
+  Notification.requestPermission().then(async (p) => {
     if (p === 'granted') {
       UI.showToast('¡Notificaciones activadas!', 'success');
-      obtenerYGuardarToken();
+      await obtenerYGuardarToken();
+      await ensureSingleToken();
     } else {
       const sc = document.getElementById('notif-card');
       const sw = document.getElementById('notif-switch');
@@ -144,6 +230,7 @@ export function handlePermissionRequest() {
     }
   });
 }
+
 export function dismissPermissionRequest() {
   localStorage.setItem(`notifGestionado_${auth.currentUser?.uid}`, 'true');
   const pc = document.getElementById('notif-prompt-card');
@@ -153,14 +240,16 @@ export function dismissPermissionRequest() {
   const sw = document.getElementById('notif-switch');
   if (sw) sw.checked = false;
 }
+
 export function handlePermissionSwitch(e) {
   if (e.target.checked) {
-    Notification.requestPermission().then(p => {
+    Notification.requestPermission().then(async (p) => {
       if (p === 'granted') {
         UI.showToast('¡Notificaciones activadas!', 'success');
         const sc = document.getElementById('notif-card');
         if (sc) sc.style.display = 'none';
-        obtenerYGuardarToken();
+        await obtenerYGuardarToken();
+        await ensureSingleToken();
       } else {
         e.target.checked = false;
       }
@@ -233,7 +322,7 @@ export async function markAllDeliveredAsRead() {
     console.warn('markAllDeliveredAsRead error:', e);
   }
 }
+
 export async function handleBellClick() {
   await markAllDeliveredAsRead();
 }
-
