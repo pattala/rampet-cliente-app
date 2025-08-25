@@ -1,4 +1,4 @@
-// app.js (PWA del Cliente – versión integrada con instalación persistente)
+// app.js (PWA del Cliente – versión integrada con instalación persistente + inbox modal)
 
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -13,7 +13,7 @@ import {
   dismissPermissionRequest,
   handlePermissionSwitch,
   initNotificationChannel,          // ← canal SW → app para delivered/read
-  handleBellClick,                  // ← click campanita en header
+  handleBellClick,                  // ← click campanita en header (marca leídos)
   ensureSingleToken,                // ← dedupe defensivo de fcmTokens
   handleSignOutCleanup              // ← limpieza de token al salir
 } from './modules/notifications.js';
@@ -155,6 +155,90 @@ function on(id, event, handler) {
 }
 
 // ──────────────────────────────────────────────────────────────
+// INBOX MODAL (UI)
+// ──────────────────────────────────────────────────────────────
+function ensureInboxModal() {
+  if (document.getElementById('inbox-modal')) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'inbox-modal';
+  overlay.className = 'modal-overlay';
+  overlay.style.display = 'none';
+
+  overlay.innerHTML = `
+    <div class="modal-content" style="max-width: 520px;">
+      <span id="close-inbox-modal" class="modal-close-btn">×</span>
+      <h2>Notificaciones</h2>
+      <div id="inbox-list" style="overflow-y:auto; max-height:60vh;"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  document.getElementById('close-inbox-modal').addEventListener('click', () => {
+    overlay.style.display = 'none';
+  });
+}
+
+function renderInboxItems(items) {
+  const list = document.getElementById('inbox-list');
+  if (!list) return;
+  if (!items.length) {
+    list.innerHTML = `<p class="info-message">No tenés notificaciones.</p>`;
+    return;
+  }
+
+  const html = items.map(it => {
+    const sentAt = it.sentAt ? (it.sentAt.toDate ? it.sentAt.toDate() : new Date(it.sentAt)) : null;
+    const dateTxt = sentAt ? sentAt.toLocaleString() : '';
+    const status = it.status || 'sent';
+    const url = it.url || '/notificaciones';
+    return `
+      <div class="card" style="margin:10px 0; cursor:pointer;" data-url="${url}">
+        <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
+          <div style="flex:1 1 auto;">
+            <div style="font-weight:700;">${it.title || 'Mensaje'}</div>
+            <div style="color:#555; margin-top:6px;">${it.body || ''}</div>
+            <div style="color:#999; font-size:12px; margin-top:8px;">${dateTxt} · ${status}</div>
+          </div>
+          <div style="flex:0 0 auto;">➡️</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+  list.innerHTML = html;
+
+  // Click en item → navegar a su URL
+  list.querySelectorAll('.card[data-url]').forEach(el => {
+    el.addEventListener('click', () => {
+      const goto = el.getAttribute('data-url') || '/notificaciones';
+      window.location.href = goto;
+    });
+  });
+}
+
+async function openInboxModal() {
+  ensureInboxModal();
+
+  // Cargar últimos 30 items del inbox del cliente
+  const u = auth.currentUser;
+  if (!u) return;
+  const qs = await db.collection('clientes').where('authUID','==', u.uid).limit(1).get();
+  if (qs.empty) {
+    renderInboxItems([]);
+  } else {
+    const inboxSnap = await qs.docs[0].ref.collection('inbox')
+      .orderBy('sentAt', 'desc')
+      .limit(30)
+      .get();
+    const items = inboxSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    renderInboxItems(items);
+  }
+
+  // Mostrar modal
+  const overlay = document.getElementById('inbox-modal');
+  if (overlay) overlay.style.display = 'flex';
+}
+
+// ──────────────────────────────────────────────────────────────
 // LISTENERS DE PANTALLAS
 // ──────────────────────────────────────────────────────────────
 function setupAuthScreenListeners() {
@@ -189,8 +273,11 @@ function setupMainAppScreenListeners() {
   on('btn-install-pwa', 'click', handleInstallPrompt);
   on('btn-dismiss-install', 'click', handleDismissInstall);
 
-  // Botón de campanita en header (abre la bandeja / marca leídos)
-  on('btn-notifs', 'click', handleBellClick);
+  // Botón de campanita en header → abre modal y marca leídos
+  on('btn-notifs', 'click', async () => {
+    await openInboxModal();   // 1) ver mensajes
+    await handleBellClick();  // 2) marcar entregados como leídos (y reset badge)
+  });
 
   // Entrada fija de instalación (botón opcional en header si lo usás)
   on('install-entrypoint', 'click', async () => {
@@ -231,6 +318,9 @@ async function main() {
   auth.onAuthStateChanged(async (user) => {
     const bell = document.getElementById('btn-notifs');
     const badge = document.getElementById('notif-counter');
+
+    // asegurar que el modal exista en todo el ciclo
+    ensureInboxModal();
 
     if (user) {
       if (bell) bell.style.display = 'inline-block';
