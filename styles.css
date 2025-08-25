@@ -305,3 +305,5 @@ input:checked + .slider:before { transform: translateX(26px); }
 }
 
   #install-entrypoint { margin-left: 8px; }
+#btn-notifs, #notif-counter { display: none; }
+
