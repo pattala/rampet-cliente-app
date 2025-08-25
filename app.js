@@ -13,7 +13,9 @@ import {
   dismissPermissionRequest,
   handlePermissionSwitch,
   initNotificationChannel,          // ← canal SW → app para delivered/read
-  handleBellClick                   // ← click campanita en header
+  handleBellClick,                  // ← click campanita en header
+  ensureSingleToken,                // ← dedupe defensivo de fcmTokens
+  handleSignOutCleanup              // ← limpieza de token al salir
 } from './modules/notifications.js';
 
 // ──────────────────────────────────────────────────────────────
@@ -169,7 +171,12 @@ function setupAuthScreenListeners() {
 }
 
 function setupMainAppScreenListeners() {
-  on('logout-btn', 'click', Auth.logout);
+  // Logout con limpieza de token
+  on('logout-btn', 'click', async () => {
+    await handleSignOutCleanup(); // limpia token FCM de Firestore y local
+    Auth.logout();
+  });
+
   on('change-password-btn', 'click', UI.openChangePasswordModal);
   on('save-new-password-btn', 'click', Auth.changePassword);
   on('close-password-modal', 'click', UI.closeChangePasswordModal);
@@ -223,7 +230,8 @@ async function main() {
   // Escucha auth: cuando entra a la app, conectamos todo lo necesario
   auth.onAuthStateChanged(async (user) => {
     const bell = document.getElementById('btn-notifs');
-  const badge = document.getElementById('notif-counter');
+    const badge = document.getElementById('notif-counter');
+
     if (user) {
       if (bell) bell.style.display = 'inline-block';
       setupMainAppScreenListeners();
@@ -233,9 +241,10 @@ async function main() {
 
       // Notificaciones: si hay soporte, gestionamos permisos/token y onMessage
       if (messagingSupported) {
-        gestionarPermisoNotificaciones(); // solicita token y guarda en fcmTokens[]
-        initNotificationChannel();        // canal SW → app para delivered/read y contador
-        listenForInAppMessages();         // toasts en foreground
+        await gestionarPermisoNotificaciones(); // solicita token y guarda
+        await ensureSingleToken();              // dedupe defensivo (1 solo token)
+        initNotificationChannel();              // canal SW → app para delivered/read y contador
+        listenForInAppMessages();               // toasts en foreground
       }
 
       // Mostrar banner de instalación si aplica
@@ -248,7 +257,7 @@ async function main() {
       }
     } else {
       if (bell) bell.style.display = 'none';
-    if (badge) badge.style.display = 'none';
+      if (badge) badge.style.display = 'none';
       setupAuthScreenListeners();
       UI.showScreen('login-screen');
     }
@@ -256,4 +265,3 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
