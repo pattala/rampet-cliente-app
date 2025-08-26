@@ -392,17 +392,20 @@ function renderInboxList(items = []) {
   const html = items.map(it => {
     const status = it.status || 'sent';
     const sentAt = formatDate(it.sentAt);
-    const url = it.url || it.click_action || '';
+    const url = it.url || it.click_action || '';  // puede venir vacío o con /notificaciones
     const tag = it.tag ? `<span style="font-size:12px;color:#777;"> • ${it.tag}</span>` : '';
     const pill =
       status === 'read' ? '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#e5f5e5;color:#1a7f37;">leído</span>' :
       status === 'delivered' ? '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#fff3cd;color:#b58100;">nuevo</span>' :
       '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#ffe8e8;color:#b00020;">pendiente</span>';
 
-    const link = url ? `<a href="${url}" style="text-decoration:underline;">Ver</a>` : '';
+    // NO usamos href real (evitamos 404). Usamos data-url y lo manejamos en JS.
+    const link = url
+      ? `<a href="#" class="inbox-item-link" data-url="${encodeURIComponent(url)}" style="text-decoration:underline;">Ver</a>`
+      : '';
 
     return `
-      <div style="padding:12px 0;border-bottom:1px solid var(--border-color);">
+      <div class="inbox-item" style="padding:12px 0;border-bottom:1px solid var(--border-color);">
         <div style="display:flex;align-items:center;justify-content:space-between;">
           <strong>${it.title || 'Sin título'}</strong>
           ${pill}
@@ -417,7 +420,28 @@ function renderInboxList(items = []) {
   }).join('');
 
   list.innerHTML = html;
+
+  // Delegamos los clicks “Ver”
+  list.querySelectorAll('.inbox-item-link').forEach(a => {
+    a.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      const raw = a.getAttribute('data-url') || '';
+      const url = decodeURIComponent(raw);
+
+      // Estrategia de navegación:
+      // - Si venía “/notificaciones”, simplemente cerramos el modal (ya está viendo el inbox)
+      // - Si venía otra ruta, vamos a la home con query para que en el futuro puedas rutear (/?open=algo)
+      closeInboxModal();
+      if (!url || url === '/notificaciones') return;
+
+      // SPA sencilla: todo vive en index.html
+      // Llevo a home y, si querés, podrías leer este query desde app.js más adelante.
+      const target = url.startsWith('/') ? `/${url.replace(/^\//,'')}` : `/${url}`;
+      window.location.href = `/?open=${encodeURIComponent(target)}`;
+    }, { once:false });
+  });
 }
+
 
 function openInboxModal() {
   const modal = document.getElementById('inbox-modal');
@@ -488,3 +512,4 @@ export async function showInboxModal() {
     if (el) el.onclick = () => renderInboxByTab(tab);
   });
 }
+
