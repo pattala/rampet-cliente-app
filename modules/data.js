@@ -1,4 +1,4 @@
-// modules/data.js (PWA - VERSIÓN FINAL CON LISTENERS EN TIEMPO REAL + vencimiento)
+// modules/data.js (PWA - LISTENERS + vencimiento + render unificado)
 
 import { db } from './firebase.js';
 import * as UI from './ui.js';
@@ -30,6 +30,7 @@ export function updateVencimientoCard(cliente = {}) {
     const fechaEl = document.getElementById('cliente-fecha-vencimiento');
     if (!card || !ptsEl || !fechaEl) return;
 
+    // Modelo 1: campos directos
     const pts = Number(cliente.puntosProximosAVencer || 0);
     const fechaTs = cliente.fechaProximoVencimiento;
 
@@ -41,13 +42,13 @@ export function updateVencimientoCard(cliente = {}) {
       return;
     }
 
-    // Fallback: arreglo `vencimientos` [{ puntos, venceAt }]
+    // Modelo 2: arreglo `vencimientos` [{ puntos, venceAt }]
     const v = Array.isArray(cliente.vencimientos) ? cliente.vencimientos : [];
     const now = Date.now();
     const futuros = v
       .map(x => ({
         puntos: Number(x.puntos || 0),
-        ts: x.venceAt?.toDate ? x.venceAt.toDate().getTime() : new Date(x.venceAt).getTime()
+        ts: x?.venceAt?.toDate ? x.venceAt.toDate().getTime() : (x?.venceAt ? new Date(x.venceAt).getTime() : 0)
       }))
       .filter(x => x.puntos > 0 && x.ts && x.ts > now)
       .sort((a, b) => a.ts - b.ts);
@@ -141,7 +142,7 @@ export async function listenToClientData(user) {
   });
 }
 
-// --- Stubs para mantener compatibilidad si son usados en otros módulos ---
+// Stubs (si algún módulo los importa, no rompen)
 export async function acceptTerms() { /* ... */ }
 export function getFechaProximoVencimiento(cliente) { /* ... */ }
 export function getPuntosEnProximoVencimiento(cliente) { /* ... */ }
