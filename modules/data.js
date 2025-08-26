@@ -1,4 +1,4 @@
-// modules/data.js (PWA - VERSIÓN FINAL CON LISTENERS EN TIEMPO REAL)
+// modules/data.js (PWA - VERSIÓN FINAL CON LISTENERS EN TIEMPO REAL + vencimiento)
 
 import { db } from './firebase.js';
 import * as UI from './ui.js';
@@ -8,97 +8,140 @@ import * as Notifications from './notifications.js';
 let clienteData = null;
 let clienteRef = null;
 let premiosData = [];
-let campanasData = []; // Guardaremos las campañas aquí para que ambos listeners las usen
+let campanasData = [];
 
 let unsubscribeCliente = null;
-let unsubscribeCampanas = null; // Listener para las campañas
+let unsubscribeCampanas = null;
 
 export function cleanupListener() {
-    if (unsubscribeCliente) unsubscribeCliente();
-    if (unsubscribeCampanas) unsubscribeCampanas(); // Limpiamos el nuevo listener
-    clienteData = null;
-    clienteRef = null;
-    premiosData = [];
-    campanasData = [];
+  if (unsubscribeCliente) unsubscribeCliente();
+  if (unsubscribeCampanas) unsubscribeCampanas();
+  clienteData = null;
+  clienteRef = null;
+  premiosData = [];
+  campanasData = [];
+}
+
+// === Mostrar / Ocultar card de vencimiento ===
+export function updateVencimientoCard(cliente = {}) {
+  try {
+    const card = document.getElementById('vencimiento-card');
+    const ptsEl = document.getElementById('cliente-puntos-vencimiento');
+    const fechaEl = document.getElementById('cliente-fecha-vencimiento');
+    if (!card || !ptsEl || !fechaEl) return;
+
+    const pts = Number(cliente.puntosProximosAVencer || 0);
+    const fechaTs = cliente.fechaProximoVencimiento;
+
+    if (pts > 0 && fechaTs) {
+      const date = fechaTs.toDate ? fechaTs.toDate() : new Date(fechaTs);
+      ptsEl.textContent = String(pts);
+      fechaEl.textContent = date.toLocaleDateString();
+      card.style.display = 'block';
+      return;
+    }
+
+    // Fallback: arreglo `vencimientos` [{ puntos, venceAt }]
+    const v = Array.isArray(cliente.vencimientos) ? cliente.vencimientos : [];
+    const now = Date.now();
+    const futuros = v
+      .map(x => ({
+        puntos: Number(x.puntos || 0),
+        ts: x.venceAt?.toDate ? x.venceAt.toDate().getTime() : new Date(x.venceAt).getTime()
+      }))
+      .filter(x => x.puntos > 0 && x.ts && x.ts > now)
+      .sort((a, b) => a.ts - b.ts);
+
+    if (futuros.length) {
+      const primero = futuros[0];
+      ptsEl.textContent = String(primero.puntos);
+      fechaEl.textContent = new Date(primero.ts).toLocaleDateString();
+      card.style.display = 'block';
+    } else {
+      card.style.display = 'none';
+    }
+  } catch (e) {
+    console.warn('updateVencimientoCard error:', e);
+  }
 }
 
 function renderizarPantallaPrincipal() {
-    // Esta función auxiliar se encarga de renderizar la UI
-    // cada vez que los datos del cliente O de las campañas cambian.
-    if (!clienteData) return;
+  if (!clienteData) return;
 
-    const hoy = new Date().toISOString().split('T')[0];
-    
-    const campanasVisibles = campanasData.filter(campana => {
-        const esPublica = campana.visibilidad !== 'prueba';
-        const esTesterYVePrueba = clienteData.esTester === true && campana.visibilidad === 'prueba';
-        if (!(esPublica || esTesterYVePrueba)) return false;
+  const hoy = new Date().toISOString().split('T')[0];
 
-        const fechaInicio = campana.fechaInicio;
-        const fechaFin = campana.fechaFin;
-        
-        if (!fechaInicio || hoy < fechaInicio) return false;
-        if (fechaFin && fechaFin !== '2100-01-01' && hoy > fechaFin) return false;
+  const campanasVisibles = campanasData.filter(campana => {
+    const esPublica = campana.visibilidad !== 'prueba';
+    const esTesterYVePrueba = clienteData.esTester === true && campana.visibilidad === 'prueba';
+    if (!(esPublica || esTesterYVePrueba)) return false;
 
-        return true;
-    });
+    const fechaInicio = campana.fechaInicio;
+    const fechaFin = campana.fechaFin;
 
-    UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
+    if (!fechaInicio || hoy < fechaInicio) return false;
+    if (fechaFin && fechaFin !== '2100-01-01' && hoy > fechaFin) return false;
+
+    return true;
+  });
+
+  // Render principal
+  UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
+
+  // Card de vencimiento
+  updateVencimientoCard(clienteData);
 }
 
 export async function listenToClientData(user) {
-    UI.showScreen('loading-screen');
-    
-    // Limpiamos listeners anteriores por si acaso
-    if (unsubscribeCliente) unsubscribeCliente();
-    if (unsubscribeCampanas) unsubscribeCampanas();
+  UI.showScreen('loading-screen');
 
-    // Cargamos los premios una sola vez, ya que no cambian a menudo.
-    if (premiosData.length === 0) {
-        try {
-            const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
-            premiosData = premiosSnapshot.docs.map(p => ({ id: p.id, ...p.data() }));
-        } catch (e) {
-            console.error("Error cargando premios:", e);
-        }
+  if (unsubscribeCliente) unsubscribeCliente();
+  if (unsubscribeCampanas) unsubscribeCampanas();
+
+  // Premios (carga inicial)
+  if (premiosData.length === 0) {
+    try {
+      const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
+      premiosData = premiosSnapshot.docs.map(p => ({ id: p.id, ...p.data() }));
+    } catch (e) {
+      console.error("Error cargando premios:", e);
+    }
+  }
+
+  // Campañas en tiempo real
+  const campanasQuery = db.collection('campanas').where('estaActiva', '==', true);
+  unsubscribeCampanas = campanasQuery.onSnapshot(snapshot => {
+    campanasData = snapshot.docs.map(doc => doc.data());
+    console.log("Campañas actualizadas en tiempo real:", campanasData.length);
+    renderizarPantallaPrincipal();
+  }, error => {
+    console.error("Error escuchando campañas:", error);
+  });
+
+  // Cliente en tiempo real
+  const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
+  unsubscribeCliente = clienteQuery.onSnapshot(snapshot => {
+    if (snapshot.empty) {
+      UI.showToast("Error: Tu cuenta no está vinculada a ninguna ficha de cliente.", "error");
+      Auth.logout();
+      return;
     }
 
-    // --- INICIO: LISTENER EN TIEMPO REAL PARA CAMPAÑAS ---
-    const campanasQuery = db.collection('campanas').where('estaActiva', '==', true);
-    unsubscribeCampanas = campanasQuery.onSnapshot(snapshot => {
-        campanasData = snapshot.docs.map(doc => doc.data());
-        console.log("Campañas actualizadas en tiempo real:", campanasData.length);
-        renderizarPantallaPrincipal(); // Re-renderizamos con las nuevas campañas
-    }, error => {
-        console.error("Error escuchando campañas:", error);
-    });
-    // --- FIN: LISTENER EN TIEMPO REAL PARA CAMPAÑAS ---
+    clienteData = snapshot.docs[0].data();
+    clienteRef = snapshot.docs[0].ref;
 
-    // --- LISTENER EN TIEMPO REAL PARA EL CLIENTE ---
-    const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
-    unsubscribeCliente = clienteQuery.onSnapshot(snapshot => {
-        if (snapshot.empty) {
-            UI.showToast("Error: Tu cuenta no está vinculada a ninguna ficha de cliente.", "error");
-            Auth.logout();
-            return;
-        }
-        
-        clienteData = snapshot.docs[0].data();
-        clienteRef = snapshot.docs[0].ref;
-        
-        console.log("Datos del cliente actualizados en tiempo real.");
-        renderizarPantallaPrincipal(); // Re-renderizamos con los nuevos datos del cliente
-        
-        Notifications.gestionarPermisoNotificaciones(clienteData); 
+    console.log("Datos del cliente actualizados en tiempo real.");
+    renderizarPantallaPrincipal();
 
-    }, (error) => {
-        console.error("Error en listener de cliente:", error);
-        Auth.logout();
-    });
+    // Notificaciones (permiso/token)
+    Notifications.gestionarPermisoNotificaciones(clienteData);
+
+  }, (error) => {
+    console.error("Error en listener de cliente:", error);
+    Auth.logout();
+  });
 }
 
-
-// ... (El resto del archivo data.js permanece igual)
+// --- Stubs para mantener compatibilidad si son usados en otros módulos ---
 export async function acceptTerms() { /* ... */ }
 export function getFechaProximoVencimiento(cliente) { /* ... */ }
 export function getPuntosEnProximoVencimiento(cliente) { /* ... */ }
