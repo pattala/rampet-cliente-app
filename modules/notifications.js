@@ -1,5 +1,5 @@
 // pwa/modules/notifications.js
-// Canal completo: FG (onMessage) + BG (SW -> postMessage) + helpers Firestore + campanita + token único
+// Canal completo: FG (onMessage) + BG (SW -> postMessage) + helpers Firestore + campanita + token único + inbox con pestañas
 
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
@@ -91,7 +91,7 @@ async function saveSingleTokenForUser(token) {
   // Reemplaza todo el array por [token]
   await ref.set({ fcmTokens: [token] }, { merge: true });
 
-  // Cache local para poder limpiar en logout y dedupe
+  // Cache local para limpiar en logout y dedupe
   localStorage.setItem(TOKEN_LS_KEY, token);
 
   console.log('✅ Token FCM guardado como único:', token);
@@ -323,15 +323,15 @@ export async function markAllDeliveredAsRead() {
   }
 }
 
+// Al hacer click en la campanita → abrir modal (NO marca leído automáticamente)
 export async function handleBellClick() {
-  await markAllDeliveredAsRead();
+  await showInboxModal();
 }
 
-// ========== INBOX MODAL RENDER ==========
+// ========== INBOX: utils ==========
 function formatDate(ts) {
   try {
     if (!ts) return '';
-    // Firestore Timestamp o Date ISO
     const d = ts.toDate ? ts.toDate() : (typeof ts === 'string' ? new Date(ts) : ts);
     return d.toLocaleString();
   } catch { return ''; }
@@ -348,10 +348,7 @@ async function getClienteDocRefSafe() {
   }
 }
 
-/**
- * Trae últimos N docs del inbox (ordenado por sentAt desc).
- * No asumo que exista "tipo", así que muestro lista plana y filtro expirados en cliente.
- */
+/** Trae últimos N docs del inbox (ordenado por sentAt desc) y filtra expirados en cliente */
 async function fetchInboxDocs(limit = 50) {
   const ref = await getClienteDocRefSafe();
   if (!ref) return [];
@@ -359,17 +356,25 @@ async function fetchInboxDocs(limit = 50) {
     .orderBy('sentAt', 'desc')
     .limit(limit)
     .get();
-  const now = Date.now();
 
+  const now = Date.now();
   const items = [];
   snap.forEach(doc => {
     const d = doc.data() || {};
-    const expireOk = !d.expireAt || (d.expireAt.toDate ? d.expireAt.toDate().getTime() > now : new Date(d.expireAt).getTime() > now);
-    if (expireOk) {
-      items.push({ id: doc.id, ...d });
-    }
+    const notExpired =
+      !d.expireAt ||
+      (d.expireAt.toDate ? d.expireAt.toDate().getTime() > now : new Date(d.expireAt).getTime() > now);
+    if (notExpired) items.push({ id: doc.id, ...d });
   });
   return items;
+}
+
+/** Bucket simple por tipo: usa source/type; heurística para compatibilidad */
+function bucketOf(it = {}) {
+  const s = (it.source || it.type || '').toString().toLowerCase();
+  if (s.includes('promo') || s.includes('camp')) return 'promos';
+  if (s.includes('punto') || s === 'points') return 'puntos';
+  return s ? s : 'otros';
 }
 
 function renderInboxList(items = []) {
@@ -384,7 +389,6 @@ function renderInboxList(items = []) {
   }
   empty.style.display = 'none';
 
-  // Render simple (título, cuerpo, estado, fecha). Si hay url, se muestra como link.
   const html = items.map(it => {
     const status = it.status || 'sent';
     const sentAt = formatDate(it.sentAt);
@@ -395,9 +399,7 @@ function renderInboxList(items = []) {
       status === 'delivered' ? '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#fff3cd;color:#b58100;">nuevo</span>' :
       '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#ffe8e8;color:#b00020;">pendiente</span>';
 
-    const link = url
-      ? `<a href="${url}" style="text-decoration:underline;">Ver</a>`
-      : '';
+    const link = url ? `<a href="${url}" style="text-decoration:underline;">Ver</a>` : '';
 
     return `
       <div style="padding:12px 0;border-bottom:1px solid var(--border-color);">
@@ -426,31 +428,63 @@ function closeInboxModal() {
   if (modal) modal.style.display = 'none';
 }
 
-/** Carga y muestra el inbox; no marca leído acá (lo hacemos al click de botón o al abrir si querés) */
-export async function showInboxModal() {
+// Estado de pestaña actual (por sesión)
+let _inboxTab = 'todos';
+function setActiveTabUI(tab) {
+  const all = ['todos','promos','puntos','otros'];
+  all.forEach(t => {
+    const btn = document.getElementById(`inbox-tab-${t}`);
+    if (!btn) return;
+    if (t === tab) {
+      btn.classList.remove('secondary-btn');
+      btn.classList.add('primary-btn');
+    } else {
+      btn.classList.remove('primary-btn');
+      btn.classList.add('secondary-btn');
+    }
+  });
+}
+
+/** Carga, filtra por pestaña y muestra */
+async function renderInboxByTab(tab = 'todos') {
+  _inboxTab = tab;
+  setActiveTabUI(tab);
   const items = await fetchInboxDocs(50);
-  renderInboxList(items);
+  const filtered = (tab === 'todos')
+    ? items
+    : items.filter(it => bucketOf(it) === tab);
+  renderInboxList(filtered);
+}
+
+/** Mostrar modal + enganchar listeners de pestañas y acciones */
+export async function showInboxModal() {
+  await renderInboxByTab(_inboxTab || 'todos');
   openInboxModal();
 
-  // listeners (idempotentes: quitamos y volvemos a agregar)
   const closeX = document.getElementById('close-inbox-modal');
   const closeBtn = document.getElementById('inbox-close-btn');
   const markBtn = document.getElementById('inbox-mark-read');
 
-  if (closeX) {
-    closeX.onclick = () => closeInboxModal();
-  }
-  if (closeBtn) {
-    closeBtn.onclick = () => closeInboxModal();
-  }
+  if (closeX) closeX.onclick = () => closeInboxModal();
+  if (closeBtn) closeBtn.onclick = () => closeInboxModal();
   if (markBtn) {
     markBtn.onclick = async () => {
       await markAllDeliveredAsRead();
-      // refresco visual del listado con estados en “leído”
-      const refreshed = await fetchInboxDocs(50);
-      renderInboxList(refreshed);
+      await renderInboxByTab(_inboxTab || 'todos'); // refrescar con estado "leído"
       resetBellCounter();
       UI.showToast('Notificaciones marcadas como leídas', 'success');
     };
   }
+
+  // Tabs
+  const tabs = [
+    { id: 'inbox-tab-todos',  tab: 'todos'  },
+    { id: 'inbox-tab-promos', tab: 'promos' },
+    { id: 'inbox-tab-puntos', tab: 'puntos' },
+    { id: 'inbox-tab-otros',  tab: 'otros'  },
+  ];
+  tabs.forEach(({id, tab}) => {
+    const el = document.getElementById(id);
+    if (el) el.onclick = () => renderInboxByTab(tab);
+  });
 }
