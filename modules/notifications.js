@@ -1,5 +1,5 @@
 // pwa/modules/notifications.js
-// Canal completo: FG (onMessage) + BG (SW -> postMessage) + helpers Firestore + campanita + token único + inbox con pestañas
+// FG (onMessage) + BG (SW->postMessage) + Firestore helpers + campanita + token único + Inbox con pestañas
 
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
@@ -87,13 +87,9 @@ async function saveSingleTokenForUser(token) {
   if (qs.empty) return;
 
   const ref = qs.docs[0].ref;
-
-  // Reemplaza todo el array por [token]
   await ref.set({ fcmTokens: [token] }, { merge: true });
 
-  // Cache local para limpiar en logout y dedupe
   localStorage.setItem(TOKEN_LS_KEY, token);
-
   console.log('✅ Token FCM guardado como único:', token);
 }
 
@@ -142,7 +138,6 @@ export async function ensureSingleToken() {
 
     if (tokens.length <= 1) return;
 
-    // Elegimos uno: el del localStorage si existe, sino el primero del array
     const preferred = localStorage.getItem(TOKEN_LS_KEY) || tokens[0];
 
     await doc.ref.set({ fcmTokens: [preferred] }, { merge: true });
@@ -196,7 +191,7 @@ async function obtenerYGuardarToken() {
     });
 
     if (currentToken) {
-      await saveSingleTokenForUser(currentToken); // ⬅️ SOLO 1 token en Firestore
+      await saveSingleTokenForUser(currentToken);
       return currentToken;
     } else {
       console.warn('⚠️ No se pudo obtener token');
@@ -263,9 +258,7 @@ export function listenForInAppMessages() {
   messaging.onMessage(async (payload) => {
     const data = payload?.data || {};
     console.log('[FG] onMessage', data);
-    // marcar delivered
     if (data.id) await markDeliveredInInbox(data.id);
-    // toast
     const title = data.title || 'Mensaje';
     const body  = data.body  || '';
     UI.showToast(`📢 ${title}: ${body}`, 'info', 10000);
@@ -281,7 +274,7 @@ function swMessageHandler(event) {
     const d = msg.data || {};
     console.log('[SW→APP] delivered', d);
     if (d.id) markDeliveredInInbox(d.id);
-    else bumpBellCounter(1); // si no vino id, al menos subimos el badge
+    else bumpBellCounter(1);
   }
   if (msg.type === 'PUSH_READ') {
     const d = msg.data || {};
@@ -323,7 +316,7 @@ export async function markAllDeliveredAsRead() {
   }
 }
 
-// Al hacer click en la campanita → abrir modal (NO marca leído automáticamente)
+// Campanita abre el modal (no marca leídos automáticamente)
 export async function handleBellClick() {
   await showInboxModal();
 }
@@ -392,14 +385,14 @@ function renderInboxList(items = []) {
   const html = items.map(it => {
     const status = it.status || 'sent';
     const sentAt = formatDate(it.sentAt);
-    const url = it.url || it.click_action || '';  // puede venir vacío o con /notificaciones
+    const url = it.url || it.click_action || '';
     const tag = it.tag ? `<span style="font-size:12px;color:#777;"> • ${it.tag}</span>` : '';
     const pill =
       status === 'read' ? '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#e5f5e5;color:#1a7f37;">leído</span>' :
       status === 'delivered' ? '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#fff3cd;color:#b58100;">nuevo</span>' :
       '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#ffe8e8;color:#b00020;">pendiente</span>';
 
-    // NO usamos href real (evitamos 404). Usamos data-url y lo manejamos en JS.
+    // Evitamos 404: no usamos href real. Interceptamos por JS con data-url.
     const link = url
       ? `<a href="#" class="inbox-item-link" data-url="${encodeURIComponent(url)}" style="text-decoration:underline;">Ver</a>`
       : '';
@@ -428,20 +421,17 @@ function renderInboxList(items = []) {
       const raw = a.getAttribute('data-url') || '';
       const url = decodeURIComponent(raw);
 
-      // Estrategia de navegación:
-      // - Si venía “/notificaciones”, simplemente cerramos el modal (ya está viendo el inbox)
-      // - Si venía otra ruta, vamos a la home con query para que en el futuro puedas rutear (/?open=algo)
+      // Estrategia:
+      // - "/notificaciones" solo cierra (ya estás en el modal)
+      // - otras rutas -> redirijo a home con query (?open=...)
       closeInboxModal();
       if (!url || url === '/notificaciones') return;
 
-      // SPA sencilla: todo vive en index.html
-      // Llevo a home y, si querés, podrías leer este query desde app.js más adelante.
       const target = url.startsWith('/') ? `/${url.replace(/^\//,'')}` : `/${url}`;
       window.location.href = `/?open=${encodeURIComponent(target)}`;
     }, { once:false });
   });
 }
-
 
 function openInboxModal() {
   const modal = document.getElementById('inbox-modal');
@@ -494,7 +484,7 @@ export async function showInboxModal() {
   if (markBtn) {
     markBtn.onclick = async () => {
       await markAllDeliveredAsRead();
-      await renderInboxByTab(_inboxTab || 'todos'); // refrescar con estado "leído"
+      await renderInboxByTab(_inboxTab || 'todos');
       resetBellCounter();
       UI.showToast('Notificaciones marcadas como leídas', 'success');
     };
@@ -512,4 +502,3 @@ export async function showInboxModal() {
     if (el) el.onclick = () => renderInboxByTab(tab);
   });
 }
-
