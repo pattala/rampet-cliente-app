@@ -326,3 +326,131 @@ export async function markAllDeliveredAsRead() {
 export async function handleBellClick() {
   await markAllDeliveredAsRead();
 }
+
+// ========== INBOX MODAL RENDER ==========
+function formatDate(ts) {
+  try {
+    if (!ts) return '';
+    // Firestore Timestamp o Date ISO
+    const d = ts.toDate ? ts.toDate() : (typeof ts === 'string' ? new Date(ts) : ts);
+    return d.toLocaleString();
+  } catch { return ''; }
+}
+
+async function getClienteDocRefSafe() {
+  try {
+    if (!auth.currentUser) return null;
+    const q = await db.collection('clientes').where('authUID', '==', auth.currentUser.uid).limit(1).get();
+    if (q.empty) return null;
+    return q.docs[0].ref;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Trae últimos N docs del inbox (ordenado por sentAt desc).
+ * No asumo que exista "tipo", así que muestro lista plana y filtro expirados en cliente.
+ */
+async function fetchInboxDocs(limit = 50) {
+  const ref = await getClienteDocRefSafe();
+  if (!ref) return [];
+  const snap = await ref.collection('inbox')
+    .orderBy('sentAt', 'desc')
+    .limit(limit)
+    .get();
+  const now = Date.now();
+
+  const items = [];
+  snap.forEach(doc => {
+    const d = doc.data() || {};
+    const expireOk = !d.expireAt || (d.expireAt.toDate ? d.expireAt.toDate().getTime() > now : new Date(d.expireAt).getTime() > now);
+    if (expireOk) {
+      items.push({ id: doc.id, ...d });
+    }
+  });
+  return items;
+}
+
+function renderInboxList(items = []) {
+  const list = document.getElementById('inbox-list');
+  const empty = document.getElementById('inbox-empty');
+  if (!list || !empty) return;
+
+  if (!items.length) {
+    list.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+
+  // Render simple (título, cuerpo, estado, fecha). Si hay url, se muestra como link.
+  const html = items.map(it => {
+    const status = it.status || 'sent';
+    const sentAt = formatDate(it.sentAt);
+    const url = it.url || it.click_action || '';
+    const tag = it.tag ? `<span style="font-size:12px;color:#777;"> • ${it.tag}</span>` : '';
+    const pill =
+      status === 'read' ? '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#e5f5e5;color:#1a7f37;">leído</span>' :
+      status === 'delivered' ? '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#fff3cd;color:#b58100;">nuevo</span>' :
+      '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#ffe8e8;color:#b00020;">pendiente</span>';
+
+    const link = url
+      ? `<a href="${url}" style="text-decoration:underline;">Ver</a>`
+      : '';
+
+    return `
+      <div style="padding:12px 0;border-bottom:1px solid var(--border-color);">
+        <div style="display:flex;align-items:center;justify-content:space-between;">
+          <strong>${it.title || 'Sin título'}</strong>
+          ${pill}
+        </div>
+        <div style="color:#555;margin:6px 0;">${it.body || ''}</div>
+        <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;">
+          <small style="color:#777;">${sentAt}${tag}</small>
+          <div>${link}</div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  list.innerHTML = html;
+}
+
+function openInboxModal() {
+  const modal = document.getElementById('inbox-modal');
+  if (modal) modal.style.display = 'flex';
+}
+function closeInboxModal() {
+  const modal = document.getElementById('inbox-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+/** Carga y muestra el inbox; no marca leído acá (lo hacemos al click de botón o al abrir si querés) */
+export async function showInboxModal() {
+  const items = await fetchInboxDocs(50);
+  renderInboxList(items);
+  openInboxModal();
+
+  // listeners (idempotentes: quitamos y volvemos a agregar)
+  const closeX = document.getElementById('close-inbox-modal');
+  const closeBtn = document.getElementById('inbox-close-btn');
+  const markBtn = document.getElementById('inbox-mark-read');
+
+  if (closeX) {
+    closeX.onclick = () => closeInboxModal();
+  }
+  if (closeBtn) {
+    closeBtn.onclick = () => closeInboxModal();
+  }
+  if (markBtn) {
+    markBtn.onclick = async () => {
+      await markAllDeliveredAsRead();
+      // refresco visual del listado con estados en “leído”
+      const refreshed = await fetchInboxDocs(50);
+      renderInboxList(refreshed);
+      resetBellCounter();
+      UI.showToast('Notificaciones marcadas como leídas', 'success');
+    };
+  }
+}
