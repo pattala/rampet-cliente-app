@@ -1,237 +1,245 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Club RAMPET - Mis Puntos</title>
-    
-    <meta name="theme-color" content="#007bff"/>
-    <link rel="manifest" href="manifest.json">
-    <link rel="apple-touch-icon" href="images/mi_logo_192.png">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Club RAMPET - Mis Puntos</title>
 
-    <link rel="stylesheet" href="styles.css">
-    <!-- Firebase compat (como ya usabas) -->
-    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-analytics-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js"></script>
+  <meta name="theme-color" content="#007bff"/>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="images/mi_logo_192.png">
+
+  <link rel="stylesheet" href="styles.css">
+  <!-- Firebase compat (como ya usabas) -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-analytics-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js"></script>
 </head>
 <body>
-    <div id="toast-container"></div>
-    <div class="container">
-        <header>
-            <img src="images/mi_logo.png" alt="Logo RAMPET" class="logo">
-            <h1>Club RAMPET</h1>
+  <div id="toast-container"></div>
+  <div class="container">
+    <header>
+      <img src="images/mi_logo.png" alt="Logo RAMPET" class="logo">
+      <h1>Club RAMPET</h1>
 
-            <!-- 🔔 Notificaciones -->
-            <button id="btn-notifs" style="position:relative; margin-left:auto" title="Notificaciones">
-              🔔
-              <span id="notif-counter"
-                    style="display:none; position:absolute; top:-6px; right:-6px;
-                           background:#e11; color:#fff; border-radius:999px;
-                           padding:1px 6px; font:12px system-ui;"></span>
-            </button>
+      <!-- 🔔 Notificaciones -->
+      <button id="btn-notifs" style="position:relative; margin-left:auto" title="Notificaciones">
+        🔔
+        <span id="notif-counter"
+              style="display:none; position:absolute; top:-6px; right:-6px;
+                     background:#e11; color:#fff; border-radius:999px;
+                     padding:1px 6px; font:12px system-ui;"></span>
+      </button>
 
-            <!-- 📲 Botón fijo para instalar PWA (se muestra si no está instalada) -->
-            <button id="install-entrypoint" class="secondary-btn" style="display:none; margin-left:8px;">Instalar app</button>
-        </header>
+      <!-- 📲 Botón fijo para instalar PWA (se muestra si no está instalada) -->
+      <button id="install-entrypoint" class="secondary-btn" style="display:none; margin-left:8px;">Instalar app</button>
+    </header>
 
-        <div id="loading-screen" class="screen active"><p>Cargando...</p></div>
-        
-        <div id="login-screen" class="screen">
-            <h2>Bienvenido</h2>
-            <p>Ingresa para consultar tus puntos y beneficios.</p>
-            <div class="form-group">
-                <input type="email" id="login-email" placeholder="Tu Email" autocomplete="email" required>
-                <input type="password" id="login-password" placeholder="Tu Contraseña o DNI" required>
-                <button id="login-btn" class="primary-btn">Ingresar</button>
-            </div>
-            <p class="toggle-link" style="margin-top: 15px;">
-                <a href="#" id="forgot-password-link">¿Olvidaste tu contraseña?</a>
-            </p>
-            <p class="toggle-link">¿Aún no eres miembro? <a href="#" id="show-register-link">Regístrate aquí</a></p>
-        </div>
+    <div id="loading-screen" class="screen active"><p>Cargando...</p></div>
 
-        <div id="register-screen" class="screen">
-            <h2>Únete al Club</h2>
-            <p>Completa tus datos para empezar a sumar puntos.</p>
-            <div class="form-group">
-                <input type="text" id="register-nombre" placeholder="Nombre Completo" required>
-                <input type="text" id="register-dni" placeholder="DNI" required>
-                <input type="email" id="register-email" placeholder="Email" required autocomplete="email">
-                <input type="tel" id="register-telefono" placeholder="Teléfono" required>
-                <label for="register-fecha-nacimiento">Fecha de Nacimiento</label>
-                <input type="date" id="register-fecha-nacimiento" required>
-                <input type="password" id="register-password" placeholder="Crea una Contraseña (mín. 6 caracteres)" required>
-                
-                <div class="terms-container">
-                    <input type="checkbox" id="register-terms">
-                    <label for="register-terms">He leído y acepto los <a href="#" id="show-terms-link">Términos y Condiciones</a>.</label>
-                </div>
-
-                <button id="register-btn" class="primary-btn">Crear Cuenta</button>
-            </div>
-            <p class="toggle-link">¿Ya tienes cuenta? <a href="#" id="show-login-link">Ingresa aquí</a></p>
-        </div>
-
-        <div id="main-app-screen" class="screen">
-            <div class="user-header">
-                <h3>Hola, <span id="cliente-nombre">--</span> (<span id="cliente-numero-socio">--</span>)</h3>
-                <div class="user-actions">
-                    <button id="change-password-btn" class="secondary-btn">Cambiar Clave</button>
-                    <button id="logout-btn" class="secondary-btn">Salir</button>
-                </div>
-            </div>
-
-            <div id="terms-banner" class="card terms-banner" style="display: none;">
-                <p>⚠️ Para poder canjear premios, debes aceptar los <a href="#" id="show-terms-link-banner">Términos y Condiciones</a>.</p>
-            </div>
-            <div class="card puntos-card">
-                <p>Tus Puntos Disponibles</p>
-                <h2 id="cliente-puntos">--</h2>
-            </div>
-            <div id="carrusel-campanas-container" class="carrusel-container" style="display: none;">
-                <h3>Promociones para ti</h3>
-                <div id="carrusel-campanas" class="carrusel"></div>
-                <div id="carrusel-indicadores" class="carrusel-indicadores"></div>
-            </div>
-            
-            <div id="notif-prompt-card" class="card notif-prompt" style="display: none;">
-                <h3>¡Activa tus Beneficios Exclusivos! 🚀</h3>
-                <p>Al activar las notificaciones, te aseguras de no perderte nada importante. Si no lo haces, te perderás de:</p>
-                <ul style="text-align: left; padding-left: 20px; margin-top: 10px; margin-bottom: 15px;">
-                    <li>💰 <strong>Puntos al Instante:</strong> Saber en el momento exacto que sumaste puntos por una compra.</li>
-                    <li>🔥 <strong>Ofertas Express:</strong> Recibir promociones únicas y por tiempo limitado solo para miembros.</li>
-                    <li>🎁 <strong>Campañas y Recompensas:</strong> Ser el primero en enterarte de nuevos premios y campañas especiales.</li>
-                </ul>
-                <div class="prompt-actions">
-                    <button id="btn-activar-notif-prompt" class="primary-btn">Sí, ¡Quiero los beneficios!</button>
-                    <button id="btn-rechazar-notif-prompt" class="secondary-btn">Quizás más tarde</button>
-                </div>
-            </div>
-
-            <div id="install-prompt-card" class="card install-prompt" style="display: none;">
-                <h3>📲 ¡Lleva el Club Contigo!</h3>
-                <p>Instala la aplicación en tu dispositivo para un acceso más rápido y directo a tus puntos y beneficios !!! </p>
-                <div class="install-assurance">
-                    <p><strong>✔️ Es una aplicación segura y verificada.</strong> No ocupa casi espacio y no te pedirá permisos extraños. Te recomendamos marcar la opción "Crear acceso directo en el escritorio" para tenerla siempre a mano.</p>
-                </div>
-                <div class="prompt-actions">
-                    <button id="btn-install-pwa" class="primary-btn">Instalar Ahora</button>
-                    <button id="btn-dismiss-install" class="secondary-btn">No, gracias</button>
-                </div>
-            </div>
-
-            <div id="notif-card" class="card" style="display: none;">
-                <h3>Notificaciones</h3>
-                <div class="notif-setting">
-                    <p>Recibir avisos de beneficios y premios.</p>
-                    <label class="switch">
-                        <input type="checkbox" id="notif-switch">
-                        <span class="slider round"></span>
-                    </label>
-                </div>
-            </div>
-
-            <div id="notif-blocked-warning" class="card warning-banner" style="display: none;">
-                <p>⚠️ Has bloqueado las notificaciones. Para recibir alertas, habilítalas en la configuración de tu navegador.</p>
-            </div>
-
-            <div id="vencimiento-card" class="card vencimiento-card" style="display: none;">
-                <p>⚠️ Puntos por Vencer</p>
-                <h2><span id="cliente-puntos-vencimiento">--</span> Puntos</h2>
-                <p>Vencen el: <strong id="cliente-fecha-vencimiento">--</strong></p>
-            </div>
-            <div id="historial-container" class="card">
-                 <h3>Historial Reciente</h3>
-                <ul id="lista-historial"></ul>
-            </div>
-            <div id="premios-container" class="card">
-                <h3>Catálogo de Premios</h3>
-                <p>Estos son los premios que puedes canjear en la tienda:</p>
-                <ul id="lista-premios-cliente"></ul>
-            </div>
-            
-            <footer class="app-footer">
-                <p>Al usar esta app, aceptas nuestros <a href="#" id="footer-terms-link">Términos y Condiciones</a>.</p>
-            </footer>
-        </div>
-
-        <div id="terms-modal" class="modal-overlay" style="display: none;">
-            <div class="modal-content">
-                <span id="close-terms-modal" class="modal-close-btn">×</span>
-                <h2>Términos y Condiciones</h2>
-                <div class="terms-text-container">
-                    <!-- ... (sin cambios) ... -->
-                </div>
-                <button id="accept-terms-btn-modal" class="primary-btn" style="display: none;">He Leído y Acepto los Términos</button>
-            </div>
-        </div>
-    </div>
-    
-    <div id="change-password-modal" class="modal-overlay" style="display: none;">
-        <div class="modal-content">
-            <span id="close-password-modal" class="modal-close-btn">×</span>
-            <h2>Cambiar Contraseña</h2>
-            <!-- ... (sin cambios) ... -->
-        </div>
+    <div id="login-screen" class="screen">
+      <h2>Bienvenido</h2>
+      <p>Ingresa para consultar tus puntos y beneficios.</p>
+      <div class="form-group">
+        <input type="email" id="login-email" placeholder="Tu Email" autocomplete="email" required>
+        <input type="password" id="login-password" placeholder="Tu Contraseña o DNI" required>
+        <button id="login-btn" class="primary-btn">Ingresar</button>
+      </div>
+      <p class="toggle-link" style="margin-top: 15px;">
+        <a href="#" id="forgot-password-link">¿Olvidaste tu contraseña?</a>
+      </p>
+      <p class="toggle-link">¿Aún no eres miembro? <a href="#" id="show-register-link">Regístrate aquí</a></p>
     </div>
 
-    <!-- 📘 Modal de ayuda para instalar (fallback cuando no hay prompt nativo) -->
-    <div id="install-help-modal" class="modal-overlay" style="display:none;">
+    <div id="register-screen" class="screen">
+      <h2>Únete al Club</h2>
+      <p>Completa tus datos para empezar a sumar puntos.</p>
+      <div class="form-group">
+        <input type="text" id="register-nombre" placeholder="Nombre Completo" required>
+        <input type="text" id="register-dni" placeholder="DNI" required>
+        <input type="email" id="register-email" placeholder="Email" required autocomplete="email">
+        <input type="tel" id="register-telefono" placeholder="Teléfono" required>
+        <label for="register-fecha-nacimiento">Fecha de Nacimiento</label>
+        <input type="date" id="register-fecha-nacimiento" required>
+        <input type="password" id="register-password" placeholder="Crea una Contraseña (mín. 6 caracteres)" required>
+
+        <div class="terms-container">
+          <input type="checkbox" id="register-terms">
+          <label for="register-terms">He leído y acepto los <a href="#" id="show-terms-link">Términos y Condiciones</a>.</label>
+        </div>
+
+        <button id="register-btn" class="primary-btn">Crear Cuenta</button>
+      </div>
+      <p class="toggle-link">¿Ya tienes cuenta? <a href="#" id="show-login-link">Ingresa aquí</a></p>
+    </div>
+
+    <div id="main-app-screen" class="screen">
+      <div class="user-header">
+        <h3>Hola, <span id="cliente-nombre">--</span> (<span id="cliente-numero-socio">--</span>)</h3>
+        <div class="user-actions">
+          <button id="change-password-btn" class="secondary-btn">Cambiar Clave</button>
+          <button id="logout-btn" class="secondary-btn">Salir</button>
+        </div>
+      </div>
+
+      <div id="terms-banner" class="card terms-banner" style="display: none;">
+        <p>⚠️ Para poder canjear premios, debes aceptar los <a href="#" id="show-terms-link-banner">Términos y Condiciones</a>.</p>
+      </div>
+      <div class="card puntos-card">
+        <p>Tus Puntos Disponibles</p>
+        <h2 id="cliente-puntos">--</h2>
+      </div>
+      <div id="carrusel-campanas-container" class="carrusel-container" style="display: none;">
+        <h3>Promociones para ti</h3>
+        <div id="carrusel-campanas" class="carrusel"></div>
+        <div id="carrusel-indicadores" class="carrusel-indicadores"></div>
+      </div>
+
+      <div id="notif-prompt-card" class="card notif-prompt" style="display: none;">
+        <h3>¡Activa tus Beneficios Exclusivos! 🚀</h3>
+        <p>Al activar las notificaciones, te aseguras de no perderte nada importante. Si no lo haces, te perderás de:</p>
+        <ul style="text-align: left; padding-left: 20px; margin-top: 10px; margin-bottom: 15px;">
+          <li>💰 <strong>Puntos al Instante:</strong> Saber en el momento exacto que sumaste puntos por una compra.</li>
+          <li>🔥 <strong>Ofertas Express:</strong> Recibir promociones únicas y por tiempo limitado solo para miembros.</li>
+          <li>🎁 <strong>Campañas y Recompensas:</strong> Ser el primero en enterarte de nuevos premios y campañas especiales.</li>
+        </ul>
+        <div class="prompt-actions">
+          <button id="btn-activar-notif-prompt" class="primary-btn">Sí, ¡Quiero los beneficios!</button>
+          <button id="btn-rechazar-notif-prompt" class="secondary-btn">Quizás más tarde</button>
+        </div>
+      </div>
+
+      <div id="install-prompt-card" class="card install-prompt" style="display: none;">
+        <h3>📲 ¡Lleva el Club Contigo!</h3>
+        <p>Instala la aplicación en tu dispositivo para un acceso más rápido y directo a tus puntos y beneficios !!! </p>
+        <div class="install-assurance">
+          <p><strong>✔️ Es una aplicación segura y verificada.</strong> No ocupa casi espacio y no te pedirá permisos extraños. Te recomendamos marcar la opción "Crear acceso directo en el escritorio" para tenerla siempre a mano.</p>
+        </div>
+        <div class="prompt-actions">
+          <button id="btn-install-pwa" class="primary-btn">Instalar Ahora</button>
+          <button id="btn-dismiss-install" class="secondary-btn">No, gracias</button>
+        </div>
+      </div>
+
+      <div id="notif-card" class="card" style="display: none;">
+        <h3>Notificaciones</h3>
+        <div class="notif-setting">
+          <p>Recibir avisos de beneficios y premios.</p>
+          <label class="switch">
+            <input type="checkbox" id="notif-switch">
+            <span class="slider round"></span>
+          </label>
+        </div>
+      </div>
+
+      <div id="notif-blocked-warning" class="card warning-banner" style="display: none;">
+        <p>⚠️ Has bloqueado las notificaciones. Para recibir alertas, habilítalas en la configuración de tu navegador.</p>
+      </div>
+
+      <div id="vencimiento-card" class="card vencimiento-card" style="display: none;">
+        <p>⚠️ Puntos por Vencer</p>
+        <h2><span id="cliente-puntos-vencimiento">--</span> Puntos</h2>
+        <p>Vencen el: <strong id="cliente-fecha-vencimiento">--</strong></p>
+      </div>
+      <div id="historial-container" class="card">
+        <h3>Historial Reciente</h3>
+        <ul id="lista-historial"></ul>
+      </div>
+      <div id="premios-container" class="card">
+        <h3>Catálogo de Premios</h3>
+        <p>Estos son los premios que puedes canjear en la tienda:</p>
+        <ul id="lista-premios-cliente"></ul>
+      </div>
+
+      <footer class="app-footer">
+        <p>Al usar esta app, aceptas nuestros <a href="#" id="footer-terms-link">Términos y Condiciones</a>.</p>
+      </footer>
+    </div>
+
+    <div id="terms-modal" class="modal-overlay" style="display: none;">
       <div class="modal-content">
-        <span id="close-install-help" class="modal-close-btn">×</span>
-        <h2>Instalar la app</h2>
-        <div id="install-instructions" class="terms-text-container"></div>
+        <span id="close-terms-modal" class="modal-close-btn">×</span>
+        <h2>Términos y Condiciones</h2>
+        <div class="terms-text-container">
+          <!-- ... (sin cambios) ... -->
+        </div>
+        <button id="accept-terms-btn-modal" class="primary-btn" style="display: none;">He Leído y Acepto los Términos</button>
       </div>
     </div>
+  </div>
 
-<!-- 🔧 Registro ÚNICO del Service Worker (ruta ABSOLUTA) -->
-<script>
-(function () {
-  if (!('serviceWorker' in navigator)) {
-    console.warn('Service Worker no soportado.');
-    return;
-  }
-  window.addEventListener('load', async () => {
-    try {
-      const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-      console.log('✅ SW FCM registrado:', reg.scope);
-
-      if (!navigator.serviceWorker.controller) {
-        navigator.serviceWorker.addEventListener('controllerchange', () => {
-          window.location.reload();
-        });
-      }
-    } catch (err) {
-      console.error('❌ Error registrando el SW FCM:', err);
-    }
-  });
-})();
-</script>
-<!-- 📥 Modal de Notificaciones (Inbox) -->
-<div id="inbox-modal" class="modal-overlay" style="display:none;">
-  <div class="modal-content">
-    <span id="close-inbox-modal" class="modal-close-btn">×</span>
-    <h2>Notificaciones</h2>
-
-    <div id="inbox-empty" class="info-message" style="display:none;">
-      No tenés notificaciones recientes.
-    </div>
-
-    <div id="inbox-list" class="terms-text-container">
-      <!-- items renderizados por JS -->
-    </div>
-
-    <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
-      <button id="inbox-mark-read" class="secondary-btn">Marcar todo como leído</button>
-      <button id="inbox-close-btn" class="primary-btn">Cerrar</button>
+  <div id="change-password-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <span id="close-password-modal" class="modal-close-btn">×</span>
+      <h2>Cambiar Contraseña</h2>
+      <!-- ... (sin cambios) ... -->
     </div>
   </div>
-</div>
 
-    <script src="app.js" type="module"></script>
+  <!-- 📘 Modal de ayuda para instalar (fallback cuando no hay prompt nativo) -->
+  <div id="install-help-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+      <span id="close-install-help" class="modal-close-btn">×</span>
+      <h2>Instalar la app</h2>
+      <div id="install-instructions" class="terms-text-container"></div>
+    </div>
+  </div>
+
+  <!-- 🔧 Registro ÚNICO del Service Worker (ruta ABSOLUTA) -->
+  <script>
+  (function () {
+    if (!('serviceWorker' in navigator)) {
+      console.warn('Service Worker no soportado.');
+      return;
+    }
+    window.addEventListener('load', async () => {
+      try {
+        const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+        console.log('✅ SW FCM registrado:', reg.scope);
+
+        if (!navigator.serviceWorker.controller) {
+          navigator.serviceWorker.addEventListener('controllerchange', () => {
+            window.location.reload();
+          });
+        }
+      } catch (err) {
+        console.error('❌ Error registrando el SW FCM:', err);
+      }
+    });
+  })();
+  </script>
+
+  <!-- 📥 Modal de Notificaciones (Inbox con pestañas) -->
+  <div id="inbox-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-content">
+      <span id="close-inbox-modal" class="modal-close-btn">×</span>
+      <h2>Notificaciones</h2>
+
+      <!-- Tabs -->
+      <div style="display:flex;gap:8px;margin:8px 0 12px 0;flex-wrap:wrap;">
+        <button class="secondary-btn" data-tab="todos"  id="inbox-tab-todos">Todos</button>
+        <button class="secondary-btn" data-tab="promos" id="inbox-tab-promos">Promos</button>
+        <button class="secondary-btn" data-tab="puntos" id="inbox-tab-puntos">Puntos</button>
+        <button class="secondary-btn" data-tab="otros"  id="inbox-tab-otros">Otros</button>
+      </div>
+
+      <div id="inbox-empty" class="info-message" style="display:none;">
+        No tenés notificaciones recientes.
+      </div>
+
+      <div id="inbox-list" class="terms-text-container">
+        <!-- items renderizados por JS -->
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
+        <button id="inbox-mark-read" class="secondary-btn">Marcar todo como leído</button>
+        <button id="inbox-close-btn" class="primary-btn">Cerrar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js" type="module"></script>
 </body>
 </html>
-
