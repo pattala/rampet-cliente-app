@@ -211,35 +211,37 @@
   })();
   </script>
 
-  <!-- 📥 Modal de Notificaciones (Inbox con pestañas) -->
-  <div id="inbox-modal" class="modal-overlay" style="display:none;">
-    <div class="modal-content">
-      <span id="close-inbox-modal" class="modal-close-btn">×</span>
-      <h2>Notificaciones</h2>
+ <!-- 📥 Modal de Notificaciones (Inbox) -->
+<div id="inbox-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-content" style="max-width:520px;">
+    <span id="close-inbox-modal" class="modal-close-btn">×</span>
+    <h2>Notificaciones</h2>
 
-      <!-- Tabs -->
-      <div style="display:flex;gap:8px;margin:8px 0 12px 0;flex-wrap:wrap;">
-        <button class="secondary-btn" data-tab="todos"  id="inbox-tab-todos">Todos</button>
-        <button class="secondary-btn" data-tab="promos" id="inbox-tab-promos">Promos</button>
-        <button class="secondary-btn" data-tab="puntos" id="inbox-tab-puntos">Puntos</button>
-        <button class="secondary-btn" data-tab="otros"  id="inbox-tab-otros">Otros</button>
-      </div>
+    <!-- Pestañas -->
+    <div style="display:flex;gap:8px;margin:10px 0 14px;">
+      <button id="inbox-tab-todos"  class="primary-btn">Todos</button>
+      <button id="inbox-tab-promos" class="secondary-btn">Promos</button>
+      <button id="inbox-tab-puntos" class="secondary-btn">Puntos</button>
+      <button id="inbox-tab-otros"  class="secondary-btn">Otros</button>
+    </div>
 
-      <div id="inbox-empty" class="info-message" style="display:none;">
-        No tenés notificaciones recientes.
-      </div>
+    <div id="inbox-empty" class="info-message" style="display:none;">
+      No tenés notificaciones recientes.
+    </div>
 
-      <div id="inbox-list" class="terms-text-container">
-        <!-- items renderizados por JS -->
-      </div>
+    <div id="inbox-list" class="terms-text-container">
+      <!-- items renderizados por JS -->
+    </div>
 
-      <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
-        <button id="inbox-mark-read" class="secondary-btn">Marcar todo como leído</button>
-        <button id="inbox-close-btn" class="primary-btn">Cerrar</button>
-      </div>
+    <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
+      <button id="inbox-mark-read" class="secondary-btn">Marcar todo como leído</button>
+      <button id="inbox-close-btn" class="primary-btn">Cerrar</button>
     </div>
   </div>
+</div>
+
 
   <script src="app.js" type="module"></script>
 </body>
 </html>
+
