@@ -228,6 +228,7 @@ export function updateVencimientoCard(cliente = {}) {
     }
 
     const data = computeUpcomingExpirations(cliente); // [{ts, puntos}] ordenado
+    console.log('[PWA] Vencimientos (agrupados):', data);
     const fmt = (ms) => new Date(ms).toLocaleDateString('es-AR');
 
     if (data.length === 0) {
@@ -244,14 +245,15 @@ export function updateVencimientoCard(cliente = {}) {
     fechaEl.textContent = fmt(data[0].ts);
 
     // Siguientes 2–3 tandas
-    const siguientes = data.slice(1, 3); // mostrará hasta 2 adicionales
-    if (siguientes.length) {
-      listEl.innerHTML = siguientes
-        .map(v => `<li><span style="font-weight:600;">${v.puntos}</span> el ${fmt(v.ts)}</li>`)
-        .join('');
-    } else {
-      listEl.innerHTML = '';
-    }
+    const siguientes = data.slice(1, 3); // hasta 2 adicionales
+if (siguientes.length) {
+  listEl.innerHTML = siguientes
+    .map(v => `<li><span style="font-weight:600;">${v.puntos}</span> el ${fmt(v.ts)}</li>`)
+    .join('');
+} else {
+  listEl.innerHTML = '<li style="color:#777;">No hay más vencimientos programados</li>';
+}
+
 
     card.style.display = 'block';
   } catch (e) {
@@ -361,4 +363,5 @@ export { /* ancla de export adicionales si luego agregás más */ };
 // ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
+
 
