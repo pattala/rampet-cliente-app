@@ -202,55 +202,60 @@ export function getPuntosEnProximoVencimiento(cliente = {}) {
 // (1) campos directos: puntosProximosAVencer + fechaProximoVencimiento
 // (2) arreglo vencimientos[]: { puntos, venceAt }
 // (3) historialPuntos[]: { fechaObtencion, diasCaducidad, puntosDisponibles | puntosObtenidos }
+// === Puntos por vencer (tarjeta de Home) — Opción C (lista de próximas tandas)
 export function updateVencimientoCard(cliente = {}) {
   try {
     const card    = document.getElementById('vencimiento-card');
-    const ptsEl   = document.getElementById('cliente-puntos-vencimiento');
-    const fechaEl = document.getElementById('cliente-fecha-vencimiento');
+    const ptsEl   = document.getElementById('cliente-puntos-vencimiento');  // muestra la PRIMERA tanda
+    const fechaEl = document.getElementById('cliente-fecha-vencimiento');   // muestra fecha de la PRIMERA tanda
     if (!card || !ptsEl || !fechaEl) {
       console.warn('[PWA] Tarjeta de vencimiento no encontrada. IDs requeridos: vencimiento-card, cliente-puntos-vencimiento, cliente-fecha-vencimiento');
       return;
     }
 
-    const parseTs = (ts) => {
-      if (!ts) return 0;
-      if (typeof ts?.toDate === 'function') return ts.toDate().getTime();
-      const t = new Date(ts).getTime();
-      return isNaN(t) ? 0 : t;
-    };
-    const todayStart = startOfTodayMs();
+    // Contenedor para las tandas siguientes (si no existe, lo creamos)
+    let listEl = document.getElementById('vencimiento-list');
+    if (!listEl) {
+      listEl = document.createElement('ul');
+      listEl.id = 'vencimiento-list';
+      listEl.style.margin = '6px 0 0';
+      listEl.style.paddingLeft = '18px';
+      const after = fechaEl.parentElement || card;
+      after.appendChild(listEl);
+    }
 
-    // ---------- (1) Campos directos ----------
-    const directPts  = Number(cliente.puntosProximosAVencer ?? 0);
-    const directTs   = parseTs(cliente.fechaProximoVencimiento);
-    if (directPts > 0 && directTs) {
-      ptsEl.textContent = String(directPts);
-      fechaEl.textContent = new Date(directTs).toLocaleDateString();
+    const data = computeUpcomingExpirations(cliente); // [{ts, puntos}] ordenado
+    const fmt = (ms) => new Date(ms).toLocaleDateString('es-AR');
+
+    if (data.length === 0) {
+      // Sin vencimientos → mostrar 0 y limpiar lista
+      ptsEl.textContent = '0';
+      fechaEl.textContent = '—';
+      listEl.innerHTML = '';
       card.style.display = 'block';
       return;
     }
 
-    // ---------- (2) Arreglo `vencimientos[]` ----------
-    const arrV = Array.isArray(cliente.vencimientos) ? cliente.vencimientos : [];
-    const futurosV = arrV
-      .map(x => ({
-        puntos: Number(x?.puntos || 0),
-        ts: parseTs(x?.venceAt)
-      }))
-      // incluye "vence hoy"
-      .filter(x => x.puntos > 0 && x.ts && x.ts >= todayStart)
-      .sort((a, b) => a.ts - b.ts);
+    // Primera tanda (la más próxima)
+    ptsEl.textContent = String(data[0].puntos);
+    fechaEl.textContent = fmt(data[0].ts);
 
-    if (futurosV.length) {
-      // sumar todo lo que venza el mismo primer día
-      const firstTs = futurosV[0].ts;
-      const mismosDia = futurosV.filter(i => i.ts === firstTs);
-      const sum = mismosDia.reduce((acc, i) => acc + i.puntos, 0);
-      ptsEl.textContent = String(sum);
-      fechaEl.textContent = new Date(firstTs).toLocaleDateString();
-      card.style.display = 'block';
-      return;
+    // Siguientes 2–3 tandas
+    const siguientes = data.slice(1, 3); // mostrará hasta 2 adicionales
+    if (siguientes.length) {
+      listEl.innerHTML = siguientes
+        .map(v => `<li><span style="font-weight:600;">${v.puntos}</span> el ${fmt(v.ts)}</li>`)
+        .join('');
+    } else {
+      listEl.innerHTML = '';
     }
+
+    card.style.display = 'block';
+  } catch (e) {
+    console.warn('updateVencimientoCard error:', e);
+  }
+}
+
 
     // ---------- (3) Fallback desde `historialPuntos[]` ----------
     const hist = Array.isArray(cliente.historialPuntos) ? cliente.historialPuntos : [];
@@ -390,5 +395,6 @@ export { /* ancla de export adicionales si luego agregás más */ };
 // ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
+
 
 
