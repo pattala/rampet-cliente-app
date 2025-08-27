@@ -1,11 +1,12 @@
 // modules/data.js (PWA - LISTENERS + vencimiento + SALDO + render unificado)
 
-// RAMPET FIX: archivo completo con fallbacks de vencimiento y bugfix del template string
-
+// ─────────────────────────────────────────────────────────────
+// ANCLA SUPERIOR (imports)
 import { db } from './firebase.js';
 import * as UI from './ui.js';
 import * as Auth from './auth.js';
 import * as Notifications from './notifications.js';
+// ─────────────────────────────────────────────────────────────
 
 let clienteData = null;
 let clienteRef = null;
@@ -261,3 +262,7 @@ export async function listenToClientData(user) {
 
 // Stubs (si algún módulo los importa, no rompen)
 export async function acceptTerms() { /* ... */ }
+
+// ─────────────────────────────────────────────────────────────
+// ANCLA INFERIOR: fin del archivo
+// ─────────────────────────────────────────────────────────────
