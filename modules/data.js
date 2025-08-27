@@ -251,7 +251,8 @@ if (siguientes.length) {
     .map(v => `<li><span style="font-weight:600;">${v.puntos}</span> el ${fmt(v.ts)}</li>`)
     .join('');
 } else {
-  listEl.innerHTML = '<li style="color:#777;">No hay más vencimientos programados</li>';
+ listEl.innerHTML = '<li class="venc-empty">No hay más vencimientos programados</li>';
+
 }
 
 
@@ -363,5 +364,6 @@ export { /* ancla de export adicionales si luego agregás más */ };
 // ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
+
 
 
