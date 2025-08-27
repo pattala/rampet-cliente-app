@@ -127,6 +127,8 @@ export function getPuntosEnProximoVencimiento(cliente) {
     .reduce((acc, b) => acc + b.puntos, 0);
 }
 
+// === Puntos por vencer ===
+// (PEGA ESTE BLOQUE COMPLETO EN modules/data.js, reemplazando la función existente)
 export function updateVencimientoCard(cliente = {}) {
   try {
     const card = document.getElementById('vencimiento-card');
@@ -134,12 +136,12 @@ export function updateVencimientoCard(cliente = {}) {
     const fechaEl = document.getElementById('cliente-fecha-vencimiento');
     if (!card || !ptsEl || !fechaEl) return;
 
-    // Modelo 1: campos directos persistidos
+    // Modelo 1: campos directos
     const pts = Number(cliente.puntosProximosAVencer || 0);
     const fechaTs = cliente.fechaProximoVencimiento;
 
     if (pts > 0 && fechaTs) {
-      const date = fechaTs.toDate ? fechaTs.toDate() : new Date(fechaTs);
+      const date = fechaTs?.toDate ? fechaTs.toDate() : new Date(fechaTs);
       ptsEl.textContent = String(pts);
       fechaEl.textContent = date.toLocaleDateString();
       card.style.display = 'block';
@@ -167,21 +169,15 @@ export function updateVencimientoCard(cliente = {}) {
       return;
     }
 
-    // RAMPET FIX: Fallback 3 — calcular desde historialPuntos
-    const fechaCalc = getFechaProximoVencimiento(cliente);
-    const ptsCalc = getPuntosEnProximoVencimiento(cliente);
-
-    if (fechaCalc && ptsCalc > 0) {
-      ptsEl.textContent = String(ptsCalc);
-      fechaEl.textContent = fechaCalc.toLocaleDateString();
-      card.style.display = 'block';
-    } else {
-      card.style.display = 'none';
-    }
+    // Fallback: no hay vencimientos -> mostrar 0 y “—”
+    ptsEl.textContent = '0';
+    fechaEl.textContent = '—';
+    card.style.display = 'block';
   } catch (e) {
     console.warn('updateVencimientoCard error:', e);
   }
 }
+
 
 function renderizarPantallaPrincipal() {
   if (!clienteData) return;
@@ -266,3 +262,4 @@ export async function acceptTerms() { /* ... */ }
 // ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
+
