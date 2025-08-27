@@ -42,6 +42,7 @@ function startOfTodayMs() {
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 }
+
 // Agrupa próximas caducidades por día y devuelve una lista ordenada ascendente.
 // Fuente prioritaria: (1) directos, (2) vencimientos[], (3) historialPuntos[].
 function computeUpcomingExpirations(cliente = {}) {
@@ -55,7 +56,7 @@ function computeUpcomingExpirations(cliente = {}) {
   };
   const dayKey = (ms) => {
     const d = new Date(ms);
-    d.setHours(0,0,0,0);
+    d.setHours(0, 0, 0, 0);
     return d.getTime();
   };
 
@@ -78,7 +79,7 @@ function computeUpcomingExpirations(cliente = {}) {
       fromV[dk] = (fromV[dk] || 0) + pts;
     }
   }
-  const listV = Object.keys(fromV).map(k => ({ ts: Number(k), puntos: fromV[k] })).sort((a,b)=>a.ts-b.ts);
+  const listV = Object.keys(fromV).map(k => ({ ts: Number(k), puntos: fromV[k] })).sort((a, b) => a.ts - b.ts);
   if (listV.length) return listV;
 
   // (3) historialPuntos[]
@@ -89,16 +90,18 @@ function computeUpcomingExpirations(cliente = {}) {
     const dias = Number(h?.diasCaducidad || 0);
     const disp = Number(h?.puntosDisponibles ?? h?.puntosObtenidos ?? 0);
     if (!obt || dias <= 0 || disp <= 0) continue;
+
     const vence = new Date(obt);
     // usamos fin de día para el cálculo, pero agrupamos por inicio de día
-    vence.setHours(23,59,59,999);
+    vence.setHours(23, 59, 59, 999);
     vence.setDate(vence.getDate() + dias);
+
     const ms = vence.getTime();
     if (ms < todayStart) continue; // incluye "vence hoy"
     const dk = dayKey(ms);
     fromH[dk] = (fromH[dk] || 0) + disp;
   }
-  const listH = Object.keys(fromH).map(k => ({ ts: Number(k), puntos: fromH[k] })).sort((a,b)=>a.ts-b.ts);
+  const listH = Object.keys(fromH).map(k => ({ ts: Number(k), puntos: fromH[k] })).sort((a, b) => a.ts - b.ts);
   return listH;
 }
 
@@ -197,11 +200,6 @@ export function getPuntosEnProximoVencimiento(cliente = {}) {
     .reduce((acc, b) => acc + b.puntos, 0);
 }
 
-// === Puntos por vencer (tarjeta de Home) ===
-// Prioridad de fuentes:
-// (1) campos directos: puntosProximosAVencer + fechaProximoVencimiento
-// (2) arreglo vencimientos[]: { puntos, venceAt }
-// (3) historialPuntos[]: { fechaObtencion, diasCaducidad, puntosDisponibles | puntosObtenidos }
 // === Puntos por vencer (tarjeta de Home) — Opción C (lista de próximas tandas)
 export function updateVencimientoCard(cliente = {}) {
   try {
@@ -251,45 +249,6 @@ export function updateVencimientoCard(cliente = {}) {
     }
 
     card.style.display = 'block';
-  } catch (e) {
-    console.warn('updateVencimientoCard error:', e);
-  }
-}
-
-
-    // ---------- (3) Fallback desde `historialPuntos[]` ----------
-    const hist = Array.isArray(cliente.historialPuntos) ? cliente.historialPuntos : [];
-    const candidatos = hist.map(h => {
-      const obtTs = parseTs(h?.fechaObtencion);
-      const dias  = Number(h?.diasCaducidad || 0);
-      if (!obtTs || dias <= 0) return null;
-
-      const vence = new Date(obtTs);
-      // fin del día de vencimiento (para no descartar por horas)
-      vence.setHours(23, 59, 59, 999);
-      vence.setDate(vence.getDate() + dias);
-
-      const ptsDisp = Number(h?.puntosDisponibles ?? h?.puntosObtenidos ?? 0);
-      return { ts: vence.getTime(), puntos: ptsDisp };
-    }).filter(Boolean)
-      .filter(x => x.puntos > 0 && x.ts >= todayStart)
-      .sort((a, b) => a.ts - b.ts);
-
-    if (candidatos.length) {
-      const firstTs = candidatos[0].ts;
-      const mismosDia = candidatos.filter(i => i.ts === firstTs);
-      const sum = mismosDia.reduce((acc, i) => acc + i.puntos, 0);
-      ptsEl.textContent = String(sum);
-      fechaEl.textContent = new Date(firstTs).toLocaleDateString();
-      card.style.display = 'block';
-      return;
-    }
-
-    // ---------- Sin vencimientos → mostrar 0 ----------
-    ptsEl.textContent = '0';
-    fechaEl.textContent = '—';
-    card.style.display = 'block';
-
   } catch (e) {
     console.warn('updateVencimientoCard error:', e);
   }
@@ -366,11 +325,13 @@ export async function listenToClientData(user) {
 
       clienteData = snapshot.docs[0].data();
       clienteRef = snapshot.docs[0].ref;
-// DEBUG: exponer datos en consola (quitar en producción si querés)
-if (typeof window !== 'undefined') {
-  window.clienteData = clienteData;
-  window.clienteRef  = clienteRef;
-}
+
+      // DEBUG: exponer datos en consola (quitar en producción si querés)
+      if (typeof window !== 'undefined') {
+        window.clienteData = clienteData;
+        window.clienteRef  = clienteRef;
+      }
+
       console.log("[PWA] Datos del cliente actualizados.");
       renderizarPantallaPrincipal();
 
@@ -395,6 +356,3 @@ export { /* ancla de export adicionales si luego agregás más */ };
 // ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
-
-
-
