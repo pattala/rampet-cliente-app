@@ -216,16 +216,17 @@ export function updateVencimientoCard(cliente = {}) {
       return;
     }
 
-    // Contenedor para las tandas siguientes (si no existe, lo creamos)
-    let listEl = document.getElementById('vencimiento-list');
-    if (!listEl) {
-      listEl = document.createElement('ul');
-      listEl.id = 'vencimiento-list';
-      listEl.style.margin = '6px 0 0';
-      listEl.style.paddingLeft = '18px';
-      const after = fechaEl.parentElement || card;
-      after.appendChild(listEl);
-    }
+   // Contenedor para las tandas siguientes (si no existe, lo creamos)
+// ⚠️ Importante: SIEMPRE colgar del card, no del <p> de la fecha.
+let listEl = card.querySelector('#vencimiento-list');
+if (!listEl) {
+  listEl = document.createElement('ul');
+  listEl.id = 'vencimiento-list';
+  listEl.className = 'venc-list';
+  listEl.style.margin = '6px 0 0';
+  listEl.style.paddingLeft = '18px';
+  card.appendChild(listEl); // <- ya no usamos "after", va directo al card
+}
 
     const data = computeUpcomingExpirations(cliente); // [{ts, puntos}] ordenado
     console.log('[PWA] Vencimientos (agrupados):', data);
@@ -364,6 +365,7 @@ export { /* ancla de export adicionales si luego agregás más */ };
 // ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
+
 
 
 
