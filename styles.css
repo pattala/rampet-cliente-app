@@ -307,5 +307,23 @@ input:checked + .slider:before { transform: translateX(26px); }
   #install-entrypoint { margin-left: 8px; }
 #btn-notifs, #notif-counter { display: none; }
 
+
+/* Lista general */
 .venc-list { margin: 6px 0 0; padding-left: 18px; }
-.venc-list li { font-size: .95em; color: #555; }
+.venc-list li { font-size: .95em; color: #222; }
+
+/* Mensaje vacío con buen contraste sobre fondo rojo del card */
+.vencimiento-card .venc-list li.venc-empty {
+  color: #fff;          /* blanco para contrastar con el rojo del card */
+  opacity: .95;
+  font-weight: 600;
+}
+
+/* (opcional) si tu card NO es rojo (fondo blanco), usá esta variante: */
+/*
+.vencimiento-card .venc-list li.venc-empty {
+  color: #8a0000;       // rojo oscuro/neutral
+  font-weight: 600;
+}
+*/
+
