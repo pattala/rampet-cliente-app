@@ -26,13 +26,21 @@ export function cleanupListener() {
 }
 
 // -------------------- Helpers locales --------------------
-// RAMPET FIX: helper robusto para parsear fechas (Timestamp | ISO | Date)
+// Parsear Timestamp (Firestore), ISO string o Date nativo
 function parseDateLike(d) {
   if (!d) return null;
-  if (typeof d === 'string') return new Date(d);
   if (typeof d?.toDate === 'function') return d.toDate(); // Firestore Timestamp
+  if (typeof d === 'string') {
+    const t = new Date(d);
+    return isNaN(t) ? null : t;
+  }
   if (d instanceof Date) return d;
   return null;
+}
+function startOfTodayMs() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
 }
 
 // === Saldo a favor ===
@@ -46,12 +54,12 @@ function updateSaldoCard(cliente = {}) {
     const saldo = Number(isNaN(raw) ? 0 : raw);
 
     if (saldo > 0) {
-      // RAMPET FIX: corregido template string
       const texto = `$ ${saldo.toFixed(2)}`;
       saldoEl.textContent = texto;
       card.style.display = 'block';
     } else {
       saldoEl.textContent = '$ 0.00';
+      // Requerimiento actual: saldo se oculta si es 0
       card.style.display = 'none';
     }
   } catch (e) {
@@ -59,42 +67,44 @@ function updateSaldoCard(cliente = {}) {
   }
 }
 
-// === Puntos por vencer ===
-// RAMPET FIX: fallbacks exportados (usables también en otros módulos)
-export function getFechaProximoVencimiento(cliente) {
-  // 1) Si viene persistido en el doc de cliente
+// === Fallbacks exportados (útiles para otros módulos) ===
+export function getFechaProximoVencimiento(cliente = {}) {
+  // (1) Campo directo
   if (cliente?.fechaProximoVencimiento) {
     const dt = parseDateLike(cliente.fechaProximoVencimiento);
     if (dt) return dt;
   }
 
-  // 2) Calcular desde historialPuntos[]
+  // (2) Desde historialPuntos
   const hist = Array.isArray(cliente?.historialPuntos) ? cliente.historialPuntos : [];
-  const futuros = hist
+  const ahora = new Date();
+
+  const candidatos = hist
     .filter(i => (i?.puntosDisponibles ?? 0) > 0 && (i?.diasCaducidad ?? 0) > 0)
     .map(i => {
       const base = parseDateLike(i.fechaObtencion);
       if (!base) return null;
       const vence = new Date(base.getTime());
       vence.setDate(vence.getDate() + Number(i.diasCaducidad || 0));
-      return { vence, puntos: Number(i.puntosDisponibles || 0) };
+      return vence;
     })
     .filter(Boolean)
-    .filter(x => x.vence > new Date())
-    .sort((a, b) => a.vence - b.vence);
+    .filter(vence => vence >= new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate())) // incluye hoy
+    .sort((a, b) => a - b);
 
-  return futuros.length ? futuros[0].vence : null;
+  return candidatos.length ? candidatos[0] : null;
 }
 
-export function getPuntosEnProximoVencimiento(cliente) {
-  // 1) Si viene persistido en el doc de cliente
-  if (typeof cliente?.puntosProximosAVencer === 'number') {
+export function getPuntosEnProximoVencimiento(cliente = {}) {
+  // (1) Campo directo
+  if (typeof cliente?.puntosProximosAVencer === 'number' && cliente.puntosProximosAVencer > 0) {
     return cliente.puntosProximosAVencer;
   }
 
-  // 2) Calcular desde historialPuntos[]
+  // (2) Desde historialPuntos
   const hist = Array.isArray(cliente?.historialPuntos) ? cliente.historialPuntos : [];
-  const hoy = new Date();
+  const hoy0 = new Date();
+  hoy0.setHours(0, 0, 0, 0);
 
   let minFecha = null;
   const bloques = [];
@@ -109,10 +119,11 @@ export function getPuntosEnProximoVencimiento(cliente) {
 
     const vence = new Date(base.getTime());
     vence.setDate(vence.getDate() + dias);
-    if (vence <= hoy) continue;
+    // incluir “vence hoy”
+    if (vence < hoy0) continue;
 
     bloques.push({ vence, puntos: disp });
-    if (!minFecha || vence < minFecha) minFecha = vence;
+    if (!minFecha || +vence < +minFecha) minFecha = vence;
   }
 
   if (!minFecha) return 0;
@@ -127,9 +138,8 @@ export function getPuntosEnProximoVencimiento(cliente) {
     .reduce((acc, b) => acc + b.puntos, 0);
 }
 
-// === Puntos por vencer ===
-// === Puntos por vencer ===
-// Fuente (prioridad):
+// === Puntos por vencer (tarjeta de Home) ===
+// Prioridad de fuentes:
 // (1) campos directos: puntosProximosAVencer + fechaProximoVencimiento
 // (2) arreglo vencimientos[]: { puntos, venceAt }
 // (3) historialPuntos[]: { fechaObtencion, diasCaducidad, puntosDisponibles | puntosObtenidos }
@@ -149,11 +159,7 @@ export function updateVencimientoCard(cliente = {}) {
       const t = new Date(ts).getTime();
       return isNaN(t) ? 0 : t;
     };
-    const startOfToday = (() => {
-      const d = new Date();
-      d.setHours(0, 0, 0, 0);
-      return d.getTime();
-    })();
+    const todayStart = startOfTodayMs();
 
     // ---------- (1) Campos directos ----------
     const directPts  = Number(cliente.puntosProximosAVencer ?? 0);
@@ -172,12 +178,12 @@ export function updateVencimientoCard(cliente = {}) {
         puntos: Number(x?.puntos || 0),
         ts: parseTs(x?.venceAt)
       }))
-      // incluye "vence hoy" (>= inicio del día)
-      .filter(x => x.puntos > 0 && x.ts && x.ts >= startOfToday)
+      // incluye "vence hoy"
+      .filter(x => x.puntos > 0 && x.ts && x.ts >= todayStart)
       .sort((a, b) => a.ts - b.ts);
 
     if (futurosV.length) {
-      // si hay varias entradas con la MISMA fecha, sumamos
+      // sumar todo lo que venza el mismo primer día
       const firstTs = futurosV[0].ts;
       const mismosDia = futurosV.filter(i => i.ts === firstTs);
       const sum = mismosDia.reduce((acc, i) => acc + i.puntos, 0);
@@ -195,15 +201,14 @@ export function updateVencimientoCard(cliente = {}) {
       if (!obtTs || dias <= 0) return null;
 
       const vence = new Date(obtTs);
-      // vencimiento al final del día de la obtención + dias
+      // fin del día de vencimiento (para no descartar por horas)
       vence.setHours(23, 59, 59, 999);
       vence.setDate(vence.getDate() + dias);
 
       const ptsDisp = Number(h?.puntosDisponibles ?? h?.puntosObtenidos ?? 0);
       return { ts: vence.getTime(), puntos: ptsDisp };
     }).filter(Boolean)
-      // incluye "vence hoy"
-      .filter(x => x.puntos > 0 && x.ts >= startOfToday)
+      .filter(x => x.puntos > 0 && x.ts >= todayStart)
       .sort((a, b) => a.ts - b.ts);
 
     if (candidatos.length) {
@@ -226,45 +231,99 @@ export function updateVencimientoCard(cliente = {}) {
   }
 }
 
-  // Campañas en tiempo real
-  const campanasQuery = db.collection('campanas').where('estaActiva', '==', true);
-  unsubscribeCampanas = campanasQuery.onSnapshot(snapshot => {
-    campanasData = snapshot.docs.map(doc => doc.data());
-    console.log("Campañas actualizadas en tiempo real:", campanasData.length);
-    renderizarPantallaPrincipal();
-  }, error => {
-    console.error("Error escuchando campañas:", error);
+// === Render principal ===
+function renderizarPantallaPrincipal() {
+  if (!clienteData) return;
+
+  const hoy = new Date().toISOString().split('T')[0];
+
+  const campanasVisibles = campanasData.filter(campana => {
+    const esPublica = campana.visibilidad !== 'prueba';
+    const esTesterYVePrueba = clienteData.esTester === true && campana.visibilidad === 'prueba';
+    if (!(esPublica || esTesterYVePrueba)) return false;
+
+    const fechaInicio = campana.fechaInicio;
+    const fechaFin = campana.fechaFin;
+
+    if (!fechaInicio || hoy < fechaInicio) return false;
+    if (fechaFin && fechaFin !== '2100-01-01' && hoy > fechaFin) return false;
+
+    return true;
   });
+
+  // Render principal (nombre, puntos, carrusel, historial, premios)
+  UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
+
+  // Extras visibles en home
+  updateVencimientoCard(clienteData); // siempre visible (0/— si no hay)
+  updateSaldoCard(clienteData);       // visible solo si saldo > 0
+}
+
+// === Listeners / flujo principal ===
+export async function listenToClientData(user) {
+  UI.showScreen('loading-screen');
+
+  if (unsubscribeCliente) unsubscribeCliente();
+  if (unsubscribeCampanas) unsubscribeCampanas();
+
+  // Premios (carga inicial, una sola vez)
+  if (premiosData.length === 0) {
+    try {
+      const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
+      premiosData = premiosSnapshot.docs.map(p => ({ id: p.id, ...p.data() }));
+    } catch (e) {
+      console.error("[PWA] Error cargando premios:", e);
+    }
+  }
+
+  // Campañas en tiempo real
+  try {
+    const campanasQuery = db.collection('campanas').where('estaActiva', '==', true);
+    unsubscribeCampanas = campanasQuery.onSnapshot(snapshot => {
+      campanasData = snapshot.docs.map(doc => doc.data());
+      console.log("[PWA] Campañas actualizadas:", campanasData.length);
+      renderizarPantallaPrincipal();
+    }, error => {
+      console.error("[PWA] Error escuchando campañas:", error);
+    });
+  } catch (e) {
+    console.error("[PWA] Error seteando listener de campañas:", e);
+  }
 
   // Cliente en tiempo real
-  const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
-  unsubscribeCliente = clienteQuery.onSnapshot(snapshot => {
-    if (snapshot.empty) {
-      UI.showToast("Error: Tu cuenta no está vinculada a ninguna ficha de cliente.", "error");
+  try {
+    const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
+    unsubscribeCliente = clienteQuery.onSnapshot(snapshot => {
+      if (snapshot.empty) {
+        UI.showToast("Error: Tu cuenta no está vinculada a ninguna ficha de cliente.", "error");
+        Auth.logout();
+        return;
+      }
+
+      clienteData = snapshot.docs[0].data();
+      clienteRef = snapshot.docs[0].ref;
+
+      console.log("[PWA] Datos del cliente actualizados.");
+      renderizarPantallaPrincipal();
+
+      // Notificaciones (permiso/token)
+      Notifications.gestionarPermisoNotificaciones(clienteData);
+
+    }, (error) => {
+      console.error("[PWA] Error en listener de cliente:", error);
       Auth.logout();
-      return;
-    }
-
-    clienteData = snapshot.docs[0].data();
-    clienteRef = snapshot.docs[0].ref;
-
-    console.log("Datos del cliente actualizados en tiempo real.");
-    renderizarPantallaPrincipal();
-
-    // Notificaciones (permiso/token)
-    Notifications.gestionarPermisoNotificaciones(clienteData);
-
-  }, (error) => {
-    console.error("Error en listener de cliente:", error);
+    });
+  } catch (e) {
+    console.error("[PWA] Error seteando listener de cliente:", e);
     Auth.logout();
-  });
+  }
 }
 
 // Stubs (si algún módulo los importa, no rompen)
 export async function acceptTerms() { /* ... */ }
 
 // ─────────────────────────────────────────────────────────────
+export { /* ancla de export adicionales si luego agregás más */ };
+// ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
-
-
