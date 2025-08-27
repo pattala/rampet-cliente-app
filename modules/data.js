@@ -302,7 +302,11 @@ export async function listenToClientData(user) {
 
       clienteData = snapshot.docs[0].data();
       clienteRef = snapshot.docs[0].ref;
-
+// DEBUG: exponer datos en consola (quitar en producción si querés)
+if (typeof window !== 'undefined') {
+  window.clienteData = clienteData;
+  window.clienteRef  = clienteRef;
+}
       console.log("[PWA] Datos del cliente actualizados.");
       renderizarPantallaPrincipal();
 
@@ -327,3 +331,4 @@ export { /* ancla de export adicionales si luego agregás más */ };
 // ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
+
