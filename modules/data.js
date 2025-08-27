@@ -128,99 +128,103 @@ export function getPuntosEnProximoVencimiento(cliente) {
 }
 
 // === Puntos por vencer ===
-// (PEGA ESTE BLOQUE COMPLETO EN modules/data.js, reemplazando la función existente)
+// === Puntos por vencer ===
+// Fuente (prioridad):
+// (1) campos directos: puntosProximosAVencer + fechaProximoVencimiento
+// (2) arreglo vencimientos[]: { puntos, venceAt }
+// (3) historialPuntos[]: { fechaObtencion, diasCaducidad, puntosDisponibles | puntosObtenidos }
 export function updateVencimientoCard(cliente = {}) {
   try {
-    const card = document.getElementById('vencimiento-card');
-    const ptsEl = document.getElementById('cliente-puntos-vencimiento');
+    const card    = document.getElementById('vencimiento-card');
+    const ptsEl   = document.getElementById('cliente-puntos-vencimiento');
     const fechaEl = document.getElementById('cliente-fecha-vencimiento');
-    if (!card || !ptsEl || !fechaEl) return;
+    if (!card || !ptsEl || !fechaEl) {
+      console.warn('[PWA] Tarjeta de vencimiento no encontrada. IDs requeridos: vencimiento-card, cliente-puntos-vencimiento, cliente-fecha-vencimiento');
+      return;
+    }
 
-    // Modelo 1: campos directos
-    const pts = Number(cliente.puntosProximosAVencer || 0);
-    const fechaTs = cliente.fechaProximoVencimiento;
+    const parseTs = (ts) => {
+      if (!ts) return 0;
+      if (typeof ts?.toDate === 'function') return ts.toDate().getTime();
+      const t = new Date(ts).getTime();
+      return isNaN(t) ? 0 : t;
+    };
+    const startOfToday = (() => {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    })();
 
-    if (pts > 0 && fechaTs) {
-      const date = fechaTs?.toDate ? fechaTs.toDate() : new Date(fechaTs);
-      ptsEl.textContent = String(pts);
-      fechaEl.textContent = date.toLocaleDateString();
+    // ---------- (1) Campos directos ----------
+    const directPts  = Number(cliente.puntosProximosAVencer ?? 0);
+    const directTs   = parseTs(cliente.fechaProximoVencimiento);
+    if (directPts > 0 && directTs) {
+      ptsEl.textContent = String(directPts);
+      fechaEl.textContent = new Date(directTs).toLocaleDateString();
       card.style.display = 'block';
       return;
     }
 
-    // Modelo 2: arreglo `vencimientos` [{ puntos, venceAt }]
-    const v = Array.isArray(cliente.vencimientos) ? cliente.vencimientos : [];
-    const now = Date.now();
-    const futuros = v
+    // ---------- (2) Arreglo `vencimientos[]` ----------
+    const arrV = Array.isArray(cliente.vencimientos) ? cliente.vencimientos : [];
+    const futurosV = arrV
       .map(x => ({
         puntos: Number(x?.puntos || 0),
-        ts: x?.venceAt?.toDate
-          ? x.venceAt.toDate().getTime()
-          : (x?.venceAt ? new Date(x.venceAt).getTime() : 0)
+        ts: parseTs(x?.venceAt)
       }))
-      .filter(x => x.puntos > 0 && x.ts && x.ts > now)
+      // incluye "vence hoy" (>= inicio del día)
+      .filter(x => x.puntos > 0 && x.ts && x.ts >= startOfToday)
       .sort((a, b) => a.ts - b.ts);
 
-    if (futuros.length) {
-      const primero = futuros[0];
-      ptsEl.textContent = String(primero.puntos);
-      fechaEl.textContent = new Date(primero.ts).toLocaleDateString();
+    if (futurosV.length) {
+      // si hay varias entradas con la MISMA fecha, sumamos
+      const firstTs = futurosV[0].ts;
+      const mismosDia = futurosV.filter(i => i.ts === firstTs);
+      const sum = mismosDia.reduce((acc, i) => acc + i.puntos, 0);
+      ptsEl.textContent = String(sum);
+      fechaEl.textContent = new Date(firstTs).toLocaleDateString();
       card.style.display = 'block';
       return;
     }
 
-    // Fallback: no hay vencimientos -> mostrar 0 y “—”
+    // ---------- (3) Fallback desde `historialPuntos[]` ----------
+    const hist = Array.isArray(cliente.historialPuntos) ? cliente.historialPuntos : [];
+    const candidatos = hist.map(h => {
+      const obtTs = parseTs(h?.fechaObtencion);
+      const dias  = Number(h?.diasCaducidad || 0);
+      if (!obtTs || dias <= 0) return null;
+
+      const vence = new Date(obtTs);
+      // vencimiento al final del día de la obtención + dias
+      vence.setHours(23, 59, 59, 999);
+      vence.setDate(vence.getDate() + dias);
+
+      const ptsDisp = Number(h?.puntosDisponibles ?? h?.puntosObtenidos ?? 0);
+      return { ts: vence.getTime(), puntos: ptsDisp };
+    }).filter(Boolean)
+      // incluye "vence hoy"
+      .filter(x => x.puntos > 0 && x.ts >= startOfToday)
+      .sort((a, b) => a.ts - b.ts);
+
+    if (candidatos.length) {
+      const firstTs = candidatos[0].ts;
+      const mismosDia = candidatos.filter(i => i.ts === firstTs);
+      const sum = mismosDia.reduce((acc, i) => acc + i.puntos, 0);
+      ptsEl.textContent = String(sum);
+      fechaEl.textContent = new Date(firstTs).toLocaleDateString();
+      card.style.display = 'block';
+      return;
+    }
+
+    // ---------- Sin vencimientos → mostrar 0 ----------
     ptsEl.textContent = '0';
     fechaEl.textContent = '—';
     card.style.display = 'block';
+
   } catch (e) {
     console.warn('updateVencimientoCard error:', e);
   }
 }
-
-
-function renderizarPantallaPrincipal() {
-  if (!clienteData) return;
-
-  const hoy = new Date().toISOString().split('T')[0];
-
-  const campanasVisibles = campanasData.filter(campana => {
-    const esPublica = campana.visibilidad !== 'prueba';
-    const esTesterYVePrueba = clienteData.esTester === true && campana.visibilidad === 'prueba';
-    if (!(esPublica || esTesterYVePrueba)) return false;
-
-    const fechaInicio = campana.fechaInicio;
-    const fechaFin = campana.fechaFin;
-
-    if (!fechaInicio || hoy < fechaInicio) return false;
-    if (fechaFin && fechaFin !== '2100-01-01' && hoy > fechaFin) return false;
-
-    return true;
-  });
-
-  // Render principal (nombre, puntos, carrusel, historial, premios)
-  UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
-
-  // Extras visibles en home
-  updateVencimientoCard(clienteData);
-  updateSaldoCard(clienteData);
-}
-
-export async function listenToClientData(user) {
-  UI.showScreen('loading-screen');
-
-  if (unsubscribeCliente) unsubscribeCliente();
-  if (unsubscribeCampanas) unsubscribeCampanas();
-
-  // Premios (carga inicial)
-  if (premiosData.length === 0) {
-    try {
-      const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
-      premiosData = premiosSnapshot.docs.map(p => ({ id: p.id, ...p.data() }));
-    } catch (e) {
-      console.error("Error cargando premios:", e);
-    }
-  }
 
   // Campañas en tiempo real
   const campanasQuery = db.collection('campanas').where('estaActiva', '==', true);
@@ -262,4 +266,5 @@ export async function acceptTerms() { /* ... */ }
 // ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
+
 
