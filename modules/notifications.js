@@ -4,10 +4,9 @@
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
 
-// ---------- Constantes ----------
 const TOKEN_LS_KEY = 'fcmToken';
 
-// ---------- Utils Firestore ----------
+// --- Firestore utils ---
 async function getClienteDocRef() {
   try {
     if (!auth.currentUser) return null;
@@ -52,7 +51,7 @@ async function markReadInInbox(notifId) {
   }
 }
 
-// ---------- UI Badge 🔔 ----------
+// --- Badge 🔔 ---
 function getCounterEl() {
   return document.getElementById('notif-counter');
 }
@@ -76,7 +75,7 @@ export function resetBellCounter() {
   el.style.display = 'none';
 }
 
-// ---------- Token FCM: único por usuario ----------
+// --- Token único ---
 async function saveSingleTokenForUser(token) {
   const u = auth.currentUser;
   if (!u || !token) return;
@@ -149,7 +148,7 @@ export async function ensureSingleToken() {
   }
 }
 
-// ---------- Permisos + token ----------
+// --- Permisos + token ---
 export function gestionarPermisoNotificaciones() {
   if (!isMessagingSupported || !auth.currentUser || !messaging) return;
 
@@ -252,7 +251,7 @@ export function handlePermissionSwitch(e) {
   }
 }
 
-// ---------- Canal FG (app visible) ----------
+// --- Canal FG (app visible) ---
 export function listenForInAppMessages() {
   if (!messaging) return;
   messaging.onMessage(async (payload) => {
@@ -265,7 +264,7 @@ export function listenForInAppMessages() {
   });
 }
 
-// ---------- Canal BG → SW postMessage ----------
+// --- Canal BG → SW postMessage ---
 function swMessageHandler(event) {
   const msg = event?.data || {};
   if (!msg || !msg.type) return;
@@ -284,7 +283,6 @@ function swMessageHandler(event) {
   }
 }
 
-/** Inicializa el canal con el SW (escucha postMessage) */
 export function initNotificationChannel() {
   if (!('serviceWorker' in navigator)) return;
   navigator.serviceWorker.removeEventListener('message', swMessageHandler);
@@ -292,7 +290,7 @@ export function initNotificationChannel() {
   console.log('[INIT] SW message channel listo');
 }
 
-// ---------- Campanita ----------
+// --- Campanita ---
 export async function markAllDeliveredAsRead() {
   if (!auth.currentUser) return;
   const ref = await getClienteDocRef();
@@ -316,12 +314,12 @@ export async function markAllDeliveredAsRead() {
   }
 }
 
-// Campanita abre el modal (no marca leídos automáticamente)
+// Al abrir: solo mostrar el modal (NO marca leídos automáticamente)
 export async function handleBellClick() {
   await showInboxModal();
 }
 
-// ========== INBOX: utils ==========
+// ========== INBOX ==========
 function formatDate(ts) {
   try {
     if (!ts) return '';
@@ -341,7 +339,6 @@ async function getClienteDocRefSafe() {
   }
 }
 
-/** Trae últimos N docs del inbox (ordenado por sentAt desc) y filtra expirados en cliente */
 async function fetchInboxDocs(limit = 50) {
   const ref = await getClienteDocRefSafe();
   if (!ref) return [];
@@ -362,7 +359,6 @@ async function fetchInboxDocs(limit = 50) {
   return items;
 }
 
-/** Bucket simple por tipo: usa source/type; heurística para compatibilidad */
 function bucketOf(it = {}) {
   const s = (it.source || it.type || '').toString().toLowerCase();
   if (s.includes('promo') || s.includes('camp')) return 'promos';
@@ -392,7 +388,6 @@ function renderInboxList(items = []) {
       status === 'delivered' ? '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#fff3cd;color:#b58100;">nuevo</span>' :
       '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#ffe8e8;color:#b00020;">pendiente</span>';
 
-    // Evitamos 404: no usamos href real. Interceptamos por JS con data-url.
     const link = url
       ? `<a href="#" class="inbox-item-link" data-url="${encodeURIComponent(url)}" style="text-decoration:underline;">Ver</a>`
       : '';
@@ -414,16 +409,12 @@ function renderInboxList(items = []) {
 
   list.innerHTML = html;
 
-  // Delegamos los clicks “Ver”
   list.querySelectorAll('.inbox-item-link').forEach(a => {
     a.addEventListener('click', (ev) => {
       ev.preventDefault();
       const raw = a.getAttribute('data-url') || '';
       const url = decodeURIComponent(raw);
 
-      // Estrategia:
-      // - "/notificaciones" solo cierra (ya estás en el modal)
-      // - otras rutas -> redirijo a home con query (?open=...)
       closeInboxModal();
       if (!url || url === '/notificaciones') return;
 
@@ -442,7 +433,6 @@ function closeInboxModal() {
   if (modal) modal.style.display = 'none';
 }
 
-// Estado de pestaña actual (por sesión)
 let _inboxTab = 'todos';
 function setActiveTabUI(tab) {
   const all = ['todos','promos','puntos','otros'];
@@ -459,7 +449,6 @@ function setActiveTabUI(tab) {
   });
 }
 
-/** Carga, filtra por pestaña y muestra */
 async function renderInboxByTab(tab = 'todos') {
   _inboxTab = tab;
   setActiveTabUI(tab);
@@ -470,7 +459,6 @@ async function renderInboxByTab(tab = 'todos') {
   renderInboxList(filtered);
 }
 
-/** Mostrar modal + enganchar listeners de pestañas y acciones */
 export async function showInboxModal() {
   await renderInboxByTab(_inboxTab || 'todos');
   openInboxModal();
@@ -490,7 +478,6 @@ export async function showInboxModal() {
     };
   }
 
-  // Tabs
   const tabs = [
     { id: 'inbox-tab-todos',  tab: 'todos'  },
     { id: 'inbox-tab-promos', tab: 'promos' },
