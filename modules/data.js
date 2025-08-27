@@ -33,7 +33,6 @@ function updateSaldoCard(cliente = {}) {
     const saldo = Number(isNaN(raw) ? 0 : raw);
 
     if (saldo > 0) {
-      // Formato simple ARS (sin depender de Intl locales)
       const texto = `$ ${saldo.toFixed(2)}`;
       saldoEl.textContent = texto;
       card.style.display = 'block';
@@ -113,8 +112,8 @@ function renderizarPantallaPrincipal() {
   UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
 
   // Extras visibles en home
-  updateSaldoCard(clienteData);
   updateVencimientoCard(clienteData);
+  updateSaldoCard(clienteData);
 }
 
 export async function listenToClientData(user) {
