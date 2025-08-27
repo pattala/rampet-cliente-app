@@ -356,6 +356,16 @@ export async function listenToClientData(user) {
     Auth.logout();
   }
 }
+// ───────── DEBUG CONSOLE HELPERS (solo para QA, podés quitarlo en prod) ─────────
+if (typeof window !== 'undefined') {
+  // helpers de inspección
+  window.computeUpcomingExpirations = computeUpcomingExpirations;
+  window.updateVencimientoCard = updateVencimientoCard;
+
+  // accesos rápidos a datos actuales
+  Object.defineProperty(window, 'clienteData', { get: () => clienteData });
+  Object.defineProperty(window, 'clienteRef',  { get: () => clienteRef  });
+}
 
 // Stubs (si algún módulo los importa, no rompen)
 export async function acceptTerms() { /* ... */ }
@@ -365,6 +375,7 @@ export { /* ancla de export adicionales si luego agregás más */ };
 // ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
+
 
 
 
