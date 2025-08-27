@@ -45,8 +45,12 @@ function startOfTodayMs() {
 
 // Agrupa próximas caducidades por día y devuelve una lista ordenada ascendente.
 // Fuente prioritaria: (1) directos, (2) vencimientos[], (3) historialPuntos[].
-function computeUpcomingExpirations(cliente = {}) {
+// Agrupa próximas caducidades por día en orden ascendente.
+// PRIORIDAD (para permitir listado): (1) vencimientos[], (2) historialPuntos[], (3) directos.
+// windowDays: null = sin tope; número = límite en días desde hoy.
+function computeUpcomingExpirations(cliente = {}, windowDays = null) {
   const todayStart = startOfTodayMs();
+  const untilMs = windowDays ? (todayStart + windowDays * 24 * 60 * 60 * 1000) : null;
 
   const parseTs = (ts) => {
     if (!ts) return 0;
@@ -56,53 +60,54 @@ function computeUpcomingExpirations(cliente = {}) {
   };
   const dayKey = (ms) => {
     const d = new Date(ms);
-    d.setHours(0, 0, 0, 0);
+    d.setHours(0,0,0,0);
     return d.getTime();
   };
+  const inWindow = (ms) => ms >= todayStart && (untilMs ? ms <= untilMs : true);
 
-  // (1) Directos
-  const directPts = Number(cliente?.puntosProximosAVencer ?? 0);
-  const directTs  = parseTs(cliente?.fechaProximoVencimiento);
-  if (directPts > 0 && directTs) {
-    const dk = dayKey(directTs);
-    return [{ ts: dk, puntos: directPts }];
-  }
-
-  // (2) Vencimientos[]
-  const fromV = {};
+  // (1) Vencimientos[]
+  const byDayV = {};
   const arrV = Array.isArray(cliente?.vencimientos) ? cliente.vencimientos : [];
   for (const x of arrV) {
     const pts = Number(x?.puntos || 0);
     const ts  = parseTs(x?.venceAt);
-    if (pts > 0 && ts && ts >= todayStart) {
+    if (pts > 0 && ts && inWindow(ts)) {
       const dk = dayKey(ts);
-      fromV[dk] = (fromV[dk] || 0) + pts;
+      byDayV[dk] = (byDayV[dk] || 0) + pts;
     }
   }
-  const listV = Object.keys(fromV).map(k => ({ ts: Number(k), puntos: fromV[k] })).sort((a, b) => a.ts - b.ts);
+  const listV = Object.keys(byDayV).map(k => ({ ts: Number(k), puntos: byDayV[k] })).sort((a,b)=>a.ts-b.ts);
   if (listV.length) return listV;
 
-  // (3) historialPuntos[]
-  const fromH = {};
+  // (2) historialPuntos[]
+  const byDayH = {};
   const hist = Array.isArray(cliente?.historialPuntos) ? cliente.historialPuntos : [];
   for (const h of hist) {
-    const obt = parseDateLike(h?.fechaObtencion);
+    const obt = (typeof h?.fechaObtencion?.toDate === 'function') ? h.fechaObtencion.toDate() : new Date(h?.fechaObtencion);
     const dias = Number(h?.diasCaducidad || 0);
     const disp = Number(h?.puntosDisponibles ?? h?.puntosObtenidos ?? 0);
-    if (!obt || dias <= 0 || disp <= 0) continue;
+    if (!obt || isNaN(obt.getTime()) || dias <= 0 || disp <= 0) continue;
 
     const vence = new Date(obt);
-    // usamos fin de día para el cálculo, pero agrupamos por inicio de día
-    vence.setHours(23, 59, 59, 999);
+    vence.setHours(23,59,59,999);
     vence.setDate(vence.getDate() + dias);
-
     const ms = vence.getTime();
-    if (ms < todayStart) continue; // incluye "vence hoy"
+    if (!inWindow(ms)) continue;
+
     const dk = dayKey(ms);
-    fromH[dk] = (fromH[dk] || 0) + disp;
+    byDayH[dk] = (byDayH[dk] || 0) + disp;
   }
-  const listH = Object.keys(fromH).map(k => ({ ts: Number(k), puntos: fromH[k] })).sort((a, b) => a.ts - b.ts);
-  return listH;
+  const listH = Object.keys(byDayH).map(k => ({ ts: Number(k), puntos: byDayH[k] })).sort((a,b)=>a.ts-b.ts);
+  if (listH.length) return listH;
+
+  // (3) Directos (fallback)
+  const directPts = Number(cliente?.puntosProximosAVencer ?? 0);
+  const directTs  = parseTs(cliente?.fechaProximoVencimiento);
+  if (directPts > 0 && directTs && inWindow(directTs)) {
+    return [{ ts: dayKey(directTs), puntos: directPts }];
+  }
+
+  return [];
 }
 
 // === Saldo a favor ===
@@ -356,3 +361,4 @@ export { /* ancla de export adicionales si luego agregás más */ };
 // ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
+
