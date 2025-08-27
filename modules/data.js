@@ -1,4 +1,4 @@
-// modules/data.js (PWA - LISTENERS + vencimiento + render unificado)
+// modules/data.js (PWA - LISTENERS + vencimiento + SALDO + render unificado)
 
 import { db } from './firebase.js';
 import * as UI from './ui.js';
@@ -22,7 +22,31 @@ export function cleanupListener() {
   campanasData = [];
 }
 
-// === Mostrar / Ocultar card de vencimiento ===
+// === Saldo a favor ===
+function updateSaldoCard(cliente = {}) {
+  try {
+    const card = document.getElementById('saldo-card');
+    const saldoEl = document.getElementById('cliente-saldo');
+    if (!card || !saldoEl) return;
+
+    const raw = cliente.saldoAcumulado;
+    const saldo = Number(isNaN(raw) ? 0 : raw);
+
+    if (saldo > 0) {
+      // Formato simple ARS (sin depender de Intl locales)
+      const texto = `$ ${saldo.toFixed(2)}`;
+      saldoEl.textContent = texto;
+      card.style.display = 'block';
+    } else {
+      saldoEl.textContent = '$ 0.00';
+      card.style.display = 'none';
+    }
+  } catch (e) {
+    console.warn('updateSaldoCard error:', e);
+  }
+}
+
+// === Puntos por vencer ===
 export function updateVencimientoCard(cliente = {}) {
   try {
     const card = document.getElementById('vencimiento-card');
@@ -47,7 +71,7 @@ export function updateVencimientoCard(cliente = {}) {
     const now = Date.now();
     const futuros = v
       .map(x => ({
-        puntos: Number(x.puntos || 0),
+        puntos: Number(x?.puntos || 0),
         ts: x?.venceAt?.toDate ? x.venceAt.toDate().getTime() : (x?.venceAt ? new Date(x.venceAt).getTime() : 0)
       }))
       .filter(x => x.puntos > 0 && x.ts && x.ts > now)
@@ -85,10 +109,11 @@ function renderizarPantallaPrincipal() {
     return true;
   });
 
-  // Render principal
+  // Render principal (nombre, puntos, carrusel, historial, premios)
   UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
 
-  // Card de vencimiento
+  // Extras visibles en home
+  updateSaldoCard(clienteData);
   updateVencimientoCard(clienteData);
 }
 
