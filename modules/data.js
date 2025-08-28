@@ -334,7 +334,11 @@ export async function listenToClientData(user) {
 
       clienteData = snapshot.docs[0].data();
       clienteRef = snapshot.docs[0].ref;
+console.log("[PWA] Datos del cliente actualizados.");
+document.dispatchEvent(new CustomEvent('rampet:cliente-updated', { detail: { cliente: clienteData } }));
 
+renderizarPantallaPrincipal();
+Notifications.gestionarPermisoNotificaciones(clienteData);
       // DEBUG: exponer datos en consola (quitar en producción si querés)
       if (typeof window !== 'undefined') {
         window.clienteData = clienteData;
@@ -375,6 +379,7 @@ export { /* ancla de export adicionales si luego agregás más */ };
 // ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
+
 
 
 
