@@ -138,58 +138,110 @@ function renderCampanasCarousel(campanasData) {
   carrusel.innerHTML = '';
   indicadoresContainer.innerHTML = '';
 
-  campanasVisibles.forEach((campana, index) => {
-    let item;
+ campanasVisibles.forEach((campana, index) => {
+  let item;
 
-    if (campana.urlBanner) {
-      // Con imagen (y posible overlay de texto)
-      item = document.createElement('a');
-      item.href = '#';
-      item.target = '_blank';
-      item.rel = 'noopener noreferrer';
-      item.className = 'banner-item banner-con-imagen';
+  // 🔎 Mapeo robusto de campos (imagen y link)
+  const banner =
+    campana.urlBanner ||
+    campana.bannerUrl ||
+    campana.bannerURL ||
+    campana.banner ||
+    campana.imagen ||
+    campana.imagenUrl ||
+    campana.image ||
+    campana.imageUrl ||
+    campana.imageURL ||
+    '';
 
-      const img = document.createElement('img');
-      img.src = campana.urlBanner;
-      img.alt = campana.nombre;
-      item.appendChild(img);
+  const link =
+    campana.urlDestino ||
+    campana.url ||
+    campana.link ||
+    campana.href ||
+    '';
 
-      if (campana.cuerpo) {
-        const overlay = document.createElement('div');
-        overlay.className = 'banner-texto-overlay';
-        const h4 = document.createElement('h4');
-        h4.textContent = campana.nombre;
-        const p = document.createElement('p');
-        p.textContent = campana.cuerpo;
-        overlay.appendChild(h4);
-        overlay.appendChild(p);
-        item.appendChild(overlay);
-      }
-    } else {
-      // Solo texto
-      item = document.createElement('div');
-      item.className = 'banner-item-texto';
-      const title = document.createElement('h4');
-      title.textContent = campana.nombre;
-      item.appendChild(title);
-      if (campana.cuerpo) {
-        const description = document.createElement('p');
-        description.textContent = campana.cuerpo;
-        item.appendChild(description);
-      }
+  const titleText = campana.nombre || '';
+  const bodyText  = campana.cuerpo || '';
+
+  if (banner) {
+    // Aviso si es http bajo https (posible bloqueo por mixed content)
+    const isMixed = (location.protocol === 'https:' && /^http:\/\//i.test(banner));
+    if (isMixed) {
+      console.warn('[PWA] Banner con http bajo https (mixed content):', banner);
     }
 
-    carrusel.appendChild(item);
+    // Si hay link lo hacemos <a>, si no un <div>
+    item = document.createElement(link ? 'a' : 'div');
+    if (link) {
+      item.href = link;
+      item.target = '_blank';
+      item.rel = 'noopener noreferrer';
+    }
+    item.className = 'banner-item banner-con-imagen';
 
-    const indicador = document.createElement('span');
-    indicador.className = 'indicador';
-    indicador.dataset.index = index;
-    indicador.addEventListener('click', () => {
-      const left = carrusel.children[index].offsetLeft;
-      carrusel.scrollTo({ left, behavior: 'smooth' });
-    });
-    indicadoresContainer.appendChild(indicador);
+    const img = document.createElement('img');
+    img.src = banner;
+    img.alt = titleText || 'Promoción';
+    img.loading = 'lazy';
+
+    // ⛑️ Fallback si la imagen no carga → mostramos bloque de texto
+    img.onerror = () => {
+      console.warn('[PWA] Banner no cargó, fallback a texto:', banner);
+      item.className = 'banner-item-texto';
+      item.innerHTML = '';
+      const t = document.createElement('h4');
+      t.textContent = titleText || 'Promoción';
+      item.appendChild(t);
+      if (bodyText) {
+        const p = document.createElement('p');
+        p.textContent = bodyText;
+        item.appendChild(p);
+      }
+    };
+
+    item.appendChild(img);
+
+    // Overlay opcional con texto si existe
+    if (bodyText) {
+      const textoOverlay = document.createElement('div');
+      textoOverlay.className = 'banner-texto-overlay';
+      const titulo = document.createElement('h4');
+      titulo.textContent = titleText;
+      const parrafo = document.createElement('p');
+      parrafo.textContent = bodyText;
+      textoOverlay.appendChild(titulo);
+      textoOverlay.appendChild(parrafo);
+      item.appendChild(textoOverlay);
+    }
+
+  } else {
+    // Solo texto (sin imagen)
+    item = document.createElement('div');
+    item.className = 'banner-item-texto';
+    const title = document.createElement('h4');
+    title.textContent = titleText || 'Promoción';
+    item.appendChild(title);
+    if (bodyText) {
+      const description = document.createElement('p');
+      description.textContent = bodyText;
+      item.appendChild(description);
+    }
+  }
+
+  carrusel.appendChild(item);
+
+  // Indicador (puntito)
+  const indicador = document.createElement('span');
+  indicador.className = 'indicador';
+  indicador.dataset.index = index;
+  indicador.addEventListener('click', () => {
+    const x = carrusel.children[index].offsetLeft;
+    carrusel.scrollTo({ left: x, behavior: 'smooth' });
   });
+  indicadoresContainer.appendChild(indicador);
+});
+
 
   const updateActiveIndicator = () => {
     const scrollLeft = carrusel.scrollLeft;
@@ -313,3 +365,4 @@ export function renderRecentHistory(cliente = {}) {
 document.addEventListener('rampet:cliente-updated', (e) => {
   try { renderRecentHistory(e.detail?.cliente || {}); } catch {}
 });
+
