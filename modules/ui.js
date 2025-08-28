@@ -1,308 +1,267 @@
-// pwa/modules/ui.js (VERSIÓN FINAL CON CARRUSEL MEJORADO)
+// pwa/modules/ui.js (VERSIÓN OK - export top-level, carrusel + historial reciente)
 
 import * as Data from './data.js';
 
-// --- Variable global para el intervalo y estado del carrusel ---
+// --- Estado del carrusel ---
 let carouselIntervalId = null;
 let isDragging = false, startX, startScrollLeft;
 
-
-// ====================================================================
-// == FUNCIONES DE AYUDA Y RENDERIZADO GENERAL                      ==
-// ====================================================================
-
+// ─────────────────────────────────────────────────────────────
+// Utilidades base
+// ─────────────────────────────────────────────────────────────
 function safeSetText(id, content) {
-    const element = document.getElementById(id);
-    if (element) {
-        element.textContent = content;
-    } else {
-        console.warn(`[UI SafeSet] Elemento con ID "${id}" no encontrado.`);
-    }
+  const el = document.getElementById(id);
+  if (el) el.textContent = content;
+  else console.warn(`[UI SafeSet] No existe #${id}`);
 }
 
 export function showToast(message, type = 'info', duration = 6000) {
-    const container = document.getElementById('toast-container');
-    if (!container) return;
-    const toast = document.createElement('div');
-    toast.className = `toast ${type}`;
-    toast.textContent = message;
-    container.appendChild(toast);
-    setTimeout(() => toast.remove(), duration);
+  const container = document.getElementById('toast-container');
+  if (!container) return;
+  const toast = document.createElement('div');
+  toast.className = `toast ${type}`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  setTimeout(() => toast.remove(), duration);
 }
 
 export function showScreen(screenId) {
-    document.querySelectorAll('.screen').forEach(screen => screen.classList.remove('active'));
-    const screenToShow = document.getElementById(screenId);
-    if (screenToShow) {
-        screenToShow.classList.add('active');
-    } else {
-        console.error(`[UI ShowScreen] No se encontró la pantalla con ID "${screenId}".`);
-    }
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  const target = document.getElementById(screenId);
+  if (target) target.classList.add('active');
+  else console.error(`[UI ShowScreen] No existe #${screenId}`);
 }
 
-function formatearFecha(isoDateString) {
-    if (!isoDateString) return 'N/A';
-    const parts = isoDateString.split('T')[0].split('-');
-    if (parts.length !== 3) return 'Fecha inválida';
-    const fecha = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
-    if (isNaN(fecha.getTime())) return 'Fecha inválida';
-    const dia = String(fecha.getUTCDate()).padStart(2, '0');
-    const mes = String(fecha.getUTCMonth() + 1).padStart(2, '0');
-    const anio = fecha.getUTCFullYear();
-    return `${dia}/${mes}/${anio}`;
+function formatearFecha(iso) {
+  if (!iso) return 'N/A';
+  const parts = String(iso).split('T')[0].split('-');
+  if (parts.length !== 3) return 'Fecha inválida';
+  const d = new Date(Date.UTC(parts[0], parts[1]-1, parts[2]));
+  if (isNaN(d)) return 'Fecha inválida';
+  const dd = String(d.getUTCDate()).padStart(2,'0');
+  const mm = String(d.getUTCMonth()+1).padStart(2,'0');
+  const yy = d.getUTCFullYear();
+  return `${dd}/${mm}/${yy}`;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Pantalla principal
+// ─────────────────────────────────────────────────────────────
 export function renderMainScreen(clienteData, premiosData, campanasData = []) {
-    if (!clienteData) return;
+  if (!clienteData) return;
 
-    safeSetText('cliente-nombre', clienteData.nombre.split(' ')[0]);
-    safeSetText('cliente-numero-socio', clienteData.numeroSocio ? `#${clienteData.numeroSocio}` : 'N° De Socio Pendiente de Aceptacion');
-    safeSetText('cliente-puntos', clienteData.puntos || 0);
+  safeSetText('cliente-nombre', (clienteData.nombre || '--').split(' ')[0]);
+  safeSetText('cliente-numero-socio', clienteData.numeroSocio ? `#${clienteData.numeroSocio}` : 'N° De Socio Pendiente de Aceptacion');
+  safeSetText('cliente-puntos', clienteData.puntos || 0);
 
-    const termsBanner = document.getElementById('terms-banner');
-    if (termsBanner) {
-        termsBanner.style.display = !clienteData.terminosAceptados ? 'block' : 'none';
+  const termsBanner = document.getElementById('terms-banner');
+  if (termsBanner) termsBanner.style.display = !clienteData.terminosAceptados ? 'block' : 'none';
+
+  // Tarjeta de vencimiento (la dejamos visible con 0/— si no hay próximas tandas)
+  const vencCard = document.getElementById('vencimiento-card');
+  if (vencCard) {
+    const pts = Data.getPuntosEnProximoVencimiento(clienteData);
+    const fecha = Data.getFechaProximoVencimiento(clienteData);
+    safeSetText('cliente-puntos-vencimiento', pts > 0 ? pts : 0);
+    safeSetText('cliente-fecha-vencimiento', fecha ? formatearFecha(fecha.toISOString()) : '—');
+    vencCard.style.display = 'block';
+  }
+
+  // Historial reciente (incluye canjes)
+  renderRecentHistory(clienteData);
+
+  // Lista de premios
+  const premiosLista = document.getElementById('lista-premios-cliente');
+  if (premiosLista) {
+    premiosLista.innerHTML = '';
+    if (Array.isArray(premiosData) && premiosData.length) {
+      premiosData.forEach(premio => {
+        const li = document.createElement('li');
+        const puede = Number(clienteData.puntos || 0) >= Number(premio.puntos || 0);
+        li.className = puede ? 'canjeable' : 'no-canjeable';
+        li.innerHTML = `<strong>${premio.nombre}</strong> <span class="puntos-premio">${premio.puntos} Puntos</span>`;
+        premiosLista.appendChild(li);
+      });
+    } else {
+      premiosLista.innerHTML = '<li>No hay premios disponibles en este momento.</li>';
     }
+  }
 
-    const vencimientoCard = document.getElementById('vencimiento-card');
-    const puntosPorVencer = Data.getPuntosEnProximoVencimiento(clienteData);
-    const fechaVencimiento = Data.getFechaProximoVencimiento(clienteData);
+  // Carrusel de campañas
+  renderCampanasCarousel(campanasData);
 
-    if (vencimientoCard) {
-        if (puntosPorVencer > 0 && fechaVencimiento) {
-            vencimientoCard.style.display = 'block';
-            safeSetText('cliente-puntos-vencimiento', puntosPorVencer);
-            safeSetText('cliente-fecha-vencimiento', formatearFecha(fechaVencimiento.toISOString()));
-        } else {
-            vencimientoCard.style.display = 'none';
-        }
-    }
-
-    const historialLista = document.getElementById('lista-historial');
-    if (historialLista) {
-        historialLista.innerHTML = '';
-        const historialReciente = [...(clienteData.historialPuntos || [])].sort((a,b) => new Date(b.fechaObtencion) - new Date(a.fechaObtencion)).slice(0, 5);
-        if (historialReciente.length > 0) {
-            historialReciente.forEach(item => {
-                const li = document.createElement('li');
-                const puntos = item.puntosObtenidos > 0 ? `+${item.puntosObtenidos}` : item.puntosObtenidos;
-                li.innerHTML = `<span>${formatearFecha(item.fechaObtencion)}</span> <strong>${item.origen}</strong> <span class="puntos ${puntos > 0 ? 'ganados':'gastados'}">${puntos} pts</span>`;
-                historialLista.appendChild(li);
-            });
-        } else {
-            historialLista.innerHTML = '<li>Aún no tienes movimientos.</li>';
-        }
-    }
-
-    const premiosLista = document.getElementById('lista-premios-cliente');
-    if (premiosLista) {
-        premiosLista.innerHTML = '';
-        if (premiosData && premiosData.length > 0) {
-            premiosData.forEach(premio => {
-                const li = document.createElement('li');
-                const puedeCanjear = clienteData.puntos >= premio.puntos;
-                li.className = puedeCanjear ? 'canjeable' : 'no-canjeable';
-                li.innerHTML = `<strong>${premio.nombre}</strong> <span class="puntos-premio">${premio.puntos} Puntos</span>`;
-                premiosLista.appendChild(li);
-            });
-        } else {
-            premiosLista.innerHTML = '<li>No hay premios disponibles en este momento.</li>';
-        }
-    }
-    
-    // Llamada a la nueva función del carrusel
-    renderCampanasCarousel(campanasData);
-
-    showScreen('main-app-screen');
+  showScreen('main-app-screen');
 }
 
 export function openTermsModal(showAcceptButton) {
-    const modal = document.getElementById('terms-modal');
-    const button = document.getElementById('accept-terms-btn-modal');
-    if(modal) modal.style.display = 'flex';
-    if(button) button.style.display = showAcceptButton ? 'block' : 'none';
+  const m = document.getElementById('terms-modal');
+  const btn = document.getElementById('accept-terms-btn-modal');
+  if (m) m.style.display = 'flex';
+  if (btn) btn.style.display = showAcceptButton ? 'block' : 'none';
 }
-
 export function closeTermsModal() {
-    const modal = document.getElementById('terms-modal');
-    if(modal) modal.style.display = 'none';
+  const m = document.getElementById('terms-modal');
+  if (m) m.style.display = 'none';
 }
 
 export function openChangePasswordModal() {
-    const modal = document.getElementById('change-password-modal');
-    if (modal) {
-        document.getElementById('current-password').value = '';
-        document.getElementById('new-password').value = '';
-        document.getElementById('confirm-new-password').value = '';
-        modal.style.display = 'flex';
-    }
+  const m = document.getElementById('change-password-modal');
+  if (!m) return;
+  document.getElementById('current-password').value = '';
+  document.getElementById('new-password').value = '';
+  document.getElementById('confirm-new-password').value = '';
+  m.style.display = 'flex';
 }
-
 export function closeChangePasswordModal() {
-    const modal = document.getElementById('change-password-modal');
-    if (modal) modal.style.display = 'none';
+  const m = document.getElementById('change-password-modal');
+  if (m) m.style.display = 'none';
 }
 
-// ====================================================================
-// == FUNCIONALIDAD DEL CARRUSEL DE CAMPAÑAS                        ==
-// ====================================================================
-
+// ─────────────────────────────────────────────────────────────
+// Carrusel de campañas
+// ─────────────────────────────────────────────────────────────
 function renderCampanasCarousel(campanasData) {
-    const container = document.getElementById('carrusel-campanas-container');
-    const carrusel = document.getElementById('carrusel-campanas');
-    const indicadoresContainer = document.getElementById('carrusel-indicadores');
-    if (!container || !carrusel || !indicadoresContainer) return;
+  const container = document.getElementById('carrusel-campanas-container');
+  const carrusel = document.getElementById('carrusel-campanas');
+  const indicadoresContainer = document.getElementById('carrusel-indicadores');
+  if (!container || !carrusel || !indicadoresContainer) return;
 
-    if (carouselIntervalId) clearInterval(carouselIntervalId);
+  if (carouselIntervalId) clearInterval(carouselIntervalId);
 
-    const campanasVisibles = Array.isArray(campanasData) ? campanasData : [];
-    if (campanasVisibles.length === 0) {
-        container.style.display = 'none';
-        return;
-    }
+  const campanasVisibles = Array.isArray(campanasData) ? campanasData : [];
+  if (!campanasVisibles.length) {
+    container.style.display = 'none';
+    return;
+  }
 
-    container.style.display = 'block';
-    carrusel.innerHTML = '';
-    indicadoresContainer.innerHTML = '';
-campanasVisibles.forEach((campana, index) => {
+  container.style.display = 'block';
+  carrusel.innerHTML = '';
+  indicadoresContainer.innerHTML = '';
+
+  campanasVisibles.forEach((campana, index) => {
     let item;
-    
+
     if (campana.urlBanner) {
-        // Caso 1: Hay una imagen (puede tener texto o no)
-        item = document.createElement('a');
-        item.href = '#'; // Hacemos que no navegue para poder poner texto encima
-        item.target = '_blank';
-        item.rel = 'noopener noreferrer';
-        item.className = 'banner-item banner-con-imagen'; // Nueva clase para estilos
-        
-        const img = document.createElement('img');
-        img.src = campana.urlBanner;
-        img.alt = campana.nombre;
-        item.appendChild(img);
+      // Con imagen (y posible overlay de texto)
+      item = document.createElement('a');
+      item.href = '#';
+      item.target = '_blank';
+      item.rel = 'noopener noreferrer';
+      item.className = 'banner-item banner-con-imagen';
 
-        // NUEVA LÓGICA: Si ADEMÁS hay texto, lo superponemos
-        if (campana.cuerpo) {
-            const textoOverlay = document.createElement('div');
-            textoOverlay.className = 'banner-texto-overlay';
-            const titulo = document.createElement('h4');
-            titulo.textContent = campana.nombre;
-            const parrafo = document.createElement('p');
-            parrafo.textContent = campana.cuerpo;
-            textoOverlay.appendChild(titulo);
-            textoOverlay.appendChild(parrafo);
-            item.appendChild(textoOverlay);
-        }
+      const img = document.createElement('img');
+      img.src = campana.urlBanner;
+      img.alt = campana.nombre;
+      item.appendChild(img);
 
+      if (campana.cuerpo) {
+        const overlay = document.createElement('div');
+        overlay.className = 'banner-texto-overlay';
+        const h4 = document.createElement('h4');
+        h4.textContent = campana.nombre;
+        const p = document.createElement('p');
+        p.textContent = campana.cuerpo;
+        overlay.appendChild(h4);
+        overlay.appendChild(p);
+        item.appendChild(overlay);
+      }
     } else {
-        // Caso 2: Solo hay texto, no hay imagen
-        item = document.createElement('div');
-        item.className = 'banner-item-texto';
-        const title = document.createElement('h4');
-        title.textContent = campana.nombre;
-        item.appendChild(title);
-        if (campana.cuerpo) {
-            const description = document.createElement('p');
-            description.textContent = campana.cuerpo;
-            item.appendChild(description);
-        }
+      // Solo texto
+      item = document.createElement('div');
+      item.className = 'banner-item-texto';
+      const title = document.createElement('h4');
+      title.textContent = campana.nombre;
+      item.appendChild(title);
+      if (campana.cuerpo) {
+        const description = document.createElement('p');
+        description.textContent = campana.cuerpo;
+        item.appendChild(description);
+      }
     }
+
     carrusel.appendChild(item);
 
-
-        // Crear indicador (puntito)
-        const indicador = document.createElement('span');
-        indicador.className = 'indicador';
-        indicador.dataset.index = index;
-        indicador.addEventListener('click', () => {
-            const itemWidth = carrusel.children[index].offsetLeft;
-            carrusel.scrollTo({ left: itemWidth, behavior: 'smooth' });
-        });
-        indicadoresContainer.appendChild(indicador);
+    const indicador = document.createElement('span');
+    indicador.className = 'indicador';
+    indicador.dataset.index = index;
+    indicador.addEventListener('click', () => {
+      const left = carrusel.children[index].offsetLeft;
+      carrusel.scrollTo({ left, behavior: 'smooth' });
     });
+    indicadoresContainer.appendChild(indicador);
+  });
 
-    // --- LÓGICA DE ACTUALIZACIÓN DE INDICADORES ---
-    const updateActiveIndicator = () => {
-        // Usamos un umbral para detectar qué item está más centrado
-        const scrollLeft = carrusel.scrollLeft;
-        const carouselCenter = scrollLeft + carrusel.offsetWidth / 2;
-        let currentIndex = 0;
-        for (let i = 0; i < carrusel.children.length; i++) {
-            const item = carrusel.children[i];
-            const itemCenter = item.offsetLeft + item.offsetWidth / 2;
-            if (Math.abs(itemCenter - carouselCenter) < item.offsetWidth / 2) {
-                currentIndex = i;
-                break;
-            }
-        }
-        
-        indicadoresContainer.querySelectorAll('.indicador').forEach((ind, idx) => {
-            ind.classList.toggle('activo', idx === currentIndex);
-        });
-    };
-    
-    // --- LÓGICA DE AUTO-SCROLL ---
-    const startCarousel = () => {
-        if (carouselIntervalId) clearInterval(carouselIntervalId);
-        carouselIntervalId = setInterval(() => {
-            if (isDragging) return;
-            const scrollEnd = carrusel.scrollWidth - carrusel.clientWidth;
-            // Si está cerca del final, volver al principio
-            if (carrusel.scrollLeft >= scrollEnd - 1) {
-                carrusel.scrollTo({ left: 0, behavior: 'smooth' });
-            } else {
-                // Si no, avanzar al siguiente item
-                carrusel.scrollBy({ left: carrusel.firstElementChild.offsetWidth + 15, behavior: 'smooth' });
-            }
-        }, 3000); // Cambiar cada 4 segundos
-    };
-
-    const stopCarousel = () => clearInterval(carouselIntervalId);
-
-    // --- LÓGICA DE ARRASTRE (SWIPE) ---
-    const dragStart = (e) => {
-        isDragging = true;
-        carrusel.classList.add('arrastrando');
-        startX = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft;
-        startScrollLeft = carrusel.scrollLeft;
-        stopCarousel();
-    };
-
-    const dragStop = () => {
-        isDragging = false;
-        carrusel.classList.remove('arrastrando');
-        startCarousel();
-    };
-    
-    const dragging = (e) => {
-        if (!isDragging) return;
-        e.preventDefault();
-        const x = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft;
-        const walk = (x - startX) * 2; // El *2 es para que se sienta más rápido
-        carrusel.scrollLeft = startScrollLeft - walk;
-        updateActiveIndicator(); // Actualizar indicador mientras se arrastra
-    };
-
-    carrusel.addEventListener('mousedown', dragStart);
-    carrusel.addEventListener('touchstart', dragStart, { passive: true });
-    carrusel.addEventListener('mousemove', dragging);
-    carrusel.addEventListener('touchmove', dragging, { passive: true });
-    carrusel.addEventListener('mouseup', dragStop);
-    carrusel.addEventListener('mouseleave', dragStop);
-    carrusel.addEventListener('touchend', dragStop);
-    carrusel.addEventListener('scroll', () => {
-        if(!isDragging) updateActiveIndicator(); // Solo actualizar en scroll si no es por arrastre
-    });
-
-    // Iniciar todo
-    updateActiveIndicator();
-    if (campanasVisibles.length > 1) {
-        startCarousel();
+  const updateActiveIndicator = () => {
+    const scrollLeft = carrusel.scrollLeft;
+    const center = scrollLeft + carrusel.offsetWidth / 2;
+    let currentIndex = 0;
+    for (let i = 0; i < carrusel.children.length; i++) {
+      const it = carrusel.children[i];
+      const itCenter = it.offsetLeft + it.offsetWidth / 2;
+      if (Math.abs(itCenter - center) < it.offsetWidth / 2) {
+        currentIndex = i; break;
+      }
     }
+    indicadoresContainer.querySelectorAll('.indicador').forEach((ind, idx) => {
+      ind.classList.toggle('activo', idx === currentIndex);
+    });
+  };
 
-    // ================== HISTORIAL RECIENTE (Puntos / Canjes) ==================
+  const startCarousel = () => {
+    if (carouselIntervalId) clearInterval(carouselIntervalId);
+    carouselIntervalId = setInterval(() => {
+      if (isDragging) return;
+      const end = carrusel.scrollWidth - carrusel.clientWidth;
+      if (carrusel.scrollLeft >= end - 1) {
+        carrusel.scrollTo({ left: 0, behavior: 'smooth' });
+      } else {
+        const step = (carrusel.firstElementChild?.offsetWidth || 200) + 15;
+        carrusel.scrollBy({ left: step, behavior: 'smooth' });
+      }
+    }, 3000);
+  };
+  const stopCarousel = () => clearInterval(carouselIntervalId);
+
+  const dragStart = (e) => {
+    isDragging = true;
+    carrusel.classList.add('arrastrando');
+    startX = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft;
+    startScrollLeft = carrusel.scrollLeft;
+    stopCarousel();
+  };
+  const dragStop = () => {
+    isDragging = false;
+    carrusel.classList.remove('arrastrando');
+    startCarousel();
+  };
+  const dragging = (e) => {
+    if (!isDragging) return;
+    e.preventDefault();
+    const x = (e.pageX || e.touches[0].pageX) - carrusel.offsetLeft;
+    const walk = (x - startX) * 2;
+    carrusel.scrollLeft = startScrollLeft - walk;
+    updateActiveIndicator();
+  };
+
+  carrusel.addEventListener('mousedown', dragStart);
+  carrusel.addEventListener('touchstart', dragStart, { passive: true });
+  carrusel.addEventListener('mousemove', dragging);
+  carrusel.addEventListener('touchmove', dragging, { passive: true });
+  carrusel.addEventListener('mouseup', dragStop);
+  carrusel.addEventListener('mouseleave', dragStop);
+  carrusel.addEventListener('touchend', dragStop);
+  carrusel.addEventListener('scroll', () => { if (!isDragging) updateActiveIndicator(); });
+
+  updateActiveIndicator();
+  if (campanasVisibles.length > 1) startCarousel();
+}
+
+// ─────────────────────────────────────────────────────────────
+// Historial reciente (puntos + canjes)
+// ─────────────────────────────────────────────────────────────
 function parseDateLike(d) {
   if (!d) return null;
-  if (typeof d?.toDate === 'function') return d.toDate(); // Firestore TS
+  if (typeof d?.toDate === 'function') return d.toDate();
   const t = new Date(d);
   return isNaN(t) ? null : t;
 }
@@ -313,7 +272,7 @@ export function renderRecentHistory(cliente = {}) {
 
   const items = [];
 
-  // Entradas de puntos (compras/bonos/ajustes)
+  // Movimientos de puntos
   hp.forEach(i => {
     const fecha = parseDateLike(i.fechaObtencion);
     if (!fecha) return;
@@ -321,22 +280,20 @@ export function renderRecentHistory(cliente = {}) {
     const origen = i?.origen || (pts >= 0 ? 'Puntos' : 'Ajuste');
     items.push({
       ts: +fecha,
-      tipo: 'puntos',
       texto: `${origen} ${pts >= 0 ? `(+${pts})` : `(${pts})`}`,
       fecha
     });
   });
 
-  // Entradas de canje
+  // Canjes
   hc.forEach(i => {
     const fecha = parseDateLike(i.fechaCanje);
     if (!fecha) return;
     const nombre = i?.nombrePremio || 'Premio';
-    const cost   = Number(i?.puntosCoste || 0);
+    const coste  = Number(i?.puntosCoste || 0);
     items.push({
       ts: +fecha,
-      tipo: 'canje',
-      texto: `Canje: ${nombre} (-${cost} pts)`,
+      texto: `Canje: ${nombre} (-${coste} pts)`,
       fecha
     });
   });
@@ -344,38 +301,15 @@ export function renderRecentHistory(cliente = {}) {
   items.sort((a,b) => b.ts - a.ts);
   const top = items.slice(0, 5);
 
-  // Contenedores posibles (ajustá si tu HTML usa otros ids)
-  const list =
-    document.getElementById('historial-reciente-list') ||
-    document.getElementById('historial-list');
-
-  const box =
-    document.getElementById('historial-reciente') ||
-    document.getElementById('historial') ||
-    document.getElementById('home-historial') ||
-    list?.parentElement;
-
-  if (!box) return; // si la vista no está montada, salir silencioso
-
-  // Crear la UL si no existe
-  let ul = list;
-  if (!ul) {
-    ul = document.createElement('ul');
-    ul.id = 'historial-reciente-list';
-    box.appendChild(ul);
-  }
+  const ul = document.getElementById('lista-historial');
+  if (!ul) return;
 
   ul.innerHTML = top.length
     ? top.map(x => `<li>${x.texto} · <small>${x.fecha.toLocaleDateString('es-AR')}</small></li>`).join('')
     : `<li class="muted">Sin movimientos recientes</li>`;
 }
 
-// Re-render cuando cambie el cliente
+// Re-render cuando se actualiza el cliente desde data.js
 document.addEventListener('rampet:cliente-updated', (e) => {
   try { renderRecentHistory(e.detail?.cliente || {}); } catch {}
 });
-
-}
-
-
-
