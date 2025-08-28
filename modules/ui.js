@@ -298,6 +298,84 @@ campanasVisibles.forEach((campana, index) => {
     if (campanasVisibles.length > 1) {
         startCarousel();
     }
+
+    // ================== HISTORIAL RECIENTE (Puntos / Canjes) ==================
+function parseDateLike(d) {
+  if (!d) return null;
+  if (typeof d?.toDate === 'function') return d.toDate(); // Firestore TS
+  const t = new Date(d);
+  return isNaN(t) ? null : t;
 }
+
+export function renderRecentHistory(cliente = {}) {
+  const hp = Array.isArray(cliente.historialPuntos) ? cliente.historialPuntos : [];
+  const hc = Array.isArray(cliente.historialCanjes) ? cliente.historialCanjes : [];
+
+  const items = [];
+
+  // Entradas de puntos (compras/bonos/ajustes)
+  hp.forEach(i => {
+    const fecha = parseDateLike(i.fechaObtencion);
+    if (!fecha) return;
+    const pts = Number(i?.puntosObtenidos ?? i?.puntosDisponibles ?? 0);
+    const origen = i?.origen || (pts >= 0 ? 'Puntos' : 'Ajuste');
+    items.push({
+      ts: +fecha,
+      tipo: 'puntos',
+      texto: `${origen} ${pts >= 0 ? `(+${pts})` : `(${pts})`}`,
+      fecha
+    });
+  });
+
+  // Entradas de canje
+  hc.forEach(i => {
+    const fecha = parseDateLike(i.fechaCanje);
+    if (!fecha) return;
+    const nombre = i?.nombrePremio || 'Premio';
+    const cost   = Number(i?.puntosCoste || 0);
+    items.push({
+      ts: +fecha,
+      tipo: 'canje',
+      texto: `Canje: ${nombre} (-${cost} pts)`,
+      fecha
+    });
+  });
+
+  items.sort((a,b) => b.ts - a.ts);
+  const top = items.slice(0, 5);
+
+  // Contenedores posibles (ajustá si tu HTML usa otros ids)
+  const list =
+    document.getElementById('historial-reciente-list') ||
+    document.getElementById('historial-list');
+
+  const box =
+    document.getElementById('historial-reciente') ||
+    document.getElementById('historial') ||
+    document.getElementById('home-historial') ||
+    list?.parentElement;
+
+  if (!box) return; // si la vista no está montada, salir silencioso
+
+  // Crear la UL si no existe
+  let ul = list;
+  if (!ul) {
+    ul = document.createElement('ul');
+    ul.id = 'historial-reciente-list';
+    box.appendChild(ul);
+  }
+
+  ul.innerHTML = top.length
+    ? top.map(x => `<li>${x.texto} · <small>${x.fecha.toLocaleDateString('es-AR')}</small></li>`).join('')
+    : `<li class="muted">Sin movimientos recientes</li>`;
+}
+
+// Re-render cuando cambie el cliente
+document.addEventListener('rampet:cliente-updated', (e) => {
+  try { renderRecentHistory(e.detail?.cliente || {}); } catch {}
+});
+
+}
+
 
 
