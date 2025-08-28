@@ -339,11 +339,18 @@ document.dispatchEvent(new CustomEvent('rampet:cliente-updated', { detail: { cli
 console.log("[PWA] Datos del cliente actualizados.");
 renderizarPantallaPrincipal();
 Notifications.gestionarPermisoNotificaciones(clienteData);
-      // DEBUG: exponer datos en consola (quitar en producción si querés)
-      if (typeof window !== 'undefined') {
-        window.clienteData = clienteData;
-        window.clienteRef  = clienteRef;
-      }
+    
+      // DEBUG: exponer datos en consola (más seguro)
+//   - Usamos un namespace propio para evitar colisiones con propiedades de solo-lectura.
+if (typeof window !== 'undefined') {
+  try {
+    window.__rampet = window.__rampet || {};
+    window.__rampet.clienteData = clienteData;
+    window.__rampet.clienteRef  = clienteRef;
+  } catch (e) {
+    console.debug('[PWA] No pude exponer debug en window.__rampet', e);
+  }
+}
 
       console.log("[PWA] Datos del cliente actualizados.");
       renderizarPantallaPrincipal();
@@ -379,6 +386,7 @@ export { /* ancla de export adicionales si luego agregás más */ };
 // ─────────────────────────────────────────────────────────────
 // ANCLA INFERIOR: fin del archivo
 // ─────────────────────────────────────────────────────────────
+
 
 
 
