@@ -1,12 +1,11 @@
 // app.js (PWA del Cliente – instalación + notifs + INBOX modal con grupos y paginado)
-// + Carrusel: drag desktop + snap al soltar + indicadores + autoplay robusto (espera visibilidad)
+// + Carrusel: drag desktop + snap + indicadores + autoplay encadenado (sin rebotes)
 
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 
-// Notificaciones (módulo de la PWA)
 import {
   gestionarPermisoNotificaciones,
   listenForInAppMessages,
@@ -132,7 +131,7 @@ function getInstallInstructionsHTML() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// UTILIDAD: addEventListener seguro por id
+// Helper de eventos
 // ──────────────────────────────────────────────────────────────
 function on(id, event, handler) {
   const el = document.getElementById(id);
@@ -140,7 +139,7 @@ function on(id, event, handler) {
 }
 
 // ──────────────────────────────────────────────────────────────
-/** INBOX MODAL — agrupado No leídas / Leídas + paginado */
+// INBOX
 // ──────────────────────────────────────────────────────────────
 let inboxPagination = { lastReadDoc: null, clienteRefPath: null };
 
@@ -338,7 +337,7 @@ async function openInboxModal() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// CARRUSEL: helpers + drag + snap + indicadores + autoplay
+// CARRUSEL: helpers + drag + snap + indicadores + autoplay encadenado
 // ──────────────────────────────────────────────────────────────
 
 function getSlides(container) {
@@ -386,7 +385,7 @@ function wireIndicators(container, indicadoresRoot) {
   dots.forEach((dot, i) => { dot.onclick = () => scrollToIndex(container, i); });
 }
 
-// Evitar drag nativo de imágenes
+// Evitar drag nativo de imágenes (que se “lleve” la imagen)
 function disableNativeImageDrag() {
   const imgs = document.querySelectorAll('#carrusel-campanas img');
   imgs.forEach(img => {
@@ -450,36 +449,74 @@ function wireDrag(container) {
   container.addEventListener('mouseleave', () => restartAutoplaySoon(container));
 }
 
-/* ===== Autoplay (robusto: espera visibilidad) ===== */
+/* ===== Autoplay encadenado (sin rebotar) ===== */
 const AUTOPLAY_MS = 2500;
-let autoplayTimer = null;
-let autoplayRestartTimer = null;
+let autoplayRunning = false;
+let autoplayAbort = false;
 let waitingVisibleTimer = null;
 
+/** Espera a que el scroll “se calme” antes de continuar (evita pelearse con snap/debounce) */
+function waitScrollIdle(container, idleMs = 140) {
+  return new Promise((resolve) => {
+    let t = null;
+    const handler = () => {
+      clearTimeout(t);
+      t = setTimeout(() => {
+        container.removeEventListener('scroll', handler);
+        resolve();
+      }, idleMs);
+    };
+    container.addEventListener('scroll', handler, { passive: true });
+    handler(); // arranca el temporizador
+  });
+}
+
 function stopAutoplay() {
-  if (autoplayTimer) { clearInterval(autoplayTimer); autoplayTimer = null; }
-  if (autoplayRestartTimer) { clearTimeout(autoplayRestartTimer); autoplayRestartTimer = null; }
+  autoplayAbort = true;
+  autoplayRunning = false;
   if (waitingVisibleTimer) { clearTimeout(waitingVisibleTimer); waitingVisibleTimer = null; }
 }
-function startAutoplay(container) {
+
+async function startAutoplay(container) {
   stopAutoplay();
-  if (!container) return;
-  // si aún no es visible o no hay 2 slides, reintentar luego
-  if (!isVisible(container) || !hasEnoughSlides(container)) {
-    waitingVisibleTimer = setTimeout(() => startAutoplay(container), 300);
-    return;
-  }
-  const slides = getSlides(container);
-  autoplayTimer = setInterval(() => {
+  autoplayAbort = false;
+
+  const ensureVisible = () => isVisible(container) && hasEnoughSlides(container);
+  const waitVisible = (retryMs = 300) => new Promise((res) => {
+    const tick = () => {
+      if (ensureVisible() || autoplayAbort) return res();
+      waitingVisibleTimer = setTimeout(tick, retryMs);
+    };
+    tick();
+  });
+
+  await waitVisible();
+  if (autoplayAbort) return;
+
+  autoplayRunning = true;
+  const slides = () => getSlides(container);
+
+  while (!autoplayAbort && autoplayRunning) {
+    const all = slides();
+    if (all.length < 2) break;
+
     const i = nearestIndex(container);
-    const next = (i + 1) % slides.length;
+    const next = (i + 1) % all.length;
     scrollToIndex(container, next);
-  }, AUTOPLAY_MS);
+
+    // esperar a que termine el scroll + delay de autoplay
+    await waitScrollIdle(container, 140);
+    if (autoplayAbort) break;
+    await new Promise(r => setTimeout(r, AUTOPLAY_MS));
+    if (autoplayAbort) break;
+  }
 }
+
 function restartAutoplaySoon(container = document.getElementById('carrusel-campanas')) {
   if (!container) return;
-  if (autoplayRestartTimer) clearTimeout(autoplayRestartTimer);
-  autoplayRestartTimer = setTimeout(() => startAutoplay(container), 1200);
+  // Evitar duplicados: detenemos y arrancamos de nuevo
+  stopAutoplay();
+  setTimeout(() => startAutoplay(container), 800);
 }
 
 /** Wiring inicial + re-wiring cuando cambian los slides por JS */
@@ -495,7 +532,7 @@ function initCarouselWiring() {
     wireIndicators(container, indicadores);
     updateActiveIndicator(container, indicadores);
     disableNativeImageDrag();
-    startAutoplay(container); // ⬅️ ahora espera visibilidad y ≥2 slides
+    startAutoplay(container); // encadenado + espera visibilidad
   };
 
   tryWire();
@@ -562,6 +599,8 @@ function initCarouselWiring() {
   mo.observe(container, { childList: true });
 })();
 
+// ──────────────────────────────────────────────────────────────
+// LISTENERS DE PANTALLAS
 // ──────────────────────────────────────────────────────────────
 function setupAuthScreenListeners() {
   on('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
@@ -652,7 +691,6 @@ async function main() {
         installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
       }
 
-      // Wiring del carrusel (observa render y visibilidad; arranca autoplay cuando corresponda)
       initCarouselWiring();
     } else {
       if (bell) bell.style.display = 'none';
