@@ -188,7 +188,7 @@ function renderCampanasCarousel(campanasData) {
     // ⛑️ Fallback si la imagen no carga → mostramos bloque de texto
     img.onerror = () => {
       console.warn('[PWA] Banner no cargó, fallback a texto:', banner);
-      item.className = 'banner-item-texto';
+      item.className = 'banner-item banner-item-texto';
       item.innerHTML = '';
       const t = document.createElement('h4');
       t.textContent = titleText || 'Promoción';
@@ -365,4 +365,5 @@ export function renderRecentHistory(cliente = {}) {
 document.addEventListener('rampet:cliente-updated', (e) => {
   try { renderRecentHistory(e.detail?.cliente || {}); } catch {}
 });
+
 
