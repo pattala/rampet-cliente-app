@@ -1,5 +1,5 @@
 // app.js (PWA del Cliente – instalación + notifs + INBOX modal con grupos y paginado)
-// + Carrusel: drag desktop + snap al soltar + sync indicadores
+// + Carrusel: autoplay 2.5s, drag desktop, snap al soltar, indicadores
 
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -13,11 +13,17 @@ import {
   handlePermissionRequest,
   dismissPermissionRequest,
   handlePermissionSwitch,
-  initNotificationChannel,          // canal SW → app
-  handleBellClick,                  // marca entregados como leídos
-  ensureSingleToken,                // dedupe tokens
-  handleSignOutCleanup              // limpieza token al salir
+  initNotificationChannel,
+  handleBellClick,
+  ensureSingleToken,
+  handleSignOutCleanup
 } from './modules/notifications.js';
+
+/* ===================== Config del carrusel ===================== */
+const CAROUSEL = {
+  autoplayMs: 2500,     // cada cuánto cambia solo
+  slideAnimMs: 600      // duración del deslizamiento (suave, no salto)
+};
 
 // ──────────────────────────────────────────────────────────────
 // LÓGICA DE INSTALACIÓN PWA
@@ -92,9 +98,7 @@ async function handleDismissInstall() {
   try {
     const snap = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
     if (snap.empty) return;
-    await snap.docs[0].ref.set({
-      pwaInstallDismissedAt: new Date().toISOString()
-    }, { merge: true });
+    await snap.docs[0].ref.set({ pwaInstallDismissedAt: new Date().toISOString() }, { merge: true });
   } catch (e) {
     console.warn('No se pudo registrar el dismiss en Firestore:', e);
   }
@@ -177,7 +181,6 @@ function ensureInboxModal() {
     overlay.style.display = 'none';
   });
 
-  // Botón "Cargar más" → trae más "leídas"
   document.getElementById('inbox-load-more').addEventListener('click', async () => {
     await fetchInboxBatch({ more: true });
   });
@@ -209,7 +212,6 @@ function renderList(containerId, items) {
   }).join('');
   list.innerHTML = html;
 
-  // Navegación por item
   list.querySelectorAll('.card[data-url]').forEach(el => {
     el.addEventListener('click', () => {
       const goto = el.getAttribute('data-url') || '/notificaciones';
@@ -230,12 +232,6 @@ async function resolveClienteRef() {
   return qs.docs[0].ref;
 }
 
-/**
- * Trae inbox:
- *  - Primer carga: No leídas (status in ['sent','delivered']) + primeras 20 leídas.
- *  - more=true: trae 20 leídas más continuando desde el último doc (paginación).
- * Nota: Si Firestore te pide índice al ordenar por sentAt, crealo y listo.
- */
 async function fetchInboxBatch({ more = false } = {}) {
   const clienteRef = await resolveClienteRef();
   if (!clienteRef) {
@@ -245,7 +241,6 @@ async function fetchInboxBatch({ more = false } = {}) {
   }
 
   if (!more) {
-    // No leídas
     let unread = [];
     try {
       const unreadSnap = await clienteRef.collection('inbox')
@@ -259,7 +254,6 @@ async function fetchInboxBatch({ more = false } = {}) {
     }
     renderList('inbox-list-unread', unread);
 
-    // Leídas (primer página)
     try {
       const readSnap = await clienteRef.collection('inbox')
         .where('status', '==', 'read')
@@ -271,7 +265,6 @@ async function fetchInboxBatch({ more = false } = {}) {
       renderList('inbox-list-read', read);
       inboxPagination.lastReadDoc = readSnap.docs.length ? readSnap.docs[readSnap.docs.length - 1] : null;
 
-      // Mostrar/ocultar botón "Cargar más"
       const moreBtn = document.getElementById('inbox-load-more');
       if (moreBtn) moreBtn.style.display = readSnap.size < 20 ? 'none' : 'inline-block';
     } catch (e) {
@@ -281,7 +274,6 @@ async function fetchInboxBatch({ more = false } = {}) {
       if (moreBtn) moreBtn.style.display = 'none';
     }
   } else {
-    // Paginado de leídas
     if (!inboxPagination.lastReadDoc) {
       const moreBtn = document.getElementById('inbox-load-more');
       if (moreBtn) moreBtn.style.display = 'none';
@@ -297,7 +289,6 @@ async function fetchInboxBatch({ more = false } = {}) {
 
       const next = nextSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-      // Append
       const container = document.getElementById('inbox-list-read');
       if (container && next.length) {
         const tmp = document.createElement('div');
@@ -347,28 +338,41 @@ async function openInboxModal() {
   if (overlay) overlay.style.display = 'flex';
 }
 
-// ──────────────────────────────────────────────────────────────
-// CARRUSEL: drag desktop + snap + indicadores
-// ──────────────────────────────────────────────────────────────
+/* ===================== CARRUSEL ===================== */
 
-/** Devuelve los slides válidos dentro del carrusel */
+/** Colección de slides (imagen y solo-texto) */
 function getSlides(container) {
   if (!container) return [];
-  // soporta items renderizados como ".banner-item" o ".banner-item-texto"
   return Array.from(container.querySelectorAll('.banner-item, .banner-item-texto'));
 }
 
-/** Desplaza al índice con centrado del slide */
-function scrollToIndex(container, idx) {
+/** Tween de scroll con duración controlada (suave en Edge/desktop) */
+function tweenScrollTo(container, left, durationMs) {
+  const start = container.scrollLeft;
+  const dist  = left - start;
+  if (Math.abs(dist) < 1) { container.scrollLeft = left; return; }
+  const t0 = performance.now();
+  const easeOutCubic = (x) => 1 - Math.pow(1 - x, 3);
+  function step(now) {
+    const p = Math.min(1, (now - t0) / durationMs);
+    container.scrollLeft = start + dist * easeOutCubic(p);
+    if (p < 1) requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+}
+
+/** Centrar un índice */
+function scrollToIndex(container, idx, animate = true) {
   const slides = getSlides(container);
   if (!slides.length) return;
   const i = Math.max(0, Math.min(idx, slides.length - 1));
   const target = slides[i];
   const left = target.offsetLeft - (container.clientWidth - target.offsetWidth) / 2;
-  container.scrollTo({ left, behavior: 'smooth' });
+  if (animate) tweenScrollTo(container, left, CAROUSEL.slideAnimMs);
+  else container.scrollLeft = left;
 }
 
-/** Calcula el índice del slide más cercano al centro de la vista */
+/** Índice del slide más cercano al centro */
 function nearestIndex(container) {
   const slides = getSlides(container);
   if (!slides.length) return 0;
@@ -382,7 +386,7 @@ function nearestIndex(container) {
   return best;
 }
 
-/** Actualiza el estado visual de los indicadores según el slide activo */
+/** Indicadores activos */
 function updateActiveIndicator(container, indicadoresRoot) {
   if (!indicadoresRoot) return;
   const dots = Array.from(indicadoresRoot.querySelectorAll('.indicador'));
@@ -403,7 +407,7 @@ function wireIndicators(container, indicadoresRoot) {
   });
 }
 
-/** Habilita arrastre con mouse (desktop) + snap al soltar */
+/** Arrastre con mouse (desktop) + snap al soltar */
 function wireDrag(container) {
   if (!container || container.dataset.dragWired === '1') return;
   container.dataset.dragWired = '1';
@@ -415,6 +419,7 @@ function wireDrag(container) {
 
   const onPointerDown = (e) => {
     isDown = true;
+    pauseAutoplay(container);
     startX = e.clientX;
     startScroll = container.scrollLeft;
     container.classList.add('arrastrando');
@@ -427,12 +432,13 @@ function wireDrag(container) {
     if (e.cancelable) e.preventDefault();
   };
   const onPointerUp = (e) => {
+    if (!isDown) return;
     isDown = false;
     container.classList.remove('arrastrando');
     try { container.releasePointerCapture(e.pointerId); } catch {}
-    // snap al slide más cercano
     const idx = nearestIndex(container);
     scrollToIndex(container, idx);
+    resumeAutoplay(container);
   };
 
   container.addEventListener('pointerdown', onPointerDown);
@@ -441,7 +447,6 @@ function wireDrag(container) {
   container.addEventListener('pointercancel', onPointerUp);
   container.addEventListener('pointerleave', () => { if (isDown) onPointerUp({ pointerId: 0 }); });
 
-  // Mientras se hace scroll (rueda/drag), ir marcando el indicador activo
   const indicadores = document.getElementById('carrusel-indicadores');
   const onScroll = () => {
     if (raf) return;
@@ -453,7 +458,46 @@ function wireDrag(container) {
   container.addEventListener('scroll', onScroll, { passive: true });
 }
 
-/** Inicializa y re-vincula el carrusel cuando cambian los slides por JS */
+/** Autoplay: avanza cada CAROUSEL.autoplayMs; pausa si el usuario interactúa o la pestaña no está visible */
+function setupAutoplay(container) {
+  if (!container || container.dataset.autoWired === '1') return;
+  container.dataset.autoWired = '1';
+
+  const goNext = () => {
+    const slides = getSlides(container);
+    if (slides.length <= 1) return;
+    const cur = nearestIndex(container);
+    const next = (cur + 1) % slides.length;
+    scrollToIndex(container, next);
+  };
+
+  const start = () => {
+    if (container._autoTimer) return;
+    container._autoTimer = setInterval(goNext, CAROUSEL.autoplayMs);
+  };
+  const stop = () => {
+    if (container._autoTimer) {
+      clearInterval(container._autoTimer);
+      container._autoTimer = null;
+    }
+  };
+
+  container._autoStart = start;
+  container._autoStop  = stop;
+
+  // Pausa/resume según visibilidad
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stop();
+    else start();
+  });
+
+  // Inicia
+  start();
+}
+function pauseAutoplay(container){ container?._autoStop?.(); }
+function resumeAutoplay(container){ container?._autoStart?.(); }
+
+/** Inicializa wiring del carrusel (drag + indicadores + autoplay + centrado inicial) */
 function initCarouselWiring() {
   const container = document.getElementById('carrusel-campanas');
   const indicadores = document.getElementById('carrusel-indicadores');
@@ -465,20 +509,58 @@ function initCarouselWiring() {
     wireDrag(container);
     wireIndicators(container, indicadores);
     updateActiveIndicator(container, indicadores);
+    // centrar el que esté más cerca (primera vez)
+    scrollToIndex(container, nearestIndex(container), false);
+    setupAutoplay(container);
   };
 
-  // Intento inicial
   tryWire();
 
-  // Si el contenido se re-renderiza (por campañas nuevas), re-vincular
   const obs = new MutationObserver(() => tryWire());
   obs.observe(container, { childList: true });
-  // Guardamos por si querés desconectarlo al hacer logout
   container._rampetObs = obs;
 }
 
-// ──────────────────────────────────────────────────────────────
-// LISTENERS DE PANTALLAS
+/* ===== Snap “real” en Edge/desktop: centra el slide más cercano al terminar el scroll ===== */
+(function initCarouselSnapFix(){
+  const container = document.getElementById('carrusel-campanas');
+  if (!container) return;
+
+  const ensure = () => container.querySelectorAll('.banner-item, .banner-item-texto').length;
+
+  const centerNearest = () => {
+    if (!ensure()) return;
+    const slides = Array.from(container.querySelectorAll('.banner-item, .banner-item-texto'));
+    const viewportCenter = container.scrollLeft + container.clientWidth / 2;
+    let best = slides[0], min = Number.POSITIVE_INFINITY;
+    for (const s of slides) {
+      const center = s.offsetLeft + s.clientWidth / 2;
+      const d = Math.abs(center - viewportCenter);
+      if (d < min) { min = d; best = s; }
+    }
+    const targetLeft = best.offsetLeft - (container.clientWidth - best.clientWidth) / 2;
+    tweenScrollTo(container, targetLeft, CAROUSEL.slideAnimMs);
+  };
+
+  let t = null, pointerDown = false;
+  container.addEventListener('pointerdown', () => { pointerDown = true; });
+  container.addEventListener('pointerup',   () => { pointerDown = false; centerNearest(); });
+
+  container.addEventListener('scroll', () => {
+    if (pointerDown) return;
+    clearTimeout(t);
+    t = setTimeout(centerNearest, 100);
+  }, { passive: true });
+
+  window.addEventListener('resize', () => {
+    clearTimeout(t);
+    t = setTimeout(centerNearest, 120);
+  });
+
+  const mo = new MutationObserver(() => { if (ensure()) centerNearest(); });
+  mo.observe(container, { childList: true });
+})();
+
 // ──────────────────────────────────────────────────────────────
 function setupAuthScreenListeners() {
   on('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
@@ -494,12 +576,11 @@ function setupAuthScreenListeners() {
 }
 
 function setupMainAppScreenListeners() {
-  // Logout con limpieza de token
   on('logout-btn', 'click', async () => {
     await handleSignOutCleanup();
-    // desconectar observer del carrusel si existe
     const c = document.getElementById('carrusel-campanas');
     if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
+    pauseAutoplay(c);
     Auth.logout();
   });
 
@@ -511,18 +592,15 @@ function setupMainAppScreenListeners() {
   on('footer-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
   on('accept-terms-btn-modal', 'click', Data.acceptTerms);
 
-  // Instalación (prompt card)
   on('btn-install-pwa', 'click', handleInstallPrompt);
   on('btn-dismiss-install', 'click', handleDismissInstall);
 
-  // Campanita → abre modal + marca leídos
   on('btn-notifs', 'click', async () => {
-    await openInboxModal();   // ver mensajes
-    await handleBellClick();  // marcar entregados como leídos (y resetear badge)
-    await fetchInboxBatch({ more: false }); // refrescar listas
+    await openInboxModal();
+    await handleBellClick();
+    await fetchInboxBatch({ more: false });
   });
 
-  // Entrada fija de instalación (opcional)
   on('install-entrypoint', 'click', async () => {
     if (deferredInstallPrompt) {
       try { await handleInstallPrompt(); return; } catch (e) { console.warn('Error prompt nativo:', e); }
@@ -537,61 +615,10 @@ function setupMainAppScreenListeners() {
     if (modal) modal.style.display = 'none';
   });
 
-  // Notificaciones (banner/switch)
   on('btn-activar-notif-prompt', 'click', handlePermissionRequest);
   on('btn-rechazar-notif-prompt', 'click', dismissPermissionRequest);
   on('notif-switch', 'change', handlePermissionSwitch);
 }
-
-
-
-/* ===== Snap “real” en Edge/desktop: centra la slide más cercana al terminar el scroll ===== */
-(function initCarouselSnapFix(){
-  const container = document.getElementById('carrusel-campanas');
-  if (!container) return;
-
-  // Si las slides se cargan después (por JS), reintentar al detectarlas:
-  const ensure = () => {
-    const slides = container.querySelectorAll('.banner-item, .banner-item-texto');
-    return slides && slides.length;
-  };
-
-  const centerNearest = () => {
-    if (!ensure()) return;
-    const slides = Array.from(container.querySelectorAll('.banner-item, .banner-item-texto'));
-    const viewportCenter = container.scrollLeft + container.clientWidth / 2;
-
-    let best = slides[0], min = Number.POSITIVE_INFINITY;
-    for (const s of slides) {
-      const center = s.offsetLeft + s.clientWidth / 2;
-      const d = Math.abs(center - viewportCenter);
-      if (d < min) { min = d; best = s; }
-    }
-    const targetLeft = best.offsetLeft - (container.clientWidth - best.clientWidth) / 2;
-    container.scrollTo({ left: targetLeft, behavior: 'smooth' });
-  };
-
-  // Debounce para “scrollend”
-  let t = null, pointerDown = false;
-  container.addEventListener('pointerdown', () => { pointerDown = true; });
-  container.addEventListener('pointerup',   () => { pointerDown = false; centerNearest(); });
-
-  container.addEventListener('scroll', () => {
-    if (pointerDown) return; // si está arrastrando, no forzar
-    clearTimeout(t);
-    t = setTimeout(centerNearest, 90);  // 90–120ms va bien; subilo si querés más “pausa”
-  }, { passive: true });
-
-  // Re-centrar en resize (cambia el ancho visible)
-  window.addEventListener('resize', () => {
-    clearTimeout(t);
-    t = setTimeout(centerNearest, 120);
-  });
-
-  // Si las slides llegan más tarde, observar el contenedor
-  const mo = new MutationObserver(() => { if (ensure()) centerNearest(); });
-  mo.observe(container, { childList: true });
-})();
 
 // ──────────────────────────────────────────────────────────────
 async function main() {
@@ -620,24 +647,20 @@ async function main() {
       showInstallPromptIfAvailable();
 
       const installBtn = document.getElementById('install-entrypoint');
-      if (installBtn) {
-        installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
-      }
+      if (installBtn) installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
 
-      // ⤵️ Inicializar wiring del carrusel (se reactiva si JS vuelve a pintar los slides)
-      initCarouselWiring();
+      initCarouselWiring();   // ⤵️
     } else {
       if (bell) bell.style.display = 'none';
       if (badge) badge.style.display = 'none';
       setupAuthScreenListeners();
       UI.showScreen('login-screen');
 
-      // Limpieza observer carrusel si hubiera quedado
       const c = document.getElementById('carrusel-campanas');
       if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
+      pauseAutoplay(c);
     }
   });
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
