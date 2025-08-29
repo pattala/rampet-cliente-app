@@ -11,6 +11,11 @@
     --light-text-color: #777;
     --border-color: #dee2e6;
     --box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+
+    /* ⬇️ Variables carrusel */
+    --banner-height: 160px;  /* alto de todos los slides */
+    --wm-size: 60%;          /* tamaño del sello */
+    --wm-opacity: 0.12;      /* transparencia del sello */
 }
 
 body {
@@ -35,21 +40,15 @@ body {
 header {
     text-align: center;
     margin-bottom: 30px;
-  
 }
 
-.logo {
-    height: 60px;
-    margin-bottom: 10px;
-}
-
+.logo { height: 60px; margin-bottom: 10px; }
 h1 { font-size: 1.8em; color: var(--primary-color); margin: 0; }
 h2 { font-size: 1.5em; margin-bottom: 10px; }
 h3 { font-size: 1.2em; border-bottom: 2px solid var(--border-color); padding-bottom: 10px; margin-top: 0; }
 p { color: var(--light-text-color); line-height: 1.6; }
 ul { list-style-type: none; padding: 0; margin: 0; }
 label { font-weight: 600; color: var(--text-color); font-size: 14px; margin-bottom: 5px; display: block; }
-
 
 /* --- Pantallas y Transiciones --- */
 .screen { display: none; animation: fadeIn 0.5s; }
@@ -143,250 +142,107 @@ input:checked + .slider:before { transform: translateX(26px); }
 #notif-prompt-card,
 #notif-card,
 #notif-blocked-warning {
-    background-color: #FFFACD; /* Un tono de amarillo pastel (LemonChiffon) */
-    border: 1px solid #F0E68C;  /* Un borde sutil para definirlo mejor */
+    background-color: #FFFACD;
+    border: 1px solid #F0E68C;
     padding: 20px;
     border-radius: 12px;
 }
-
-#notif-prompt-card h3 {
-    margin-top: 0;
-}
-
+#notif-prompt-card h3 { margin-top: 0; }
 #notif-prompt-card .prompt-actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 15px;
-    flex-wrap: wrap; 
+    display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;
 }
-
 #notif-prompt-card .prompt-actions .primary-btn,
-#notif-prompt-card .prompt-actions .secondary-btn {
-    flex-grow: 1; 
-}
-/* --- Estilos para el Carrusel de Campañas --- */
-.carrusel-container {
-    margin-bottom: 20px;
-}
-.carrusel-container h3 {
-    margin-bottom: 15px; /* Espacio entre el título y el carrusel */
-}
+#notif-prompt-card .prompt-actions .secondary-btn { flex-grow: 1; }
 
-.carrusel {
-    display: flex;
-    gap: 15px; /* Espacio entre los banners */
-    overflow-x: auto; /* Permite el scroll horizontal */
-    padding-bottom: 15px; /* Espacio para que la barra de scroll no pegue con el borde */
-    -webkit-overflow-scrolling: touch; /* Scroll suave en iOS */
-    scrollbar-width: none; /* Barra de scroll más fina en Firefox */
-}
-
-/* Estilo de la barra de scroll para Chrome/Safari */
-.carrusel::-webkit-scrollbar {
-   display: none;   
-    /*height: 8px;*/
-}
-.carrusel::-webkit-scrollbar-track {
-    background: #f1f1f1;
-    border-radius: 4px;
-}
-.carrusel::-webkit-scrollbar-thumb {
-    background: #ccc;
-    border-radius: 4px;
-}
-.carrusel::-webkit-scrollbar-thumb:hover {
-    background: #aaa;
-}
-
-.carrusel .banner-item {
-    flex: 0 0 80%; /* Cada banner ocupa el 80% del ancho del contenedor */
-    max-width: 300px; /* Pero con un máximo para pantallas grandes */
-    display: block;
-    text-decoration: none;
-}
-
-.carrusel .banner-item img {
-    width: 100%;
-    height: auto;
-    border-radius: 12px; /* Mismos bordes que las cards */
-    box-shadow: var(--box-shadow); /* Misma sombra que las cards */
-    display: block;
-}
-/* --- Estilos para los banners de solo texto en el carrusel --- */
-.carrusel .banner-item-texto {
-    flex: 0 0 70%; /* Un poco más angosto que los banners con imagen */
-    max-width: 250px;
-    padding: 15px;
-    background-color: var(--card-background);
-    border-radius: 12px;
-    box-shadow: var(--box-shadow);
-    display: flex;
-    flex-direction: column;
-    justify-content: center; /* Centrar el contenido verticalmente */
-}
-
-.carrusel .banner-item-texto h4 {
-    margin: 0 0 5px 0;
-    font-size: 1.1em;
-    color: var(--primary-color);
-}
-
-.carrusel .banner-item-texto p {
-    margin: 0;
-    font-size: 0.9em;
-    color: var(--text-color);
-    /* Limitar el texto a 3 líneas para que no se haga muy alto */
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 3;
-    -webkit-box-orient: vertical;
-}
-/* --- Estilos para los Indicadores del Carrusel --- */
-.carrusel-indicadores {
-    text-align: center;
-    margin-top: 10px;
-}
-
-.carrusel-indicadores .indicador {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background-color: #ccc;
-    margin: 0 4px;
-    cursor: pointer;
-    transition: background-color 0.3s;
-}
-
-.carrusel-indicadores .indicador.activo {
-    background-color: var(--primary-color);
-}
-
-/* --- Estilo para el arrastre --- */
-.carrusel.arrastrando {
-    cursor: grabbing; /* Cambia el cursor mientras se arrastra */
-    scroll-behavior: auto; /* Desactiva el scroll suave para un arrastre más directo */
-}
-
-/* --- Estilos para Texto Superpuesto en Banners --- */
-.banner-con-imagen {
-    position: relative; /* Necesario para posicionar el texto encima */
-    overflow: hidden; /* Para que el texto no se salga del borde redondeado */
-}
-
-.banner-texto-overlay {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.8), rgba(0, 0, 0, 0));
-    color: white;
-    padding: 20px 15px 15px 15px;
-    text-align: left;
-}
-
-.banner-texto-overlay h4 {
-    margin: 0 0 5px 0;
-    font-size: 1.1em;
-    font-weight: 700;
-}
-
-.banner-texto-overlay p {
-    margin: 0;
-    font-size: 0.9em;
-    color: #f0f0f0;
-    /* Limitar a 2 líneas para que no ocupe toda la imagen */
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-}
-
-  #install-entrypoint { margin-left: 8px; }
+#install-entrypoint { margin-left: 8px; }
 #btn-notifs, #notif-counter { display: none; }
 
+/* =========================
+   Carrusel de Campañas (UNIFICADO)
+   ========================= */
+.carrusel-container { margin-bottom: 20px; }
+.carrusel-container h3 { margin-bottom: 15px; }
 
-/* Lista general */
+.carrusel{
+  display:flex;
+  gap:12px;
+  overflow-x:auto;
+  padding:6px 0 12px;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width: none;                  /* Firefox */
+  scroll-snap-type:x mandatory;
+}
+.carrusel::-webkit-scrollbar{ display:none; } /* Chrome/Safari */
+
+.carrusel .banner-item{
+  /* todos los slides comparten alto/ancho */
+  flex:0 0 clamp(240px, 88vw, 420px);
+  height:var(--banner-height);
+  position:relative;
+  border-radius:12px;
+  overflow:hidden;
+  box-shadow:var(--box-shadow);
+  background:#f3f6fa;
+  text-decoration:none;
+  color:inherit;
+  scroll-snap-align:start;
+}
+
+/* Con imagen */
+.banner-con-imagen{ position:relative; }
+.carrusel .banner-con-imagen img{
+  width:100%; height:100%;
+  object-fit:cover; display:block;
+}
+
+/* Texto superpuesto cuando hay imagen (centrado) */
+.banner-texto-overlay{
+  position:absolute; inset:0; padding:16px;
+  display:flex; flex-direction:column;
+  align-items:center; justify-content:center;
+  text-align:center; color:#fff;
+  text-shadow:0 1px 2px rgba(0,0,0,.55);
+  background: linear-gradient(to top, rgba(0,0,0,.35), rgba(0,0,0,0) 55%);
+}
+.banner-texto-overlay h4{ margin:0 0 6px 0; }
+.banner-texto-overlay p{ margin:0; opacity:.95; }
+
+/* Solo texto: sello de agua + centrado */
+.carrusel .banner-item-texto{
+  height:100%;
+  display:flex; align-items:center; justify-content:center;
+  text-align:center; padding:16px;
+  background:#f8fafc;
+}
+.carrusel .banner-item-texto::before{
+  content:""; position:absolute; inset:0;
+  background:center / var(--wm-size) no-repeat url('images/mi_logo.png');
+  opacity:var(--wm-opacity); filter:grayscale(1);
+  pointer-events:none;
+}
+.carrusel .banner-item-texto h4{ margin:0 0 6px 0; color:var(--primary-color); }
+.carrusel .banner-item-texto p{
+  margin:0; opacity:.95;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;
+  overflow:hidden; text-overflow:ellipsis;
+}
+
+/* Indicadores */
+.carrusel-indicadores { text-align:center; margin-top:10px; }
+.carrusel-indicadores .indicador{
+  display:inline-block; width:8px; height:8px; border-radius:50%;
+  background:#ccc; margin:0 4px; cursor:pointer; transition:transform .2s, background-color .2s;
+}
+.carrusel-indicadores .indicador.activo{ background:var(--primary-color); transform:scale(1.15); }
+
+/* Arrastre */
+.carrusel.arrastrando{ cursor:grabbing; scroll-behavior:auto; }
+
+/* =========================
+   Otros
+   ========================= */
 .venc-list { margin: 6px 0 0; padding-left: 18px; }
 .venc-list li { font-size: .95em; color: #222; }
-
-/* Mensaje vacío con buen contraste sobre fondo rojo del card */
 .vencimiento-card .venc-list li.venc-empty {
-  color: #fff;          /* blanco para contrastar con el rojo del card */
-  opacity: .95;
-  font-weight: 600;
+  color:#fff; opacity:.95; font-weight:600;
 }
-
-/* (opcional) si tu card NO es rojo (fondo blanco), usá esta variante: */
-/*
-.vencimiento-card .venc-list li.venc-empty {
-  color: #8a0000;       // rojo oscuro/neutral
-  font-weight: 600;
-}
-*/
-
-/* Carrusel – base de scroll */
-.carrusel {
-  scroll-snap-type: x mandatory;
-  display: flex;
-  gap: 12px;
-  overflow-x: auto;
-}
-
-/* Variables de diseño (podés ajustarlas) */
-:root{
-  --banner-height: 160px;  /* alto de todos los slides */
-  --wm-size: 60%;          /* tamaño del sello */
-  --wm-opacity: 0.10;      /* transparencia del sello */
-}
-
-/* estilo común a todos los items */
-.carrusel .banner-item,
-.carrusel .banner-item-texto{
-  height: var(--banner-height);
-  border-radius: 10px;
-  overflow: hidden;
-  box-shadow: 0 2px 10px rgba(0,0,0,.06);
-}
-
-/* items con imagen */
-.banner-con-imagen{ position: relative; display:block; }
-.banner-con-imagen > img,
-.carrusel .banner-con-imagen img{
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  border-radius: 10px;
-}
-
-/* overlay de texto sobre imagen (centrado) */
-.banner-texto-overlay{
-  position: absolute; inset: 0;
-  display: flex; align-items: center; justify-content: center;
-  text-align: center; padding: 14px;
-}
-.banner-texto-overlay h4{ margin: 0 0 6px 0; }
-.banner-texto-overlay p{ margin: 0; }
-
-/* items solo texto: sello de agua + centrado */
-.banner-item-texto{
-  position: relative;
-  display: flex; align-items: center; justify-content: center;
-  text-align: center; padding: 14px; isolation: isolate;
-  background: #f8fafc;
-  min-height: var(--banner-height);
-}
-.banner-item-texto::before{
-  content: "";
-  position: absolute; inset: 0; z-index: 0; pointer-events: none;
-  background: center / var(--wm-size) no-repeat url("images/mi_logo.png");
-  opacity: var(--wm-opacity);
-  filter: grayscale(1);
-}
-.banner-item-texto > *{ position: relative; z-index: 1; }
-.banner-item-texto h4 { margin: 0 0 6px 0; }
-.banner-item-texto p  { margin: 0; opacity: .95; }
-
