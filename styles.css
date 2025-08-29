@@ -327,3 +327,24 @@ input:checked + .slider:before { transform: translateX(26px); }
 }
 */
 
+/* Unifica alto del carrusel y pone sello de agua en campañas sin imagen */
+.carrusel { scroll-snap-type: x mandatory; display: flex; gap: 12px; overflow-x: auto; }
+.carrusel .banner-con-imagen img { width: 100%; height: 160px; object-fit: cover; border-radius: 10px; display:block; }
+.carrusel .banner-item-texto {
+  position: relative;
+  min-height: 160px;
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  background: #f8fafc;
+  /* 👇 sello de agua */
+  background-image: url('images/mi_logo.png');
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 120px auto; /* ajustá a gusto */
+}
+.carrusel .banner-item-texto h4 { margin: 0 0 6px 0; }
+.carrusel .banner-item-texto p { margin: 0; opacity: .9; }
+
