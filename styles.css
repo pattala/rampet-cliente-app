@@ -1,257 +1,109 @@
-/* --- Estilos Generales --- */
-:root {
-    --primary-color: #007bff;
-    --primary-hover: #0056b3;
-    --success-color: #28a745;
-    --danger-color: #dc3545;
-    --warning-color: #ffc107;
-    --background-color: #f0f2f5;
-    --card-background: #ffffff;
-    --text-color: #333;
-    --light-text-color: #777;
-    --border-color: #dee2e6;
-    --box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-
-    /* ⬇️ Variables carrusel */
-    --banner-height: 160px;  /* alto de todos los slides */
-    --wm-size: 60%;          /* tamaño del sello */
-    --wm-opacity: 0.12;      /* transparencia del sello */
-}
-
-body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    background-color: var(--background-color);
-    color: var(--text-color);
-    margin: 0;
-    padding: 20px;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    min-height: 100vh;
-}
-
-.container {
-    width: 100%;
-    max-width: 400px;
-    padding: 20px;
-    box-sizing: border-box;
-}
-
-header {
-    text-align: center;
-    margin-bottom: 30px;
-}
-
-.logo { height: 60px; margin-bottom: 10px; }
-h1 { font-size: 1.8em; color: var(--primary-color); margin: 0; }
-h2 { font-size: 1.5em; margin-bottom: 10px; }
-h3 { font-size: 1.2em; border-bottom: 2px solid var(--border-color); padding-bottom: 10px; margin-top: 0; }
-p { color: var(--light-text-color); line-height: 1.6; }
-ul { list-style-type: none; padding: 0; margin: 0; }
-label { font-weight: 600; color: var(--text-color); font-size: 14px; margin-bottom: 5px; display: block; }
-
-/* --- Pantallas y Transiciones --- */
-.screen { display: none; animation: fadeIn 0.5s; }
-.screen.active { display: block; }
-@keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-/* --- Formularios --- */
-.form-group { display: flex; flex-direction: column; gap: 15px; margin-bottom: 20px; }
-input[type="email"], input[type="password"], input[type="text"], input[type="tel"], input[type="date"] {
-    width: 100%;
-    padding: 15px;
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    box-sizing: border-box;
-    font-size: 16px;
-}
-.toggle-link { text-align: center; font-size: 14px; }
-.toggle-link a { color: var(--primary-color); font-weight: 600; text-decoration: none; }
-
-/* --- Checkbox de Términos --- */
-.terms-container { display: flex; align-items: center; gap: 10px; }
-.terms-container input[type="checkbox"] { width: auto; }
-.terms-container label { font-weight: normal; font-size: 14px; margin: 0; }
-.terms-container a { color: var(--primary-color); text-decoration: underline; }
-
-/* --- Botones --- */
-.primary-btn, .secondary-btn { border-radius: 8px; cursor: pointer; font-weight: 600; transition: background-color 0.2s, opacity 0.2s; }
-.primary-btn { background-color: var(--primary-color); color: white; padding: 15px; font-size: 16px; border: none; }
-.primary-btn:hover { background-color: var(--primary-hover); }
-.secondary-btn { background: none; border: 1px solid var(--border-color); color: var(--text-color); padding: 8px 15px; font-size: 14px; }
-button:disabled { opacity: 0.6; cursor: not-allowed; }
-
-/* --- Vista Principal --- */
-.user-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
-.user-header h3 { border: none; padding: 0; margin: 0; font-size: 1.4em; }
-.user-actions { display: flex; gap: 10px; }
-
-.card { background-color: var(--card-background); padding: 20px; border-radius: 12px; box-shadow: var(--box-shadow); margin-bottom: 20px; }
-.puntos-card { text-align: center; background: linear-gradient(45deg, var(--primary-color), #0056b3); color: white; }
-.puntos-card p { margin: 0 0 5px 0; font-size: 16px; color: rgba(255, 255, 255, 0.8); }
-.puntos-card h2 { font-size: 3em; margin: 0; font-weight: 700; }
-
-.vencimiento-card { background: var(--danger-color); color: white; text-align: center; }
-.vencimiento-card p { color: rgba(255, 255, 255, 0.9); margin: 0; }
-.vencimiento-card h2 { font-size: 2.5em; margin: 5px 0; }
-
-/* --- Banner de Aviso (Términos) --- */
-.terms-banner { background-color: var(--warning-color); padding: 15px 20px; }
-.terms-banner p { color: var(--text-color); margin: 0; font-weight: 600; }
-.terms-banner a { color: var(--primary-hover); text-decoration: underline; cursor: pointer; }
-
-/* --- Listas (Historial y Premios) --- */
-#lista-historial li, #lista-premios-cliente li { display: flex; justify-content: space-between; align-items: center; padding: 15px 0; border-bottom: 1px solid var(--border-color); }
-#lista-historial li:last-child, #lista-premios-cliente li:last-child { border-bottom: none; }
-#lista-historial .puntos { font-weight: 600; }
-#lista-historial .puntos.ganados { color: var(--success-color); }
-#lista-historial .puntos.gastados { color: var(--danger-color); }
-#lista-premios-cliente .puntos-premio { font-weight: 600; color: var(--primary-color); }
-#lista-premios-cliente li.no-canjeable { opacity: 0.5; }
-.info-message { text-align: center; padding: 10px; margin-top: 15px; background: #f8f9fa; border-radius: 8px; }
-
-/* --- Toast --- */
-#toast-container { position: fixed; top: 20px; right: 20px; z-index: 9999; }
-.toast { padding: 15px 20px; border-radius: 8px; color: white; font-weight: 600; box-shadow: 0 5px 15px rgba(0,0,0,0.2); margin-bottom: 10px; animation: slideIn 0.5s forwards; }
-@keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-.toast.success { background-color: var(--success-color); }
-.toast.error { background-color: var(--danger-color); }
-.toast.info { background-color: #17a2b8; }
-
-/* --- Modal --- */
-.modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0, 0, 0, 0.6); justify-content: center; align-items: center; z-index: 1000; padding: 20px; box-sizing: border-box; }
-.modal-content { background: white; padding: 30px; border-radius: 12px; max-width: 500px; width: 100%; max-height: 80vh; display: flex; flex-direction: column; }
-.modal-close-btn { align-self: flex-end; cursor: pointer; font-size: 28px; color: #aaa; }
-.terms-text-container { overflow-y: auto; margin-top: 10px; margin-bottom: 20px; }
-.modal-content h2 { margin-top: 0; }
-
-/* --- Switch de Notificaciones --- */
-.notif-setting { display: flex; justify-content: space-between; align-items: center; }
-.notif-setting p { margin: 0; padding-right: 15px; }
-.switch { position: relative; display: inline-block; width: 60px; height: 34px; flex-shrink: 0; }
-.switch input { opacity: 0; width: 0; height: 0; }
-.slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; }
-.slider:before { position: absolute; content: ""; height: 26px; width: 26px; left: 4px; bottom: 4px; background-color: white; transition: .4s; }
-input:checked + .slider { background-color: var(--success-color); }
-input:focus + .slider { box-shadow: 0 0 1px var(--success-color); }
-input:checked + .slider:before { transform: translateX(26px); }
-.slider.round { border-radius: 34px; }
-.slider.round:before { border-radius: 50%; }
-
-/* --- Estilos para Paneles de Notificaciones --- */
-#notif-prompt-card,
-#notif-card,
-#notif-blocked-warning {
-    background-color: #FFFACD;
-    border: 1px solid #F0E68C;
-    padding: 20px;
-    border-radius: 12px;
-}
-#notif-prompt-card h3 { margin-top: 0; }
-#notif-prompt-card .prompt-actions {
-    display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;
-}
-#notif-prompt-card .prompt-actions .primary-btn,
-#notif-prompt-card .prompt-actions .secondary-btn { flex-grow: 1; }
-
-#install-entrypoint { margin-left: 8px; }
-#btn-notifs, #notif-counter { display: none; }
-
-
-/* =========================
-   Carrusel de Campañas (CONSOLIDADO)
-   ========================= */
-
-/* Ajustes rápidos */
+/* ====== RAMPET – Carrusel + Saldo compacto (DEF) ====== */
 :root{
-  --slide-h: 140px;       /* alto de todos los slides */
-  --slide-w: 76vw;        /* ancho relativo para mostrar que hay más */
-  --slide-max-w: 300px;   /* límite en pantallas grandes */
-  --wm-size: 70%;         /* tamaño del sello de agua */
-  --wm-opacity: .09;      /* transparencia del sello */
+  /* Carrusel */
+  --slide-h: 150px;      /* alto de cada slide */
+  --slide-w: 86vw;       /* ancho base en mobile para sugerir la siguiente */
+  --slide-max-w: 340px;  /* tope en pantallas grandes */
+  --wm-size: 68%;        /* tamaño del sello */
+  --wm-opacity: .12;     /* transparencia del sello */
 }
 
-.carrusel-container{ margin-bottom:20px; }
-.carrusel-container h3{ margin-bottom:12px; }
+/* Contenedor carrusel */
+.carrusel-container{ margin-bottom: 18px; }
+.carrusel-container h3{ margin-bottom: 10px; }
 
-/* Contenedor con snap centrado */
+/* Pista */
 .carrusel{
   display:flex;
   gap:12px;
   overflow-x:auto;
-  padding:6px 2px 12px;
-  -webkit-overflow-scrolling:touch;
-  scrollbar-width:none;
-  scroll-snap-type:x mandatory;
-  scroll-padding:0 16px;
+  padding: 6px 8px 12px;
+  scroll-snap-type: x proximity;   /* suave: no “salta” */
+  scroll-behavior: smooth;         /* animado */
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
 }
 .carrusel::-webkit-scrollbar{ display:none; }
 
-/* Base para TODOS los slides (imagen y texto) */
+/* Slides (con o sin imagen) – mismo tamaño para todos */
 .carrusel .banner-item,
 .carrusel .banner-item-texto{
-  flex: 0 0 min(var(--slide-w), var(--slide-max-w));
+  flex: 0 0 var(--slide-w);
+  max-width: var(--slide-max-w);
   height: var(--slide-h);
-  border-radius:12px;
-  overflow:hidden;
+  border-radius: 12px;
+  overflow: hidden;
   box-shadow: var(--box-shadow);
-  background:#f8fafc;
-  position:relative;             /* confina pseudo-elementos */
-  scroll-snap-align:center;      /* snap centrado = “efecto carrusel” */
-  text-decoration:none;
+  scroll-snap-align: center;
+  position: relative;
+  background: #fff;
 }
 
-/* —— Con imagen —— */
-.banner-con-imagen{ position:relative; }
-.carrusel .banner-con-imagen img{
-  width:100%; height:100%; object-fit:cover; display:block;
+@media (min-width:480px){
+  :root{ --slide-w: 320px; }       /* ancho fijo en desktop/tablet */
 }
 
-/* Overlay (bajo para no lavar colores) */
-.banner-texto-overlay{
+/* Con imagen */
+.banner-con-imagen{ position: relative; display:block; }
+.banner-con-imagen > img{
+  width:100%; height:100%;
+  object-fit: cover;
+  border-radius: 12px;
+  display:block;
+}
+
+/* Overlay SOLO para items con imagen (evita afectar otros bloques) */
+.banner-con-imagen .banner-texto-overlay{
   position:absolute; left:0; right:0; bottom:0;
-  background: linear-gradient(to top, rgba(0,0,0,.55), rgba(0,0,0,0));
-  color:#fff; padding:16px 14px 12px; text-align:left;
+  padding: 14px;
+  background: linear-gradient(to top, rgba(0,0,0,.65), rgba(0,0,0,0));
+  color:#fff; text-align:left;
 }
-.banner-texto-overlay h4{ margin:0 0 4px; font-size:1.05em; font-weight:700; }
-.banner-texto-overlay p{
-  margin:0; font-size:.9em; color:#f0f0f0;
-  display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
-  overflow:hidden; text-overflow:ellipsis;
-}
+.banner-con-imagen .banner-texto-overlay h4{ margin:0 0 4px; font-weight:700; }
+.banner-con-imagen .banner-texto-overlay p{ margin:0; opacity:.95; }
 
-/* —— Solo texto —— */
+/* SOLO TEXTO: sello de agua centrado y contenidos centrados */
 .carrusel .banner-item-texto{
-  display:flex; flex-direction:column;       /* ← evita superposición */
-  align-items:center; justify-content:center;
-  text-align:center; padding:14px; isolation:isolate;
+  display:flex; align-items:center; justify-content:center;
+  text-align:center; padding: 14px; isolation:isolate;
 }
 .carrusel .banner-item-texto::before{
   content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
-  background: center center / var(--wm-size) no-repeat url('images/mi_logo.png');
-  opacity: var(--wm-opacity); filter:grayscale(1);
+  background: center / var(--wm-size) no-repeat url("images/mi_logo.png");
+  opacity: var(--wm-opacity);
+  filter: grayscale(1);
 }
 .carrusel .banner-item-texto > *{ position:relative; z-index:1; }
-.carrusel .banner-item-texto h4{ margin:0 0 6px; color:var(--primary-color); }
-.carrusel .banner-item-texto p{ margin:0; opacity:.95; }
+.carrusel .banner-item-texto h4{ margin:0 0 6px; color: var(--primary-color); }
+.carrusel .banner-item-texto p{ margin:0; color:var(--text-color); opacity:.95; }
 
 /* Indicadores */
-.carrusel-indicadores{ text-align:center; margin-top:8px; }
+.carrusel-indicadores{ text-align:center; margin-top:6px; }
 .carrusel-indicadores .indicador{
-  width:8px; height:8px; border-radius:50%; background:#ccc;
-  margin:0 4px; display:inline-block; transition:background-color .2s;
+  display:inline-block; width:8px; height:8px; border-radius:50%;
+  background:#ccc; margin:0 4px; cursor:pointer; transition:background-color .2s;
 }
-.carrusel-indicadores .indicador.activo{ background:var(--primary-color); }
+.carrusel-indicadores .indicador.activo{ background: var(--primary-color); }
 
+/* Arrastre con mouse */
+.carrusel.arrastrando{ cursor:grabbing; scroll-behavior:auto; }
 
-
-/* =========================
-   Otros
-   ========================= */
-.venc-list { margin: 6px 0 0; padding-left: 18px; }
-.venc-list li { font-size: .95em; color: #222; }
-.vencimiento-card .venc-list li.venc-empty {
-  color:#fff; opacity:.95; font-weight:600;
+/* ====== Saldo a favor – compacto y centrado ====== */
+#saldo-card{
+  padding: 12px 14px;               /* menos alto */
 }
-
-
+#saldo-card h3{
+  margin: 0 0 4px;
+  text-align:center;
+  font-size: 1rem;                  /* título más chico */
+}
+#cliente-saldo{
+  text-align:center;
+  font-size: 1.6rem;                /* número más compacto */
+  font-weight: 800;
+  margin: 2px 0 8px;
+}
+#saldo-card .info-message{          /* texto aclaratorio más breve */
+  margin-top:6px;
+  font-size: .9rem;
+}
