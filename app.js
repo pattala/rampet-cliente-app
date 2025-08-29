@@ -1,5 +1,5 @@
 // app.js (PWA del Cliente – instalación + notifs + INBOX modal con grupos y paginado)
-// + Carrusel: drag desktop + snap al soltar + indicadores + autoplay
+// + Carrusel: drag desktop + snap al soltar + indicadores + autoplay robusto (espera visibilidad)
 
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -13,10 +13,10 @@ import {
   handlePermissionRequest,
   dismissPermissionRequest,
   handlePermissionSwitch,
-  initNotificationChannel,          // canal SW → app
-  handleBellClick,                  // marca entregados como leídos
-  ensureSingleToken,                // dedupe tokens
-  handleSignOutCleanup              // limpieza token al salir
+  initNotificationChannel,
+  handleBellClick,
+  ensureSingleToken,
+  handleSignOutCleanup
 } from './modules/notifications.js';
 
 // ──────────────────────────────────────────────────────────────
@@ -345,6 +345,8 @@ function getSlides(container) {
   if (!container) return [];
   return Array.from(container.querySelectorAll('.banner-item, .banner-item-texto'));
 }
+function hasEnoughSlides(container){ return getSlides(container).length >= 2; }
+function isVisible(el){ return !!(el && el.offsetParent) && el.clientWidth > 0 && el.clientHeight > 0; }
 
 function scrollToIndex(container, idx) {
   const slides = getSlides(container);
@@ -378,16 +380,13 @@ function updateActiveIndicator(container, indicadoresRoot) {
     else dot.classList.remove('activo');
   });
 }
-
 function wireIndicators(container, indicadoresRoot) {
   if (!container || !indicadoresRoot) return;
   const dots = Array.from(indicadoresRoot.querySelectorAll('.indicador'));
-  dots.forEach((dot, i) => {
-    dot.onclick = () => scrollToIndex(container, i);
-  });
+  dots.forEach((dot, i) => { dot.onclick = () => scrollToIndex(container, i); });
 }
 
-// Evita que el navegador “agarre” la imagen y la mueva afuera del carrusel
+// Evitar drag nativo de imágenes
 function disableNativeImageDrag() {
   const imgs = document.querySelectorAll('#carrusel-campanas img');
   imgs.forEach(img => {
@@ -396,6 +395,7 @@ function disableNativeImageDrag() {
   });
 }
 
+/* ===== Drag con mouse (desktop) + snap ===== */
 function wireDrag(container) {
   if (!container || container.dataset.dragWired === '1') return;
   container.dataset.dragWired = '1';
@@ -407,7 +407,7 @@ function wireDrag(container) {
 
   const onPointerDown = (e) => {
     isDown = true;
-    stopAutoplay(); // pausa autoplay al tocar/arrastrar
+    stopAutoplay(); // pausa autoplay al interactuar
     startX = e.clientX;
     startScroll = container.scrollLeft;
     container.classList.add('arrastrando');
@@ -425,7 +425,7 @@ function wireDrag(container) {
     try { container.releasePointerCapture(e.pointerId); } catch {}
     const idx = nearestIndex(container);
     scrollToIndex(container, idx);
-    restartAutoplaySoon(); // retomar autoplay luego de una breve pausa
+    restartAutoplaySoon(container);
   };
 
   container.addEventListener('pointerdown', onPointerDown);
@@ -434,7 +434,7 @@ function wireDrag(container) {
   container.addEventListener('pointercancel', onPointerUp);
   container.addEventListener('pointerleave', () => { if (isDown) onPointerUp({ pointerId: 0 }); });
 
-  // feedback de indicador activo durante el scroll
+  // indicador activo durante scroll
   const indicadores = document.getElementById('carrusel-indicadores');
   const onScroll = () => {
     if (raf) return;
@@ -445,39 +445,44 @@ function wireDrag(container) {
   };
   container.addEventListener('scroll', onScroll, { passive: true });
 
-  // UX: en desktop, al pasar el mouse por arriba pausamos/retomamos autoplay
+  // UX desktop: pausa al hover, retoma al salir
   container.addEventListener('mouseenter', stopAutoplay);
-  container.addEventListener('mouseleave', restartAutoplaySoon);
+  container.addEventListener('mouseleave', () => restartAutoplaySoon(container));
 }
 
-/* ===== Autoplay ===== */
+/* ===== Autoplay (robusto: espera visibilidad) ===== */
 const AUTOPLAY_MS = 2500;
 let autoplayTimer = null;
 let autoplayRestartTimer = null;
+let waitingVisibleTimer = null;
 
+function stopAutoplay() {
+  if (autoplayTimer) { clearInterval(autoplayTimer); autoplayTimer = null; }
+  if (autoplayRestartTimer) { clearTimeout(autoplayRestartTimer); autoplayRestartTimer = null; }
+  if (waitingVisibleTimer) { clearTimeout(waitingVisibleTimer); waitingVisibleTimer = null; }
+}
 function startAutoplay(container) {
   stopAutoplay();
+  if (!container) return;
+  // si aún no es visible o no hay 2 slides, reintentar luego
+  if (!isVisible(container) || !hasEnoughSlides(container)) {
+    waitingVisibleTimer = setTimeout(() => startAutoplay(container), 300);
+    return;
+  }
   const slides = getSlides(container);
-  if (slides.length < 2) return;
   autoplayTimer = setInterval(() => {
     const i = nearestIndex(container);
     const next = (i + 1) % slides.length;
     scrollToIndex(container, next);
   }, AUTOPLAY_MS);
 }
-
-function stopAutoplay() {
-  if (autoplayTimer) { clearInterval(autoplayTimer); autoplayTimer = null; }
-  if (autoplayRestartTimer) { clearTimeout(autoplayRestartTimer); autoplayRestartTimer = null; }
-}
-
 function restartAutoplaySoon(container = document.getElementById('carrusel-campanas')) {
   if (!container) return;
   if (autoplayRestartTimer) clearTimeout(autoplayRestartTimer);
   autoplayRestartTimer = setTimeout(() => startAutoplay(container), 1200);
 }
 
-/** Inicializa y re-vincula el carrusel cuando cambian los slides por JS */
+/** Wiring inicial + re-wiring cuando cambian los slides por JS */
 function initCarouselWiring() {
   const container = document.getElementById('carrusel-campanas');
   const indicadores = document.getElementById('carrusel-indicadores');
@@ -490,14 +495,13 @@ function initCarouselWiring() {
     wireIndicators(container, indicadores);
     updateActiveIndicator(container, indicadores);
     disableNativeImageDrag();
-    // Autoplay: inicia / reinicia cada vez que hay contenido
-    startAutoplay(container);
+    startAutoplay(container); // ⬅️ ahora espera visibilidad y ≥2 slides
   };
 
   tryWire();
 
   const obs = new MutationObserver(() => tryWire());
-  obs.observe(container, { childList: true });
+  obs.observe(container, { childList: true, subtree: false });
   container._rampetObs = obs;
 
   // Pausar autoplay cuando la pestaña no está visible
@@ -505,6 +509,13 @@ function initCarouselWiring() {
     if (document.hidden) stopAutoplay();
     else restartAutoplaySoon(container);
   });
+
+  // Si el contenedor estaba oculto (display:none) y luego se muestra, arrancar
+  const visObs = new MutationObserver(() => {
+    if (isVisible(container)) { restartAutoplaySoon(container); }
+  });
+  const parent = document.getElementById('carrusel-campanas-container') || container.parentElement;
+  if (parent) visObs.observe(parent, { attributes: true, attributeFilter: ['style','class'] });
 }
 
 /* ===== Snap “real” en Edge/desktop: centra la slide más cercana al terminar el scroll ===== */
@@ -518,7 +529,7 @@ function initCarouselWiring() {
   };
 
   const centerNearest = () => {
-    if (!ensure()) return;
+    if (!ensure() || !isVisible(container)) return;
     const slides = Array.from(container.querySelectorAll('.banner-item, .banner-item-texto'));
     const viewportCenter = container.scrollLeft + container.clientWidth / 2;
 
@@ -641,7 +652,7 @@ async function main() {
         installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
       }
 
-      // Wiring del carrusel (y autoplay)
+      // Wiring del carrusel (observa render y visibilidad; arranca autoplay cuando corresponda)
       initCarouselWiring();
     } else {
       if (bell) bell.style.display = 'none';
