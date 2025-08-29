@@ -1,4 +1,4 @@
-// app.js (PWA del Cliente – instalación + notifs + INBOX modal con grupos y paginado)
+// app.js (PWA del Cliente – instalación + notifs + INBOX modal + carrusel mejorado)
 
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -176,7 +176,6 @@ function ensureInboxModal() {
     overlay.style.display = 'none';
   });
 
-  // Botón "Cargar más" → trae más "leídas"
   document.getElementById('inbox-load-more').addEventListener('click', async () => {
     await fetchInboxBatch({ more: true });
   });
@@ -208,7 +207,6 @@ function renderList(containerId, items) {
   }).join('');
   list.innerHTML = html;
 
-  // Navegación por item
   list.querySelectorAll('.card[data-url]').forEach(el => {
     el.addEventListener('click', () => {
       const goto = el.getAttribute('data-url') || '/notificaciones';
@@ -233,7 +231,6 @@ async function resolveClienteRef() {
  * Trae inbox:
  *  - Primer carga: No leídas (status in ['sent','delivered']) + primeras 20 leídas.
  *  - more=true: trae 20 leídas más continuando desde el último doc (paginación).
- * Nota: Si Firestore te pide índice al ordenar por sentAt, crealo y listo.
  */
 async function fetchInboxBatch({ more = false } = {}) {
   const clienteRef = await resolveClienteRef();
@@ -270,7 +267,6 @@ async function fetchInboxBatch({ more = false } = {}) {
       renderList('inbox-list-read', read);
       inboxPagination.lastReadDoc = readSnap.docs.length ? readSnap.docs[readSnap.docs.length - 1] : null;
 
-      // Mostrar/ocultar botón "Cargar más"
       const moreBtn = document.getElementById('inbox-load-more');
       if (moreBtn) moreBtn.style.display = readSnap.size < 20 ? 'none' : 'inline-block';
     } catch (e) {
@@ -294,10 +290,8 @@ async function fetchInboxBatch({ more = false } = {}) {
         .limit(20)
         .get();
 
-      const current = Array.from(document.querySelectorAll('#inbox-list-read .card')).length;
       const next = nextSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-      // Append
       const container = document.getElementById('inbox-list-read');
       if (container && next.length) {
         const tmp = document.createElement('div');
@@ -318,9 +312,7 @@ async function fetchInboxBatch({ more = false } = {}) {
             </div>
           `;
         }).join('');
-        // mover nodos
         Array.from(tmp.children).forEach(n => container.appendChild(n));
-        // volver a wirear clicks
         container.querySelectorAll('.card[data-url]').forEach(el => {
           el.addEventListener('click', () => {
             const goto = el.getAttribute('data-url') || '/notificaciones';
@@ -343,14 +335,188 @@ async function fetchInboxBatch({ more = false } = {}) {
 
 async function openInboxModal() {
   ensureInboxModal();
-  // reset de cursor
   inboxPagination.lastReadDoc = null;
-  // cargar datos
   await fetchInboxBatch({ more: false });
-  // mostrar
   const overlay = document.getElementById('inbox-modal');
   if (overlay) overlay.style.display = 'flex';
 }
+
+// ──────────────────────────────────────────────────────────────
+// CARRUSEL RAMPET – auto-init, indicadores, drag, autoplay
+// ──────────────────────────────────────────────────────────────
+let carruselWired = false;
+let carruselAutoTimer = null;
+const AUTOPLAY_MS = 5500;
+
+function getSlides(container) {
+  // Cualquier hijo directo es un slide (tu render puede variar)
+  return Array.from(container.children).filter(n => n.nodeType === 1);
+}
+
+function buildIndicators(container, dotsBox) {
+  const slides = getSlides(container);
+  if (!dotsBox) return;
+  dotsBox.innerHTML = '';
+  slides.forEach((_, i) => {
+    const dot = document.createElement('span');
+    dot.className = 'indicador' + (i === 0 ? ' activo' : '');
+    dot.dataset.index = String(i);
+    dot.addEventListener('click', () => scrollToIndex(container, i));
+    dotsBox.appendChild(dot);
+  });
+}
+
+function markActive(container, dotsBox) {
+  if (!dotsBox) return;
+  const slides = getSlides(container);
+  if (!slides.length) return;
+
+  // El "activo" es el slide cuyo centro está más cerca del centro del viewport del carrusel
+  const mid = container.scrollLeft + container.clientWidth / 2;
+  let best = 0;
+  let bestDist = Infinity;
+  slides.forEach((s, i) => {
+    const center = s.offsetLeft + s.offsetWidth / 2;
+    const dist = Math.abs(center - mid);
+    if (dist < bestDist) { bestDist = dist; best = i; }
+  });
+
+  dotsBox.querySelectorAll('.indicador').forEach((d, j) => {
+    d.classList.toggle('activo', j === best);
+  });
+}
+
+function scrollToIndex(container, index) {
+  const slides = getSlides(container);
+  if (!slides[index]) return;
+  container.scrollTo({ left: slides[index].offsetLeft, behavior: 'smooth' });
+}
+
+function nextIndex(container) {
+  const dotsBox = document.getElementById('carrusel-indicadores');
+  const slides = getSlides(container);
+  if (!slides.length) return 0;
+  const mid = container.scrollLeft + container.clientWidth / 2;
+  let best = 0, bestDist = Infinity;
+  slides.forEach((s, i) => {
+    const center = s.offsetLeft + s.offsetWidth / 2;
+    const dist = Math.abs(center - mid);
+    if (dist < bestDist) { bestDist = dist; best = i; }
+  });
+  return (best + 1) % slides.length;
+}
+
+function startAutoplay(container) {
+  stopAutoplay();
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const slides = getSlides(container);
+  if (slides.length < 2) return;
+
+  carruselAutoTimer = setInterval(() => {
+    const idx = nextIndex(container);
+    scrollToIndex(container, idx);
+  }, AUTOPLAY_MS);
+}
+function stopAutoplay() {
+  if (carruselAutoTimer) clearInterval(carruselAutoTimer);
+  carruselAutoTimer = null;
+}
+
+function wireDrag(container) {
+  let isDown = false;
+  let startX = 0;
+  let startScroll = 0;
+
+  const onPointerDown = (e) => {
+    if (e.button !== 0) return; // solo click izq
+    isDown = true;
+    container.classList.add('arrastrando');
+    startX = e.clientX;
+    startScroll = container.scrollLeft;
+    container.setPointerCapture(e.pointerId);
+  };
+  const onPointerMove = (e) => {
+    if (!isDown) return;
+    const dx = e.clientX - startX;
+    container.scrollLeft = startScroll - dx;
+  };
+  const onPointerUp = (e) => {
+    isDown = false;
+    container.classList.remove('arrastrando');
+    try { container.releasePointerCapture(e.pointerId); } catch {}
+  };
+
+  container.addEventListener('pointerdown', onPointerDown);
+  container.addEventListener('pointermove', onPointerMove);
+  container.addEventListener('pointerup', onPointerUp);
+  container.addEventListener('pointerleave', onPointerUp);
+}
+
+function initCarouselOnce() {
+  if (carruselWired) return;
+
+  const container = document.getElementById('carrusel-campanas');
+  const dotsBox   = document.getElementById('carrusel-indicadores');
+  const wrapper   = document.getElementById('carrusel-campanas-container');
+
+  if (!container || getSlides(container).length === 0) return;
+
+  // Mostrar wrapper si tiene contenido
+  if (wrapper) wrapper.style.display = 'block';
+
+  buildIndicators(container, dotsBox);
+  markActive(container, dotsBox);
+
+  // Eventos
+  let rafId = null;
+  container.addEventListener('scroll', () => {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = requestAnimationFrame(() => markActive(container, dotsBox));
+  });
+
+  // Autoplay con pausa
+  startAutoplay(container);
+  container.addEventListener('mouseenter', () => stopAutoplay());
+  container.addEventListener('mouseleave', () => startAutoplay(container));
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopAutoplay(); else startAutoplay(container);
+  });
+  container.addEventListener('touchstart', () => stopAutoplay(), { passive: true });
+  container.addEventListener('touchend', () => startAutoplay(container), { passive: true });
+
+  // Drag en desktop
+  wireDrag(container);
+
+  // Recalcular indicadores ante cambios de tamaño
+  const ro = new ResizeObserver(() => markActive(container, dotsBox));
+  ro.observe(container);
+
+  carruselWired = true;
+}
+
+function observeCarouselMount() {
+  const container = document.getElementById('carrusel-campanas');
+  if (!container) return;
+
+  // Si ya llegaron los hijos, inicializamos
+  if (getSlides(container).length) {
+    initCarouselOnce();
+  }
+
+  // Observamos si tu módulo agrega los slides más tarde
+  const mo = new MutationObserver(() => {
+    if (getSlides(container).length) {
+      initCarouselOnce();
+    }
+  });
+  mo.observe(container, { childList: true });
+}
+
+// Exponer un refresco manual por si tu módulo lo quiere llamar
+window.rampetRefreshCarousel = function rampetRefreshCarousel() {
+  carruselWired = false;
+  initCarouselOnce();
+};
 
 // ──────────────────────────────────────────────────────────────
 // LISTENERS DE PANTALLAS
@@ -389,9 +555,8 @@ function setupMainAppScreenListeners() {
 
   // Campanita → abre modal + marca leídos
   on('btn-notifs', 'click', async () => {
-    await openInboxModal();   // ver mensajes
-    await handleBellClick();  // marcar entregados como leídos (y resetear badge)
-    // refrescar listas tras marcar leídos (mueve “No leídas” → “Leídas”)
+    await openInboxModal();
+    await handleBellClick();
     await fetchInboxBatch({ more: false });
   });
 
@@ -414,6 +579,9 @@ function setupMainAppScreenListeners() {
   on('btn-activar-notif-prompt', 'click', handlePermissionRequest);
   on('btn-rechazar-notif-prompt', 'click', dismissPermissionRequest);
   on('notif-switch', 'change', handlePermissionSwitch);
+
+  // Carrusel: observar y auto-inicializar cuando lleguen los slides
+  observeCarouselMount();
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -431,7 +599,10 @@ async function main() {
       if (bell) bell.style.display = 'inline-block';
       setupMainAppScreenListeners();
 
+      // Datos + carrusel
       Data.listenToClientData(user);
+      // Por si tu render de campañas llama manualmente:
+      // window.rampetRefreshCarousel();
 
       if (messagingSupported) {
         await gestionarPermisoNotificaciones();
