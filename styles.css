@@ -327,24 +327,66 @@ input:checked + .slider:before { transform: translateX(26px); }
 }
 */
 
-/* Unifica alto del carrusel y pone sello de agua en campañas sin imagen */
-.carrusel { scroll-snap-type: x mandatory; display: flex; gap: 12px; overflow-x: auto; }
-.carrusel .banner-con-imagen img { width: 100%; height: 160px; object-fit: cover; border-radius: 10px; display:block; }
-.carrusel .banner-item-texto {
-  position: relative;
-  min-height: 160px;
-  border-radius: 10px;
-  padding: 14px;
+/* Carrusel – base de scroll */
+.carrusel {
+  scroll-snap-type: x mandatory;
   display: flex;
-  flex-direction: column;
-  justify-content: center;
-  background: #f8fafc;
-  /* 👇 sello de agua */
-  background-image: url('images/mi_logo.png');
-  background-repeat: no-repeat;
-  background-position: center;
-  background-size: 120px auto; /* ajustá a gusto */
+  gap: 12px;
+  overflow-x: auto;
 }
-.carrusel .banner-item-texto h4 { margin: 0 0 6px 0; }
-.carrusel .banner-item-texto p { margin: 0; opacity: .9; }
+
+/* Variables de diseño (podés ajustarlas) */
+:root{
+  --banner-height: 160px;  /* alto de todos los slides */
+  --wm-size: 60%;          /* tamaño del sello */
+  --wm-opacity: 0.10;      /* transparencia del sello */
+}
+
+/* estilo común a todos los items */
+.carrusel .banner-item,
+.carrusel .banner-item-texto{
+  height: var(--banner-height);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 2px 10px rgba(0,0,0,.06);
+}
+
+/* items con imagen */
+.banner-con-imagen{ position: relative; display:block; }
+.banner-con-imagen > img,
+.carrusel .banner-con-imagen img{
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 10px;
+}
+
+/* overlay de texto sobre imagen (centrado) */
+.banner-texto-overlay{
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center; padding: 14px;
+}
+.banner-texto-overlay h4{ margin: 0 0 6px 0; }
+.banner-texto-overlay p{ margin: 0; }
+
+/* items solo texto: sello de agua + centrado */
+.banner-item-texto{
+  position: relative;
+  display: flex; align-items: center; justify-content: center;
+  text-align: center; padding: 14px; isolation: isolate;
+  background: #f8fafc;
+  min-height: var(--banner-height);
+}
+.banner-item-texto::before{
+  content: "";
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: center / var(--wm-size) no-repeat url("images/mi_logo.png");
+  opacity: var(--wm-opacity);
+  filter: grayscale(1);
+}
+.banner-item-texto > *{ position: relative; z-index: 1; }
+.banner-item-texto h4 { margin: 0 0 6px 0; }
+.banner-item-texto p  { margin: 0; opacity: .95; }
 
