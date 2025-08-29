@@ -13,7 +13,7 @@
   --box-shadow:0 4px 12px rgba(0,0,0,.08);
 
   /* Carrusel */
-  --slide-h:230px;      /* alto de cada banner (↑ para dar más presencia) */
+  --slide-h:240px;      /* alto de cada banner (↑ para dar más presencia) */
   --slide-w:80vw;       /* ancho base móvil para sugerir el siguiente */
   --slide-max-w:380px;  /* tope en desktop/tablet */
   --wm-size:68%;        /* tamaño del sello en solo-texto */
@@ -138,59 +138,65 @@ input:checked + .slider:before{ transform:translateX(26px); }
 #notif-prompt-card .prompt-actions .secondary-btn{ flex-grow:1; }
 
 /* ===================== CARRUSEL ===================== */
+/* ===================== CARRUSEL ===================== */
 .carrusel-container{ margin-bottom:18px; }
 .carrusel-container h3{ margin-bottom:10px; }
 
-/* Pista: sin snap por defecto (mejor en desktop); snap solo en táctil */
+/* Pista */
 .carrusel{
   display:flex;
   gap:12px;
   overflow-x:auto;
   padding:6px 8px 12px;
-  scroll-behavior:smooth;
-  -webkit-overflow-scrolling:touch;
-  scrollbar-width:none;
-  overscroll-behavior-x: contain;
+
+  /* 👇 Para que Edge y cía “obliguen” el snap */
+  scroll-snap-type: x mandatory;
+  scroll-behavior: smooth;
+  -webkit-overflow-scrolling: touch;
+
+  /* ocultar scrollbar */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 .carrusel::-webkit-scrollbar{ display:none; }
 
-/* Snap solo en dispositivos táctiles */
-@media (hover:none) and (pointer:coarse){
-  .carrusel{ scroll-snap-type:x mandatory; }
-  .carrusel .banner-item,
-  .carrusel .banner-item-texto{ scroll-snap-align:center; }
+/* 🔧 Importante para que la 1ª y última puedan quedar centradas */
+.carrusel{
+  /* centrado respecto al ancho visible del slide */
+  scroll-padding-left: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
+  scroll-padding-right: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
 }
 
 /* Slides (mismo tamaño para todos) */
 .carrusel .banner-item,
 .carrusel .banner-item-texto{
-  flex:0 0 var(--slide-w);
-  max-width:var(--slide-max-w);
-  height:var(--slide-h);
-  border-radius:12px;
-  overflow:hidden;
-  box-shadow:var(--box-shadow);
-  position:relative;
-  background:#fff;
+  flex: 0 0 var(--slide-w);
+  max-width: var(--slide-max-w);
+  height: var(--slide-h);
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--box-shadow);
+  position: relative;
+  background: #fff;
+
+  /* 👇 centrado exacto */
+  scroll-snap-align: center;
+  scroll-snap-stop: always;
 }
 
-/* Con imagen (sin recorte) */
-.banner-con-imagen{ position:relative; display:block; width:100%; height:100%; }
+/* Con imagen */
+.banner-con-imagen{ position:relative; display:block; }
 .banner-con-imagen > img{
   width:100%; height:100%;
-  object-fit:contain;            /* evita recortes (225x225 no se corta) */
-  object-position:center;
-  display:block;
-  border-radius:12px;
-  background:#fff;               /* “marco” prolijo */
+  object-fit: cover;            /* usá contain si querés ver completas las 225x225 */
+  display:block; border-radius:12px;
 }
-
-/* Overlay SOLO si querés texto sobre la imagen */
+/* Overlay SOLO en banners con imagen */
 .banner-con-imagen .banner-texto-overlay{
   position:absolute; left:0; right:0; bottom:0;
   padding:14px;
-  background:linear-gradient(to top, rgba(0,0,0,.6), rgba(0,0,0,0));
-  color:#fff; text-align:left; pointer-events:none;
+  background:linear-gradient(to top, rgba(0,0,0,.65), rgba(0,0,0,0));
+  color:#fff; text-align:left;
 }
 .banner-con-imagen .banner-texto-overlay h4{ margin:0 0 4px; font-weight:700; }
 .banner-con-imagen .banner-texto-overlay p{ margin:0; opacity:.95; }
@@ -208,19 +214,20 @@ input:checked + .slider:before{ transform:translateX(26px); }
   filter:grayscale(1);
 }
 .carrusel .banner-item-texto > *{ position:relative; z-index:1; }
-.carrusel .banner-item-texto h4{ margin:0 0 6px; color:var(--primary-color); }
+.carrusel .banner-item-texto h4{ margin:0 0 6px; color: var(--primary-color); }
 .carrusel .banner-item-texto p{ margin:0; color:var(--text-color); opacity:.95; }
 
-/* Indicadores */
+/* Indicadores (sin cambios) */
 .carrusel-indicadores{ text-align:center; margin-top:6px; }
 .carrusel-indicadores .indicador{
   display:inline-block; width:8px; height:8px; border-radius:50%;
   background:#ccc; margin:0 4px; cursor:pointer; transition:background-color .2s;
 }
-.carrusel-indicadores .indicador.activo{ background:var(--primary-color); }
+.carrusel-indicadores .indicador.activo{ background: var(--primary-color); }
 
-/* Arrastre desktop (si JS agrega .arrastrando) */
+/* Arrastre desktop (opcional) */
 .carrusel.arrastrando{ cursor:grabbing; scroll-behavior:auto; }
+
 
 /* ===================== SALDO A FAVOR (compacto y centrado) ===================== */
 #saldo-card{ padding:12px 14px; }
@@ -237,6 +244,7 @@ input:checked + .slider:before{ transform:translateX(26px); }
 #install-entrypoint{ margin-left:8px; }
 #btn-notifs{ display:none; position:relative; }
 #notif-counter{ display:none; position:absolute; top:-6px; right:-6px; background:#e11; color:#fff; border-radius:999px; padding:1px 6px; font:12px system-ui; }
+
 
 
 
