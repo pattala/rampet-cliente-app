@@ -1,5 +1,5 @@
 // app.js (PWA del Cliente – instalación + notifs + INBOX modal con grupos y paginado)
-// + Carrusel: autoplay 2.5s, drag desktop, snap al soltar, indicadores
+// + Carrusel: autoplay, drag con mouse en desktop, snap centrado, indicadores
 
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -18,12 +18,6 @@ import {
   ensureSingleToken,
   handleSignOutCleanup
 } from './modules/notifications.js';
-
-/* ===================== Config del carrusel ===================== */
-const CAROUSEL = {
-  autoplayMs: 2500,     // cada cuánto cambia solo
-  slideAnimMs: 600      // duración del deslizamiento (suave, no salto)
-};
 
 // ──────────────────────────────────────────────────────────────
 // LÓGICA DE INSTALACIÓN PWA
@@ -98,7 +92,9 @@ async function handleDismissInstall() {
   try {
     const snap = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
     if (snap.empty) return;
-    await snap.docs[0].ref.set({ pwaInstallDismissedAt: new Date().toISOString() }, { merge: true });
+    await snap.docs[0].ref.set({
+      pwaInstallDismissedAt: new Date().toISOString()
+    }, { merge: true });
   } catch (e) {
     console.warn('No se pudo registrar el dismiss en Firestore:', e);
   }
@@ -241,6 +237,7 @@ async function fetchInboxBatch({ more = false } = {}) {
   }
 
   if (!more) {
+    // No leídas
     let unread = [];
     try {
       const unreadSnap = await clienteRef.collection('inbox')
@@ -254,6 +251,7 @@ async function fetchInboxBatch({ more = false } = {}) {
     }
     renderList('inbox-list-unread', unread);
 
+    // Leídas (primer página)
     try {
       const readSnap = await clienteRef.collection('inbox')
         .where('status', '==', 'read')
@@ -274,6 +272,7 @@ async function fetchInboxBatch({ more = false } = {}) {
       if (moreBtn) moreBtn.style.display = 'none';
     }
   } else {
+    // Paginado de leídas
     if (!inboxPagination.lastReadDoc) {
       const moreBtn = document.getElementById('inbox-load-more');
       if (moreBtn) moreBtn.style.display = 'none';
@@ -330,49 +329,23 @@ async function fetchInboxBatch({ more = false } = {}) {
   }
 }
 
-async function openInboxModal() {
-  ensureInboxModal();
-  inboxPagination.lastReadDoc = null;
-  await fetchInboxBatch({ more: false });
-  const overlay = document.getElementById('inbox-modal');
-  if (overlay) overlay.style.display = 'flex';
-}
-
-/* ===================== CARRUSEL ===================== */
-
-/** Colección de slides (imagen y solo-texto) */
+// ──────────────────────────────────────────────────────────────
+// CARRUSEL: helpers
+// ──────────────────────────────────────────────────────────────
 function getSlides(container) {
   if (!container) return [];
   return Array.from(container.querySelectorAll('.banner-item, .banner-item-texto'));
 }
 
-/** Tween de scroll con duración controlada (suave en Edge/desktop) */
-function tweenScrollTo(container, left, durationMs) {
-  const start = container.scrollLeft;
-  const dist  = left - start;
-  if (Math.abs(dist) < 1) { container.scrollLeft = left; return; }
-  const t0 = performance.now();
-  const easeOutCubic = (x) => 1 - Math.pow(1 - x, 3);
-  function step(now) {
-    const p = Math.min(1, (now - t0) / durationMs);
-    container.scrollLeft = start + dist * easeOutCubic(p);
-    if (p < 1) requestAnimationFrame(step);
-  }
-  requestAnimationFrame(step);
-}
-
-/** Centrar un índice */
-function scrollToIndex(container, idx, animate = true) {
+function scrollToIndex(container, idx) {
   const slides = getSlides(container);
   if (!slides.length) return;
   const i = Math.max(0, Math.min(idx, slides.length - 1));
   const target = slides[i];
   const left = target.offsetLeft - (container.clientWidth - target.offsetWidth) / 2;
-  if (animate) tweenScrollTo(container, left, CAROUSEL.slideAnimMs);
-  else container.scrollLeft = left;
+  container.scrollTo({ left, behavior: 'smooth' });
 }
 
-/** Índice del slide más cercano al centro */
 function nearestIndex(container) {
   const slides = getSlides(container);
   if (!slides.length) return 0;
@@ -386,7 +359,6 @@ function nearestIndex(container) {
   return best;
 }
 
-/** Indicadores activos */
 function updateActiveIndicator(container, indicadoresRoot) {
   if (!indicadoresRoot) return;
   const dots = Array.from(indicadoresRoot.querySelectorAll('.indicador'));
@@ -398,106 +370,82 @@ function updateActiveIndicator(container, indicadoresRoot) {
   });
 }
 
-/** Click en indicadores → scroll al slide */
 function wireIndicators(container, indicadoresRoot) {
   if (!container || !indicadoresRoot) return;
   const dots = Array.from(indicadoresRoot.querySelectorAll('.indicador'));
-  dots.forEach((dot, i) => {
-    dot.onclick = () => scrollToIndex(container, i);
-  });
+  dots.forEach((dot, i) => { dot.onclick = () => scrollToIndex(container, i); });
 }
 
-/** Arrastre con mouse (desktop) + snap al soltar */
-function wireDrag(container) {
-  if (!container || container.dataset.dragWired === '1') return;
-  container.dataset.dragWired = '1';
-
-  let isDown = false;
-  let startX = 0;
-  let startScroll = 0;
-  let raf = null;
+// Desktop-only mouse drag + snap
+function wireMouseDrag(container) {
+  let isDown = false, startX = 0, startScroll = 0, t = null;
 
   const onPointerDown = (e) => {
+    if (e.pointerType !== 'mouse') return; // no tocar móvil
     isDown = true;
-    pauseAutoplay(container);
     startX = e.clientX;
     startScroll = container.scrollLeft;
     container.classList.add('arrastrando');
     try { container.setPointerCapture(e.pointerId); } catch {}
   };
   const onPointerMove = (e) => {
-    if (!isDown) return;
+    if (!isDown || e.pointerType !== 'mouse') return;
     const dx = e.clientX - startX;
     container.scrollLeft = startScroll - dx;
     if (e.cancelable) e.preventDefault();
   };
-  const onPointerUp = (e) => {
+  const end = (e) => {
     if (!isDown) return;
     isDown = false;
     container.classList.remove('arrastrando');
-    try { container.releasePointerCapture(e.pointerId); } catch {}
-    const idx = nearestIndex(container);
-    scrollToIndex(container, idx);
-    resumeAutoplay(container);
+    try { e && container.releasePointerCapture(e.pointerId); } catch {}
+    scrollToIndex(container, nearestIndex(container));
   };
 
   container.addEventListener('pointerdown', onPointerDown);
   container.addEventListener('pointermove', onPointerMove);
-  container.addEventListener('pointerup', onPointerUp);
-  container.addEventListener('pointercancel', onPointerUp);
-  container.addEventListener('pointerleave', () => { if (isDown) onPointerUp({ pointerId: 0 }); });
+  container.addEventListener('pointerup', end);
+  container.addEventListener('pointercancel', end);
+  container.addEventListener('pointerleave', end);
 
-  const indicadores = document.getElementById('carrusel-indicadores');
-  const onScroll = () => {
-    if (raf) return;
-    raf = requestAnimationFrame(() => {
-      updateActiveIndicator(container, indicadores);
-      raf = null;
-    });
-  };
-  container.addEventListener('scroll', onScroll, { passive: true });
+  // Recentrado con wheel (mouse) al terminar
+  container.addEventListener('wheel', () => {
+    clearTimeout(t);
+    t = setTimeout(() => scrollToIndex(container, nearestIndex(container)), 120);
+  }, { passive: true });
 }
 
-/** Autoplay: avanza cada CAROUSEL.autoplayMs; pausa si el usuario interactúa o la pestaña no está visible */
-function setupAutoplay(container) {
-  if (!container || container.dataset.autoWired === '1') return;
-  container.dataset.autoWired = '1';
+// Autoplay (pausado si el usuario interactúa)
+function startAutoPlay(container, indicadores, intervalMs = 2500) {
+  stopAutoPlay(container);
+  const markInteract = () => {
+    container.dataset.pause = '1';
+    clearTimeout(container._pauseTO);
+    container._pauseTO = setTimeout(() => { container.dataset.pause = '0'; }, 1200);
+  };
+  // marcar interacción en cualquier scroll/touch
+  container.addEventListener('touchstart', markInteract, { passive: true });
+  container.addEventListener('pointerdown', markInteract, { passive: true });
+  container.addEventListener('scroll', () => {
+    // actualizar indicadores fluido
+    requestAnimationFrame(() => updateActiveIndicator(container, indicadores));
+  }, { passive: true });
 
-  const goNext = () => {
+  container.dataset.pause = '0';
+  container._autoTimer = setInterval(() => {
+    if (container.dataset.pause === '1') return;
     const slides = getSlides(container);
-    if (slides.length <= 1) return;
-    const cur = nearestIndex(container);
-    const next = (cur + 1) % slides.length;
+    if (!slides.length) return;
+    const next = (nearestIndex(container) + 1) % slides.length;
     scrollToIndex(container, next);
-  };
-
-  const start = () => {
-    if (container._autoTimer) return;
-    container._autoTimer = setInterval(goNext, CAROUSEL.autoplayMs);
-  };
-  const stop = () => {
-    if (container._autoTimer) {
-      clearInterval(container._autoTimer);
-      container._autoTimer = null;
-    }
-  };
-
-  container._autoStart = start;
-  container._autoStop  = stop;
-
-  // Pausa/resume según visibilidad
-  document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stop();
-    else start();
-  });
-
-  // Inicia
-  start();
+  }, intervalMs);
 }
-function pauseAutoplay(container){ container?._autoStop?.(); }
-function resumeAutoplay(container){ container?._autoStart?.(); }
+function stopAutoPlay(container) {
+  if (container && container._autoTimer) { clearInterval(container._autoTimer); container._autoTimer = null; }
+  if (container && container._pauseTO) { clearTimeout(container._pauseTO); container._pauseTO = null; }
+}
 
-/** Inicializa wiring del carrusel (drag + indicadores + autoplay + centrado inicial) */
+// Inicialización del carrusel (llamar cuando haya slides)
 function initCarouselWiring() {
   const container = document.getElementById('carrusel-campanas');
   const indicadores = document.getElementById('carrusel-indicadores');
@@ -506,61 +454,28 @@ function initCarouselWiring() {
   const tryWire = () => {
     const slides = getSlides(container);
     if (!slides.length) return;
-    wireDrag(container);
+    // Desktop: drag con mouse
+    wireMouseDrag(container);
+    // Indicadores
     wireIndicators(container, indicadores);
     updateActiveIndicator(container, indicadores);
-    // centrar el que esté más cerca (primera vez)
-    scrollToIndex(container, nearestIndex(container), false);
-    setupAutoplay(container);
+    // Autoplay (móvil y desktop)
+    startAutoPlay(container, indicadores, 2500);
   };
 
   tryWire();
 
-  const obs = new MutationObserver(() => tryWire());
+  // Re-wire cuando JS vuelva a pintar campañas
+  const obs = new MutationObserver(() => {
+    stopAutoPlay(container);
+    tryWire();
+  });
   obs.observe(container, { childList: true });
   container._rampetObs = obs;
 }
 
-/* ===== Snap “real” en Edge/desktop: centra el slide más cercano al terminar el scroll ===== */
-(function initCarouselSnapFix(){
-  const container = document.getElementById('carrusel-campanas');
-  if (!container) return;
-
-  const ensure = () => container.querySelectorAll('.banner-item, .banner-item-texto').length;
-
-  const centerNearest = () => {
-    if (!ensure()) return;
-    const slides = Array.from(container.querySelectorAll('.banner-item, .banner-item-texto'));
-    const viewportCenter = container.scrollLeft + container.clientWidth / 2;
-    let best = slides[0], min = Number.POSITIVE_INFINITY;
-    for (const s of slides) {
-      const center = s.offsetLeft + s.clientWidth / 2;
-      const d = Math.abs(center - viewportCenter);
-      if (d < min) { min = d; best = s; }
-    }
-    const targetLeft = best.offsetLeft - (container.clientWidth - best.clientWidth) / 2;
-    tweenScrollTo(container, targetLeft, CAROUSEL.slideAnimMs);
-  };
-
-  let t = null, pointerDown = false;
-  container.addEventListener('pointerdown', () => { pointerDown = true; });
-  container.addEventListener('pointerup',   () => { pointerDown = false; centerNearest(); });
-
-  container.addEventListener('scroll', () => {
-    if (pointerDown) return;
-    clearTimeout(t);
-    t = setTimeout(centerNearest, 100);
-  }, { passive: true });
-
-  window.addEventListener('resize', () => {
-    clearTimeout(t);
-    t = setTimeout(centerNearest, 120);
-  });
-
-  const mo = new MutationObserver(() => { if (ensure()) centerNearest(); });
-  mo.observe(container, { childList: true });
-})();
-
+// ──────────────────────────────────────────────────────────────
+// LISTENERS DE PANTALLAS
 // ──────────────────────────────────────────────────────────────
 function setupAuthScreenListeners() {
   on('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
@@ -579,8 +494,7 @@ function setupMainAppScreenListeners() {
   on('logout-btn', 'click', async () => {
     await handleSignOutCleanup();
     const c = document.getElementById('carrusel-campanas');
-    if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
-    pauseAutoplay(c);
+    if (c) { try { c._rampetObs?.disconnect(); } catch {} stopAutoPlay(c); }
     Auth.logout();
   });
 
@@ -621,6 +535,15 @@ function setupMainAppScreenListeners() {
 }
 
 // ──────────────────────────────────────────────────────────────
+async function openInboxModal() {
+  ensureInboxModal();
+  inboxPagination.lastReadDoc = null;
+  await fetchInboxBatch({ more: false });
+  const overlay = document.getElementById('inbox-modal');
+  if (overlay) overlay.style.display = 'flex';
+}
+
+// ──────────────────────────────────────────────────────────────
 async function main() {
   setupFirebase();
   const messagingSupported = await checkMessagingSupport();
@@ -647,18 +570,19 @@ async function main() {
       showInstallPromptIfAvailable();
 
       const installBtn = document.getElementById('install-entrypoint');
-      if (installBtn) installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
+      if (installBtn) {
+        installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
+      }
 
-      initCarouselWiring();   // ⤵️
+      // Carrusel listo
+      initCarouselWiring();
     } else {
       if (bell) bell.style.display = 'none';
       if (badge) badge.style.display = 'none';
       setupAuthScreenListeners();
       UI.showScreen('login-screen');
-
       const c = document.getElementById('carrusel-campanas');
-      if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
-      pauseAutoplay(c);
+      if (c) { try { c._rampetObs?.disconnect(); } catch {} stopAutoPlay(c); }
     }
   });
 }
