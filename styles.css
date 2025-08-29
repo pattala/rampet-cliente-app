@@ -13,9 +13,9 @@
   --box-shadow:0 4px 12px rgba(0,0,0,.08);
 
   /* Carrusel */
-  --slide-h:240px;      /* alto de cada banner (más presencia) */
-  --slide-w:80vw;       /* ancho base móvil dejando ver los costados */
-  --slide-max-w:380px;  /* tope en desktop/tablet (container es 400px) */
+  --slide-h:240px;      /* alto del área del banner */
+  --slide-w:80vw;       /* ancho relativo para sugerir la slide siguiente */
+  --slide-max-w:380px;  /* tope en desktop/tablet */
   --wm-size:68%;        /* tamaño del sello en solo-texto */
   --wm-opacity:.12;     /* transparencia del sello */
 }
@@ -39,7 +39,7 @@ body{
 /* Encabezado + logo */
 header{ text-align:center; margin-bottom:16px; }
 .logo{
-  height: clamp(40px, 8vw, 54px); /* controlado para no quedar gigante */
+  height: clamp(40px, 8vw, 54px);
   width:auto; display:block; margin:0 auto 8px;
 }
 h1{ font-size:1.8em; color:var(--primary-color); margin:0; }
@@ -148,16 +148,17 @@ input:checked + .slider:before{ transform:translateX(26px); }
   overflow-x:auto;
   padding:6px 8px 12px;
 
-  /* snap sólido + scroll suave */
+  /* Forzar snap centrado y permitir buen touch */
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-x;
 
-  /* ocultar scrollbar */
+  /* ocultar barra */
   scrollbar-width: none;
   -ms-overflow-style: none;
 
-  /* imprescindible para que 1º/último puedan quedar centrados */
+  /* margen virtual para que 1ª y última centren perfecto */
   scroll-padding-left: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
   scroll-padding-right: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
 }
@@ -179,28 +180,28 @@ input:checked + .slider:before{ transform:translateX(26px); }
   scroll-snap-stop: always;
 }
 
-/* Con imagen: se ve COMPLETA */
+/* Con imagen (mostrar completa) */
 .banner-con-imagen{ position:relative; display:block; }
 .banner-con-imagen > img{
   width:100%; height:100%;
-  object-fit: contain;     /* ← completa, no recorta */
-  background:#f8fafc;      /* fondo neutro para los márgenes */
+  object-fit: contain;           /* ← SIEMPRE COMPLETA */
+  background:#f8fafc;            /* fondo neutro alrededor */
   display:block; border-radius:12px;
 }
-/* Overlay SOLO en banners con imagen (texto legible) */
+/* Overlay de textos (solo cuando haya imagen) */
 .banner-con-imagen .banner-texto-overlay{
   position:absolute; left:0; right:0; bottom:0;
   padding:14px;
-  background:linear-gradient(to top, rgba(0,0,0,.65), rgba(0,0,0,0));
-  color:#fff; text-align:left; pointer-events:none;
+  background:linear-gradient(to top, rgba(0,0,0,.55), rgba(0,0,0,0));
+  color:#fff; text-align:left;
 }
 .banner-con-imagen .banner-texto-overlay h4{ margin:0 0 4px; font-weight:700; }
 .banner-con-imagen .banner-texto-overlay p{ margin:0; opacity:.95; }
 
 /* Solo texto: sello centrado + textos centrados */
 .carrusel .banner-item-texto{
-  display:flex; align-items:center; justify-content:center;
-  text-align:center; padding:14px; isolation:isolate;
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  text-align:center; gap:6px; padding:14px; isolation:isolate;
   background:#f8fafc;
 }
 .carrusel .banner-item-texto::before{
@@ -210,8 +211,16 @@ input:checked + .slider:before{ transform:translateX(26px); }
   filter:grayscale(1);
 }
 .carrusel .banner-item-texto > *{ position:relative; z-index:1; }
-.carrusel .banner-item-texto h4{ margin:0 0 6px; color: var(--primary-color); }
-.carrusel .banner-item-texto p{ margin:0; color:var(--text-color); opacity:.95; }
+.carrusel .banner-item-texto h4{
+  margin:0; color: var(--primary-color);
+  max-width: 90%; line-height:1.2;
+}
+.carrusel .banner-item-texto p{
+  margin:0; color:var(--text-color); opacity:.95;
+  max-width: 90%;
+  overflow:hidden; text-overflow:ellipsis;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;
+}
 
 /* Indicadores */
 .carrusel-indicadores{ text-align:center; margin-top:6px; }
@@ -221,7 +230,7 @@ input:checked + .slider:before{ transform:translateX(26px); }
 }
 .carrusel-indicadores .indicador.activo{ background: var(--primary-color); }
 
-/* Arrastre desktop */
+/* Arrastre desktop (clase que agrega JS al arrastrar con mouse) */
 .carrusel.arrastrando{ cursor:grabbing; scroll-behavior:auto; }
 
 /* ===================== SALDO A FAVOR (compacto y centrado) ===================== */
@@ -230,7 +239,7 @@ input:checked + .slider:before{ transform:translateX(26px); }
 #cliente-saldo{ text-align:center; font-size:1.6rem; font-weight:800; margin:2px 0 8px; }
 #saldo-card .info-message{ margin:6px 0 0; font-size:.9rem; }
 
-/* Vencimientos – lista y mensaje vacío */
+/* Vencimientos */
 .venc-list{ margin:6px 0 0; padding-left:18px; }
 .venc-list li{ font-size:.95em; color:#222; }
 .vencimiento-card .venc-list li.venc-empty{ color:#fff; opacity:.95; font-weight:600; }
