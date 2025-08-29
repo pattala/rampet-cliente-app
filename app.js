@@ -1,5 +1,5 @@
 // app.js (PWA del Cliente – instalación + notifs + INBOX modal con grupos y paginado)
-// + Carrusel: autoplay, drag con mouse en desktop, snap centrado, indicadores
+// + Carrusel: drag desktop + snap al soltar + indicadores + autoplay
 
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -13,10 +13,10 @@ import {
   handlePermissionRequest,
   dismissPermissionRequest,
   handlePermissionSwitch,
-  initNotificationChannel,
-  handleBellClick,
-  ensureSingleToken,
-  handleSignOutCleanup
+  initNotificationChannel,          // canal SW → app
+  handleBellClick,                  // marca entregados como leídos
+  ensureSingleToken,                // dedupe tokens
+  handleSignOutCleanup              // limpieza token al salir
 } from './modules/notifications.js';
 
 // ──────────────────────────────────────────────────────────────
@@ -329,9 +329,18 @@ async function fetchInboxBatch({ more = false } = {}) {
   }
 }
 
+async function openInboxModal() {
+  ensureInboxModal();
+  inboxPagination.lastReadDoc = null;
+  await fetchInboxBatch({ more: false });
+  const overlay = document.getElementById('inbox-modal');
+  if (overlay) overlay.style.display = 'flex';
+}
+
 // ──────────────────────────────────────────────────────────────
-// CARRUSEL: helpers
+// CARRUSEL: helpers + drag + snap + indicadores + autoplay
 // ──────────────────────────────────────────────────────────────
+
 function getSlides(container) {
   if (!container) return [];
   return Array.from(container.querySelectorAll('.banner-item, .banner-item-texto'));
@@ -373,79 +382,102 @@ function updateActiveIndicator(container, indicadoresRoot) {
 function wireIndicators(container, indicadoresRoot) {
   if (!container || !indicadoresRoot) return;
   const dots = Array.from(indicadoresRoot.querySelectorAll('.indicador'));
-  dots.forEach((dot, i) => { dot.onclick = () => scrollToIndex(container, i); });
+  dots.forEach((dot, i) => {
+    dot.onclick = () => scrollToIndex(container, i);
+  });
 }
 
-// Desktop-only mouse drag + snap
-function wireMouseDrag(container) {
-  let isDown = false, startX = 0, startScroll = 0, t = null;
+// Evita que el navegador “agarre” la imagen y la mueva afuera del carrusel
+function disableNativeImageDrag() {
+  const imgs = document.querySelectorAll('#carrusel-campanas img');
+  imgs.forEach(img => {
+    img.setAttribute('draggable', 'false');
+    img.addEventListener('dragstart', (e) => e.preventDefault(), { passive: false });
+  });
+}
+
+function wireDrag(container) {
+  if (!container || container.dataset.dragWired === '1') return;
+  container.dataset.dragWired = '1';
+
+  let isDown = false;
+  let startX = 0;
+  let startScroll = 0;
+  let raf = null;
 
   const onPointerDown = (e) => {
-    if (e.pointerType !== 'mouse') return; // no tocar móvil
     isDown = true;
+    stopAutoplay(); // pausa autoplay al tocar/arrastrar
     startX = e.clientX;
     startScroll = container.scrollLeft;
     container.classList.add('arrastrando');
     try { container.setPointerCapture(e.pointerId); } catch {}
   };
   const onPointerMove = (e) => {
-    if (!isDown || e.pointerType !== 'mouse') return;
+    if (!isDown) return;
     const dx = e.clientX - startX;
     container.scrollLeft = startScroll - dx;
     if (e.cancelable) e.preventDefault();
   };
-  const end = (e) => {
-    if (!isDown) return;
+  const onPointerUp = (e) => {
     isDown = false;
     container.classList.remove('arrastrando');
-    try { e && container.releasePointerCapture(e.pointerId); } catch {}
-    scrollToIndex(container, nearestIndex(container));
+    try { container.releasePointerCapture(e.pointerId); } catch {}
+    const idx = nearestIndex(container);
+    scrollToIndex(container, idx);
+    restartAutoplaySoon(); // retomar autoplay luego de una breve pausa
   };
 
   container.addEventListener('pointerdown', onPointerDown);
   container.addEventListener('pointermove', onPointerMove);
-  container.addEventListener('pointerup', end);
-  container.addEventListener('pointercancel', end);
-  container.addEventListener('pointerleave', end);
+  container.addEventListener('pointerup', onPointerUp);
+  container.addEventListener('pointercancel', onPointerUp);
+  container.addEventListener('pointerleave', () => { if (isDown) onPointerUp({ pointerId: 0 }); });
 
-  // Recentrado con wheel (mouse) al terminar
-  container.addEventListener('wheel', () => {
-    clearTimeout(t);
-    t = setTimeout(() => scrollToIndex(container, nearestIndex(container)), 120);
-  }, { passive: true });
-}
-
-// Autoplay (pausado si el usuario interactúa)
-function startAutoPlay(container, indicadores, intervalMs = 2500) {
-  stopAutoPlay(container);
-  const markInteract = () => {
-    container.dataset.pause = '1';
-    clearTimeout(container._pauseTO);
-    container._pauseTO = setTimeout(() => { container.dataset.pause = '0'; }, 1200);
+  // feedback de indicador activo durante el scroll
+  const indicadores = document.getElementById('carrusel-indicadores');
+  const onScroll = () => {
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      updateActiveIndicator(container, indicadores);
+      raf = null;
+    });
   };
-  // marcar interacción en cualquier scroll/touch
-  container.addEventListener('touchstart', markInteract, { passive: true });
-  container.addEventListener('pointerdown', markInteract, { passive: true });
-  container.addEventListener('scroll', () => {
-    // actualizar indicadores fluido
-    requestAnimationFrame(() => updateActiveIndicator(container, indicadores));
-  }, { passive: true });
+  container.addEventListener('scroll', onScroll, { passive: true });
 
-  container.dataset.pause = '0';
-  container._autoTimer = setInterval(() => {
-    if (container.dataset.pause === '1') return;
-    const slides = getSlides(container);
-    if (!slides.length) return;
-    const next = (nearestIndex(container) + 1) % slides.length;
+  // UX: en desktop, al pasar el mouse por arriba pausamos/retomamos autoplay
+  container.addEventListener('mouseenter', stopAutoplay);
+  container.addEventListener('mouseleave', restartAutoplaySoon);
+}
+
+/* ===== Autoplay ===== */
+const AUTOPLAY_MS = 2500;
+let autoplayTimer = null;
+let autoplayRestartTimer = null;
+
+function startAutoplay(container) {
+  stopAutoplay();
+  const slides = getSlides(container);
+  if (slides.length < 2) return;
+  autoplayTimer = setInterval(() => {
+    const i = nearestIndex(container);
+    const next = (i + 1) % slides.length;
     scrollToIndex(container, next);
-  }, intervalMs);
-}
-function stopAutoPlay(container) {
-  if (container && container._autoTimer) { clearInterval(container._autoTimer); container._autoTimer = null; }
-  if (container && container._pauseTO) { clearTimeout(container._pauseTO); container._pauseTO = null; }
+  }, AUTOPLAY_MS);
 }
 
-// Inicialización del carrusel (llamar cuando haya slides)
+function stopAutoplay() {
+  if (autoplayTimer) { clearInterval(autoplayTimer); autoplayTimer = null; }
+  if (autoplayRestartTimer) { clearTimeout(autoplayRestartTimer); autoplayRestartTimer = null; }
+}
+
+function restartAutoplaySoon(container = document.getElementById('carrusel-campanas')) {
+  if (!container) return;
+  if (autoplayRestartTimer) clearTimeout(autoplayRestartTimer);
+  autoplayRestartTimer = setTimeout(() => startAutoplay(container), 1200);
+}
+
+/** Inicializa y re-vincula el carrusel cuando cambian los slides por JS */
 function initCarouselWiring() {
   const container = document.getElementById('carrusel-campanas');
   const indicadores = document.getElementById('carrusel-indicadores');
@@ -454,28 +486,71 @@ function initCarouselWiring() {
   const tryWire = () => {
     const slides = getSlides(container);
     if (!slides.length) return;
-    // Desktop: drag con mouse
-    wireMouseDrag(container);
-    // Indicadores
+    wireDrag(container);
     wireIndicators(container, indicadores);
     updateActiveIndicator(container, indicadores);
-    // Autoplay (móvil y desktop)
-    startAutoPlay(container, indicadores, 2500);
+    disableNativeImageDrag();
+    // Autoplay: inicia / reinicia cada vez que hay contenido
+    startAutoplay(container);
   };
 
   tryWire();
 
-  // Re-wire cuando JS vuelva a pintar campañas
-  const obs = new MutationObserver(() => {
-    stopAutoPlay(container);
-    tryWire();
-  });
+  const obs = new MutationObserver(() => tryWire());
   obs.observe(container, { childList: true });
   container._rampetObs = obs;
+
+  // Pausar autoplay cuando la pestaña no está visible
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopAutoplay();
+    else restartAutoplaySoon(container);
+  });
 }
 
-// ──────────────────────────────────────────────────────────────
-// LISTENERS DE PANTALLAS
+/* ===== Snap “real” en Edge/desktop: centra la slide más cercana al terminar el scroll ===== */
+(function initCarouselSnapFix(){
+  const container = document.getElementById('carrusel-campanas');
+  if (!container) return;
+
+  const ensure = () => {
+    const slides = container.querySelectorAll('.banner-item, .banner-item-texto');
+    return slides && slides.length;
+  };
+
+  const centerNearest = () => {
+    if (!ensure()) return;
+    const slides = Array.from(container.querySelectorAll('.banner-item, .banner-item-texto'));
+    const viewportCenter = container.scrollLeft + container.clientWidth / 2;
+
+    let best = slides[0], min = Number.POSITIVE_INFINITY;
+    for (const s of slides) {
+      const center = s.offsetLeft + s.clientWidth / 2;
+      const d = Math.abs(center - viewportCenter);
+      if (d < min) { min = d; best = s; }
+    }
+    const targetLeft = best.offsetLeft - (container.clientWidth - best.clientWidth) / 2;
+    container.scrollTo({ left: targetLeft, behavior: 'smooth' });
+  };
+
+  let t = null, pointerDown = false;
+  container.addEventListener('pointerdown', () => { pointerDown = true; stopAutoplay(); });
+  container.addEventListener('pointerup',   () => { pointerDown = false; centerNearest(); restartAutoplaySoon(container); });
+
+  container.addEventListener('scroll', () => {
+    if (pointerDown) return;
+    clearTimeout(t);
+    t = setTimeout(centerNearest, 90);
+  }, { passive: true });
+
+  window.addEventListener('resize', () => {
+    clearTimeout(t);
+    t = setTimeout(centerNearest, 120);
+  });
+
+  const mo = new MutationObserver(() => { if (ensure()) centerNearest(); });
+  mo.observe(container, { childList: true });
+})();
+
 // ──────────────────────────────────────────────────────────────
 function setupAuthScreenListeners() {
   on('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
@@ -494,7 +569,8 @@ function setupMainAppScreenListeners() {
   on('logout-btn', 'click', async () => {
     await handleSignOutCleanup();
     const c = document.getElementById('carrusel-campanas');
-    if (c) { try { c._rampetObs?.disconnect(); } catch {} stopAutoPlay(c); }
+    if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
+    stopAutoplay();
     Auth.logout();
   });
 
@@ -535,15 +611,6 @@ function setupMainAppScreenListeners() {
 }
 
 // ──────────────────────────────────────────────────────────────
-async function openInboxModal() {
-  ensureInboxModal();
-  inboxPagination.lastReadDoc = null;
-  await fetchInboxBatch({ more: false });
-  const overlay = document.getElementById('inbox-modal');
-  if (overlay) overlay.style.display = 'flex';
-}
-
-// ──────────────────────────────────────────────────────────────
 async function main() {
   setupFirebase();
   const messagingSupported = await checkMessagingSupport();
@@ -574,15 +641,17 @@ async function main() {
         installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
       }
 
-      // Carrusel listo
+      // Wiring del carrusel (y autoplay)
       initCarouselWiring();
     } else {
       if (bell) bell.style.display = 'none';
       if (badge) badge.style.display = 'none';
       setupAuthScreenListeners();
       UI.showScreen('login-screen');
+
       const c = document.getElementById('carrusel-campanas');
-      if (c) { try { c._rampetObs?.disconnect(); } catch {} stopAutoPlay(c); }
+      if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
+      stopAutoplay();
     }
   });
 }
