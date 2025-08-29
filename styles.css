@@ -13,7 +13,7 @@
   --box-shadow:0 4px 12px rgba(0,0,0,.08);
 
   /* Carrusel */
-  --slide-h:190px;      /* alto de cada banner (↑ para dar más presencia) */
+  --slide-h:210px;      /* alto de cada banner (↑ para dar más presencia) */
   --slide-w:82vw;       /* ancho base móvil para sugerir el siguiente */
   --slide-max-w:380px;  /* tope en desktop/tablet */
   --wm-size:68%;        /* tamaño del sello en solo-texto */
@@ -237,4 +237,5 @@ input:checked + .slider:before{ transform:translateX(26px); }
 #install-entrypoint{ margin-left:8px; }
 #btn-notifs{ display:none; position:relative; }
 #notif-counter{ display:none; position:absolute; top:-6px; right:-6px; background:#e11; color:#fff; border-radius:999px; padding:1px 6px; font:12px system-ui; }
+
 
