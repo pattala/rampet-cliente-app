@@ -543,6 +543,56 @@ function setupMainAppScreenListeners() {
   on('notif-switch', 'change', handlePermissionSwitch);
 }
 
+
+
+/* ===== Snap “real” en Edge/desktop: centra la slide más cercana al terminar el scroll ===== */
+(function initCarouselSnapFix(){
+  const container = document.getElementById('carrusel-campanas');
+  if (!container) return;
+
+  // Si las slides se cargan después (por JS), reintentar al detectarlas:
+  const ensure = () => {
+    const slides = container.querySelectorAll('.banner-item, .banner-item-texto');
+    return slides && slides.length;
+  };
+
+  const centerNearest = () => {
+    if (!ensure()) return;
+    const slides = Array.from(container.querySelectorAll('.banner-item, .banner-item-texto'));
+    const viewportCenter = container.scrollLeft + container.clientWidth / 2;
+
+    let best = slides[0], min = Number.POSITIVE_INFINITY;
+    for (const s of slides) {
+      const center = s.offsetLeft + s.clientWidth / 2;
+      const d = Math.abs(center - viewportCenter);
+      if (d < min) { min = d; best = s; }
+    }
+    const targetLeft = best.offsetLeft - (container.clientWidth - best.clientWidth) / 2;
+    container.scrollTo({ left: targetLeft, behavior: 'smooth' });
+  };
+
+  // Debounce para “scrollend”
+  let t = null, pointerDown = false;
+  container.addEventListener('pointerdown', () => { pointerDown = true; });
+  container.addEventListener('pointerup',   () => { pointerDown = false; centerNearest(); });
+
+  container.addEventListener('scroll', () => {
+    if (pointerDown) return; // si está arrastrando, no forzar
+    clearTimeout(t);
+    t = setTimeout(centerNearest, 90);  // 90–120ms va bien; subilo si querés más “pausa”
+  }, { passive: true });
+
+  // Re-centrar en resize (cambia el ancho visible)
+  window.addEventListener('resize', () => {
+    clearTimeout(t);
+    t = setTimeout(centerNearest, 120);
+  });
+
+  // Si las slides llegan más tarde, observar el contenedor
+  const mo = new MutationObserver(() => { if (ensure()) centerNearest(); });
+  mo.observe(container, { childList: true });
+})();
+
 // ──────────────────────────────────────────────────────────────
 async function main() {
   setupFirebase();
@@ -590,3 +640,4 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
