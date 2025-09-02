@@ -138,15 +138,6 @@ input:checked + .slider:before{ transform:translateX(26px); }
 #notif-prompt-card .prompt-actions .secondary-btn{ flex-grow:1; }
 
 /* ===================== CARRUSEL (simple & estable) ===================== */
-:root{
-  --slide-h: 220px;      /* alto del contenedor */
-  --slide-w: 86vw;       /* ancho relativo en móvil (se ve un poco la siguiente) */
-  --slide-max-w: 360px;  /* tope en desktop */
-  --wm-size: 68%;        /* tamaño del sello en slides de texto */
-  --wm-opacity: .12;     /* transparencia del sello */
-}
-
-/* Contenedor / pista */
 .carrusel-container{ margin-bottom:18px; }
 .carrusel-container h3{ margin-bottom:10px; }
 
@@ -155,7 +146,7 @@ input:checked + .slider:before{ transform:translateX(26px); }
   gap:12px;
   overflow-x:auto;
   padding:8px 10px 12px;
-  scroll-snap-type:x mandatory;      /* snap consistente en Edge/Chrome/Safari */
+  scroll-snap-type:x mandatory;      
   scroll-padding-left:  calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
   scroll-padding-right: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
   scroll-behavior:smooth;
@@ -175,11 +166,11 @@ input:checked + .slider:before{ transform:translateX(26px); }
   box-shadow:var(--box-shadow);
   background:#fff;
   position:relative;
-  scroll-snap-align:center;          /* centrado al soltar */
+  scroll-snap-align:center;          
   scroll-snap-stop:always;
-  user-select:none;                   /* evita selección rara al arrastrar */
-  -webkit-user-drag:none;             /* safari */
-  cursor:grab;                        /* mano tipo “arrastrar” */
+  user-select:none;                   
+  -webkit-user-drag:none;             
+  cursor:grab;                        
 }
 .carrusel.arrastrando .banner-item,
 .carrusel.arrastrando .banner-item-texto{
@@ -190,10 +181,10 @@ input:checked + .slider:before{ transform:translateX(26px); }
 .banner-con-imagen{ position:relative; display:block; height:100%; }
 .banner-con-imagen > img{
   width:100%; height:100%;
-  object-fit: contain;    /* ← si querés ver la imagen COMPLETA usá: contain */
+  object-fit: contain;    /* se ve la imagen completa */
   display:block;
   border-radius:12px;
-  background:#f8fafc;   /* “marco” neutro si la imagen es cuadrada y usás contain */
+  background:#f8fafc;
 }
 
 /* Overlay de texto SOLO sobre imagen */
@@ -206,7 +197,7 @@ input:checked + .slider:before{ transform:translateX(26px); }
 .banner-con-imagen .banner-texto-overlay h4{ margin:0 0 4px; font-weight:700; }
 .banner-con-imagen .banner-texto-overlay p{ margin:0; opacity:.95; }
 
-/* Solo texto – sello + textos centrados de verdad */
+/* Solo texto – sello + textos centrados */
 .carrusel .banner-item-texto{
   display:flex; align-items:center; justify-content:center;
   text-align:center; padding:14px; isolation:isolate;
@@ -247,7 +238,3 @@ input:checked + .slider:before{ transform:translateX(26px); }
 #install-entrypoint{ margin-left:8px; }
 #btn-notifs{ display:none; position:relative; }
 #notif-counter{ display:none; position:absolute; top:-6px; right:-6px; background:#e11; color:#fff; border-radius:999px; padding:1px 6px; font:12px system-ui; }
-
-
-
-
