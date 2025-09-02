@@ -1,11 +1,12 @@
 // app.js (PWA del Cliente – instalación + notifs + INBOX modal con grupos y paginado)
-// + Carrusel: drag desktop + snap + indicadores + autoplay encadenado (sin rebotes)
+// + Carrusel: autoplay 2.5s, drag desktop, snap estable en Edge, cursor grab y bloque de arrastre de imágenes
 
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 
+// Notificaciones (módulo de la PWA)
 import {
   gestionarPermisoNotificaciones,
   listenForInAppMessages,
@@ -131,7 +132,7 @@ function getInstallInstructionsHTML() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// Helper de eventos
+// UTILIDAD: addEventListener seguro por id
 // ──────────────────────────────────────────────────────────────
 function on(id, event, handler) {
   const el = document.getElementById(id);
@@ -139,7 +140,7 @@ function on(id, event, handler) {
 }
 
 // ──────────────────────────────────────────────────────────────
-// INBOX
+/** INBOX MODAL — agrupado No leídas / Leídas + paginado */
 // ──────────────────────────────────────────────────────────────
 let inboxPagination = { lastReadDoc: null, clienteRefPath: null };
 
@@ -236,7 +237,6 @@ async function fetchInboxBatch({ more = false } = {}) {
   }
 
   if (!more) {
-    // No leídas
     let unread = [];
     try {
       const unreadSnap = await clienteRef.collection('inbox')
@@ -250,7 +250,6 @@ async function fetchInboxBatch({ more = false } = {}) {
     }
     renderList('inbox-list-unread', unread);
 
-    // Leídas (primer página)
     try {
       const readSnap = await clienteRef.collection('inbox')
         .where('status', '==', 'read')
@@ -271,7 +270,6 @@ async function fetchInboxBatch({ more = false } = {}) {
       if (moreBtn) moreBtn.style.display = 'none';
     }
   } else {
-    // Paginado de leídas
     if (!inboxPagination.lastReadDoc) {
       const moreBtn = document.getElementById('inbox-load-more');
       if (moreBtn) moreBtn.style.display = 'none';
@@ -286,7 +284,6 @@ async function fetchInboxBatch({ more = false } = {}) {
         .get();
 
       const next = nextSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-
       const container = document.getElementById('inbox-list-read');
       if (container && next.length) {
         const tmp = document.createElement('div');
@@ -317,7 +314,6 @@ async function fetchInboxBatch({ more = false } = {}) {
       }
 
       inboxPagination.lastReadDoc = nextSnap.docs.length ? nextSnap.docs[nextSnap.docs.length - 1] : null;
-
       const moreBtn = document.getElementById('inbox-load-more');
       if (moreBtn) moreBtn.style.display = nextSnap.size < 20 ? 'none' : 'inline-block';
     } catch (e) {
@@ -337,25 +333,12 @@ async function openInboxModal() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// CARRUSEL: helpers + drag + snap + indicadores + autoplay encadenado
+// CARRUSEL: autoplay 2.5s + drag desktop + snap robusto
 // ──────────────────────────────────────────────────────────────
-
 function getSlides(container) {
   if (!container) return [];
   return Array.from(container.querySelectorAll('.banner-item, .banner-item-texto'));
 }
-function hasEnoughSlides(container){ return getSlides(container).length >= 2; }
-function isVisible(el){ return !!(el && el.offsetParent) && el.clientWidth > 0 && el.clientHeight > 0; }
-
-function scrollToIndex(container, idx) {
-  const slides = getSlides(container);
-  if (!slides.length) return;
-  const i = Math.max(0, Math.min(idx, slides.length - 1));
-  const target = slides[i];
-  const left = target.offsetLeft - (container.clientWidth - target.offsetWidth) / 2;
-  container.scrollTo({ left, behavior: 'smooth' });
-}
-
 function nearestIndex(container) {
   const slides = getSlides(container);
   if (!slides.length) return 0;
@@ -368,7 +351,14 @@ function nearestIndex(container) {
   });
   return best;
 }
-
+function scrollToIndex(container, idx, smooth = true) {
+  const slides = getSlides(container);
+  if (!slides.length) return;
+  const i = Math.max(0, Math.min(idx, slides.length - 1));
+  const target = slides[i];
+  const left = target.offsetLeft - (container.clientWidth - target.offsetWidth) / 2;
+  container.scrollTo({ left, behavior: smooth ? 'smooth' : 'auto' });
+}
 function updateActiveIndicator(container, indicadoresRoot) {
   if (!indicadoresRoot) return;
   const dots = Array.from(indicadoresRoot.querySelectorAll('.indicador'));
@@ -385,31 +375,35 @@ function wireIndicators(container, indicadoresRoot) {
   dots.forEach((dot, i) => { dot.onclick = () => scrollToIndex(container, i); });
 }
 
-// Evitar drag nativo de imágenes (que se “lleve” la imagen)
-function disableNativeImageDrag() {
-  const imgs = document.querySelectorAll('#carrusel-campanas img');
-  imgs.forEach(img => {
+function initCarouselWiring() {
+  const container = document.getElementById('carrusel-campanas');
+  const indicadores = document.getElementById('carrusel-indicadores');
+  if (!container) return;
+
+  // Evitar arrastrar imágenes fuera del carrusel
+  container.querySelectorAll('img').forEach(img => {
     img.setAttribute('draggable', 'false');
-    img.addEventListener('dragstart', (e) => e.preventDefault(), { passive: false });
   });
-}
 
-/* ===== Drag con mouse (desktop) + snap ===== */
-function wireDrag(container) {
-  if (!container || container.dataset.dragWired === '1') return;
-  container.dataset.dragWired = '1';
+  // Cursor: mano / “grab”
+  container.style.cursor = 'grab';
+  container.addEventListener('pointerdown', () => container.classList.add('arrastrando'));
+  container.addEventListener('pointerup',   () => container.classList.remove('arrastrando'));
+  container.addEventListener('pointercancel',() => container.classList.remove('arrastrando'));
+  container.addEventListener('mouseleave',  () => container.classList.remove('arrastrando'));
 
+  // Drag con mouse (desktop)
   let isDown = false;
   let startX = 0;
   let startScroll = 0;
+  let userInteracting = false;
   let raf = null;
 
   const onPointerDown = (e) => {
     isDown = true;
-    stopAutoplay(); // pausa autoplay al interactuar
+    userInteracting = true;
     startX = e.clientX;
     startScroll = container.scrollLeft;
-    container.classList.add('arrastrando');
     try { container.setPointerCapture(e.pointerId); } catch {}
   };
   const onPointerMove = (e) => {
@@ -420,184 +414,89 @@ function wireDrag(container) {
   };
   const onPointerUp = (e) => {
     isDown = false;
-    container.classList.remove('arrastrando');
     try { container.releasePointerCapture(e.pointerId); } catch {}
-    const idx = nearestIndex(container);
-    scrollToIndex(container, idx);
-    restartAutoplaySoon(container);
+    centerNearestSoon();
+    // soltó → a los 1200ms retomamos autoplay
+    scheduleAutoplayResume(1200);
   };
 
   container.addEventListener('pointerdown', onPointerDown);
   container.addEventListener('pointermove', onPointerMove);
   container.addEventListener('pointerup', onPointerUp);
   container.addEventListener('pointercancel', onPointerUp);
-  container.addEventListener('pointerleave', () => { if (isDown) onPointerUp({ pointerId: 0 }); });
 
-  // indicador activo durante scroll
-  const indicadores = document.getElementById('carrusel-indicadores');
+  // rueda/scroll → pausar autoplay, actualizar indicador
   const onScroll = () => {
     if (raf) return;
     raf = requestAnimationFrame(() => {
       updateActiveIndicator(container, indicadores);
       raf = null;
     });
+    pauseAutoplay();
+    scheduleAutoplayResume(1200);
   };
   container.addEventListener('scroll', onScroll, { passive: true });
 
-  // UX desktop: pausa al hover, retoma al salir
-  container.addEventListener('mouseenter', stopAutoplay);
-  container.addEventListener('mouseleave', () => restartAutoplaySoon(container));
-}
+  // Al entrar/salir con el mouse
+  container.addEventListener('mouseenter', () => { userInteracting = true; pauseAutoplay(); });
+  container.addEventListener('mouseleave', () => { userInteracting = false; scheduleAutoplayResume(800); });
 
-/* ===== Autoplay encadenado (sin rebotar) ===== */
-const AUTOPLAY_MS = 2500;
-let autoplayRunning = false;
-let autoplayAbort = false;
-let waitingVisibleTimer = null;
+  // Re-centrar en resize
+  window.addEventListener('resize', () => centerNearestSoon());
 
-/** Espera a que el scroll “se calme” antes de continuar (evita pelearse con snap/debounce) */
-function waitScrollIdle(container, idleMs = 140) {
-  return new Promise((resolve) => {
-    let t = null;
-    const handler = () => {
-      clearTimeout(t);
-      t = setTimeout(() => {
-        container.removeEventListener('scroll', handler);
-        resolve();
-      }, idleMs);
-    };
-    container.addEventListener('scroll', handler, { passive: true });
-    handler(); // arranca el temporizador
-  });
-}
+  // Dots
+  wireIndicators(container, indicadores);
+  updateActiveIndicator(container, indicadores);
 
-function stopAutoplay() {
-  autoplayAbort = true;
-  autoplayRunning = false;
-  if (waitingVisibleTimer) { clearTimeout(waitingVisibleTimer); waitingVisibleTimer = null; }
-}
+  // ── Autoplay robusto ───────────────────────────────────────
+  const AUTOPLAY_MS = 2500;          // velocidad pedida
+  const SCROLL_TIME = 600;           // tiempo estimado del smooth scrolling
 
-async function startAutoplay(container) {
-  stopAutoplay();
-  autoplayAbort = false;
-
-  const ensureVisible = () => isVisible(container) && hasEnoughSlides(container);
-  const waitVisible = (retryMs = 300) => new Promise((res) => {
-    const tick = () => {
-      if (ensureVisible() || autoplayAbort) return res();
-      waitingVisibleTimer = setTimeout(tick, retryMs);
-    };
-    tick();
-  });
-
-  await waitVisible();
-  if (autoplayAbort) return;
-
-  autoplayRunning = true;
-  const slides = () => getSlides(container);
-
-  while (!autoplayAbort && autoplayRunning) {
-    const all = slides();
-    if (all.length < 2) break;
-
-    const i = nearestIndex(container);
-    const next = (i + 1) % all.length;
-    scrollToIndex(container, next);
-
-    // esperar a que termine el scroll + delay de autoplay
-    await waitScrollIdle(container, 140);
-    if (autoplayAbort) break;
-    await new Promise(r => setTimeout(r, AUTOPLAY_MS));
-    if (autoplayAbort) break;
+  let autoplayTimer = null;
+  let centerTimer = null;
+  function centerNearestSoon(delay = 90) {
+    clearTimeout(centerTimer);
+    centerTimer = setTimeout(() => {
+      const idx = nearestIndex(container);
+      scrollToIndex(container, idx, true);
+    }, delay);
   }
-}
+  function pauseAutoplay() {
+    clearInterval(autoplayTimer); autoplayTimer = null;
+  }
+  function scheduleAutoplayResume(delay = AUTOPLAY_MS) {
+    clearInterval(autoplayTimer);
+    autoplayTimer = setInterval(() => {
+      // evitar mientras arrastra o si no hay slides
+      const slides = getSlides(container);
+      if (!slides.length || isDown) return;
 
-function restartAutoplaySoon(container = document.getElementById('carrusel-campanas')) {
-  if (!container) return;
-  // Evitar duplicados: detenemos y arrancamos de nuevo
-  stopAutoplay();
-  setTimeout(() => startAutoplay(container), 800);
-}
+      const current = nearestIndex(container);
+      const next = (current + 1) % slides.length;
+      scrollToIndex(container, next, true);
 
-/** Wiring inicial + re-wiring cuando cambian los slides por JS */
-function initCarouselWiring() {
-  const container = document.getElementById('carrusel-campanas');
-  const indicadores = document.getElementById('carrusel-indicadores');
-  if (!container) return;
+      // evitamos que inmediatamente recalcule y “rebote”
+      pauseAutoplay();
+      setTimeout(() => { scheduleAutoplayResume(AUTOPLAY_MS); }, SCROLL_TIME + 100);
+    }, delay);
+  }
 
-  const tryWire = () => {
-    const slides = getSlides(container);
-    if (!slides.length) return;
-    wireDrag(container);
-    wireIndicators(container, indicadores);
-    updateActiveIndicator(container, indicadores);
-    disableNativeImageDrag();
-    startAutoplay(container); // encadenado + espera visibilidad
-  };
-
-  tryWire();
-
-  const obs = new MutationObserver(() => tryWire());
-  obs.observe(container, { childList: true, subtree: false });
-  container._rampetObs = obs;
-
-  // Pausar autoplay cuando la pestaña no está visible
+  // Arrancamos autoplay y lo pausamos si la pestaña pierde foco
+  scheduleAutoplayResume(AUTOPLAY_MS);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) stopAutoplay();
-    else restartAutoplaySoon(container);
+    if (document.hidden) pauseAutoplay();
+    else scheduleAutoplayResume(AUTOPLAY_MS);
   });
 
-  // Si el contenedor estaba oculto (display:none) y luego se muestra, arrancar
-  const visObs = new MutationObserver(() => {
-    if (isVisible(container)) { restartAutoplaySoon(container); }
+  // Si JS vuelve a renderizar los slides, re-wire
+  const mo = new MutationObserver(() => {
+    // bloquear drag de nuevas imágenes
+    container.querySelectorAll('img').forEach(img => img.setAttribute('draggable','false'));
+    updateActiveIndicator(container, indicadores);
   });
-  const parent = document.getElementById('carrusel-campanas-container') || container.parentElement;
-  if (parent) visObs.observe(parent, { attributes: true, attributeFilter: ['style','class'] });
-}
-
-/* ===== Snap “real” en Edge/desktop: centra la slide más cercana al terminar el scroll ===== */
-(function initCarouselSnapFix(){
-  const container = document.getElementById('carrusel-campanas');
-  if (!container) return;
-
-  const ensure = () => {
-    const slides = container.querySelectorAll('.banner-item, .banner-item-texto');
-    return slides && slides.length;
-  };
-
-  const centerNearest = () => {
-    if (!ensure() || !isVisible(container)) return;
-    const slides = Array.from(container.querySelectorAll('.banner-item, .banner-item-texto'));
-    const viewportCenter = container.scrollLeft + container.clientWidth / 2;
-
-    let best = slides[0], min = Number.POSITIVE_INFINITY;
-    for (const s of slides) {
-      const center = s.offsetLeft + s.clientWidth / 2;
-      const d = Math.abs(center - viewportCenter);
-      if (d < min) { min = d; best = s; }
-    }
-    const targetLeft = best.offsetLeft - (container.clientWidth - best.clientWidth) / 2;
-    container.scrollTo({ left: targetLeft, behavior: 'smooth' });
-  };
-
-  let t = null, pointerDown = false;
-  container.addEventListener('pointerdown', () => { pointerDown = true; stopAutoplay(); });
-  container.addEventListener('pointerup',   () => { pointerDown = false; centerNearest(); restartAutoplaySoon(container); });
-
-  container.addEventListener('scroll', () => {
-    if (pointerDown) return;
-    clearTimeout(t);
-    t = setTimeout(centerNearest, 90);
-  }, { passive: true });
-
-  window.addEventListener('resize', () => {
-    clearTimeout(t);
-    t = setTimeout(centerNearest, 120);
-  });
-
-  const mo = new MutationObserver(() => { if (ensure()) centerNearest(); });
   mo.observe(container, { childList: true });
-})();
+  container._rampetObs = mo;
+}
 
 // ──────────────────────────────────────────────────────────────
 // LISTENERS DE PANTALLAS
@@ -620,7 +519,6 @@ function setupMainAppScreenListeners() {
     await handleSignOutCleanup();
     const c = document.getElementById('carrusel-campanas');
     if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
-    stopAutoplay();
     Auth.logout();
   });
 
@@ -691,6 +589,7 @@ async function main() {
         installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
       }
 
+      // Carrusel listo (una vez que hay contenido en DOM)
       initCarouselWiring();
     } else {
       if (bell) bell.style.display = 'none';
@@ -700,7 +599,6 @@ async function main() {
 
       const c = document.getElementById('carrusel-campanas');
       if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
-      stopAutoplay();
     }
   });
 }
