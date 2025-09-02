@@ -156,6 +156,8 @@ input:checked + .slider:before{ transform:translateX(26px); }
   overflow-x:auto;
   padding:8px 10px 12px;
   scroll-snap-type:x mandatory;      /* snap consistente en Edge/Chrome/Safari */
+  scroll-padding-left:  calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
+  scroll-padding-right: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
   scroll-behavior:smooth;
   -webkit-overflow-scrolling:touch;
   scrollbar-width:none;
@@ -245,6 +247,7 @@ input:checked + .slider:before{ transform:translateX(26px); }
 #install-entrypoint{ margin-left:8px; }
 #btn-notifs{ display:none; position:relative; }
 #notif-counter{ display:none; position:absolute; top:-6px; right:-6px; background:#e11; color:#fff; border-radius:999px; padding:1px 6px; font:12px system-ui; }
+
 
 
 
