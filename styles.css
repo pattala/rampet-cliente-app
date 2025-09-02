@@ -137,106 +137,88 @@ input:checked + .slider:before{ transform:translateX(26px); }
 #notif-prompt-card .prompt-actions .primary-btn,
 #notif-prompt-card .prompt-actions .secondary-btn{ flex-grow:1; }
 
-/* ===================== CARRUSEL (MODO BÁSICO y CONFIABLE) ===================== */
+/* ===================== CARRUSEL (simple & estable) ===================== */
+:root{
+  --slide-h: 220px;      /* alto del contenedor */
+  --slide-w: 86vw;       /* ancho relativo en móvil (se ve un poco la siguiente) */
+  --slide-max-w: 360px;  /* tope en desktop */
+  --wm-size: 68%;        /* tamaño del sello en slides de texto */
+  --wm-opacity: .12;     /* transparencia del sello */
+}
+
+/* Contenedor / pista */
 .carrusel-container{ margin-bottom:18px; }
 .carrusel-container h3{ margin-bottom:10px; }
 
-/* Pista */
 .carrusel{
   display:flex;
   gap:12px;
   overflow-x:auto;
-  padding:6px 8px 12px;
-
-  /* snap nativo simple y compatible */
-  scroll-snap-type: x mandatory;
-  scroll-behavior: smooth;
-  -webkit-overflow-scrolling: touch;
-
-  /* oculta scrollbar */
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-
-  /* cursor mano/drag en desktop */
-  cursor: grab;
+  padding:8px 10px 12px;
+  scroll-snap-type:x mandatory;      /* snap consistente en Edge/Chrome/Safari */
+  scroll-behavior:smooth;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
 }
 .carrusel::-webkit-scrollbar{ display:none; }
 
-/* Separadores flex (mejor que scroll-padding en Edge) */
-.carrusel::before,
-.carrusel::after{
-  content:"";
-  flex: 0 0 calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
+/* Slides – un tamaño para todos */
+.carrusel .banner-item,
+.carrusel .banner-item-texto{
+  flex:0 0 var(--slide-w);
+  max-width:var(--slide-max-w);
+  height:var(--slide-h);
+  border-radius:12px;
+  overflow:hidden;
+  box-shadow:var(--box-shadow);
+  background:#fff;
+  position:relative;
+  scroll-snap-align:center;          /* centrado al soltar */
+  scroll-snap-stop:always;
+  user-select:none;                   /* evita selección rara al arrastrar */
+  -webkit-user-drag:none;             /* safari */
+  cursor:grab;                        /* mano tipo “arrastrar” */
+}
+.carrusel.arrastrando .banner-item,
+.carrusel.arrastrando .banner-item-texto{
+  cursor:grabbing;
 }
 
-/* Slides (idéntico tamaño con/sin imagen) */
-.carrusel .banner-item{
-  flex: 0 0 var(--slide-w);
-  max-width: var(--slide-max-w);
-  height: var(--slide-h);
-  border-radius: 12px;
-  overflow: hidden;
-  box-shadow: var(--box-shadow);
-  position: relative;
-  background: #fff;
-
-  /* snap centrado */
-  scroll-snap-align: center;
-}
-
-/* ===== Con imagen ===== */
+/* Con imagen */
 .banner-con-imagen{ position:relative; display:block; height:100%; }
 .banner-con-imagen > img{
   width:100%; height:100%;
-  object-fit: contain;         /* se ve completa la 225x225 */
-  background:#f8fafc;          /* marco neutro alrededor si sobra */
-  display:block; border-radius:12px;
-
-  /* evita “arrastrar fuera” */
-  pointer-events:none;
-  -webkit-user-drag:none;
-  user-select:none;
+  object-fit: cover;    /* ← si querés ver la imagen COMPLETA usá: contain */
+  display:block;
+  border-radius:12px;
+  background:#f8fafc;   /* “marco” neutro si la imagen es cuadrada y usás contain */
 }
 
-/* ===== Solo texto ===== */
-/* Caso 1: el slide ES .banner-item.banner-item-texto (la clase en el <a>) */
-.carrusel .banner-item.banner-item-texto{
+/* Overlay de texto SOLO sobre imagen */
+.banner-con-imagen .banner-texto-overlay{
+  position:absolute; left:0; right:0; bottom:0;
+  padding:14px;
+  background:linear-gradient(to top, rgba(0,0,0,.65), rgba(0,0,0,0));
+  color:#fff; text-align:left;
+}
+.banner-con-imagen .banner-texto-overlay h4{ margin:0 0 4px; font-weight:700; }
+.banner-con-imagen .banner-texto-overlay p{ margin:0; opacity:.95; }
+
+/* Solo texto – sello + textos centrados de verdad */
+.carrusel .banner-item-texto{
   display:flex; align-items:center; justify-content:center;
   text-align:center; padding:14px; isolation:isolate;
-  background:#f8fafc; height: var(--slide-h);
+  background:#f8fafc;
 }
-.carrusel .banner-item.banner-item-texto::before{
+.carrusel .banner-item-texto::before{
   content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
   background:center / var(--wm-size) no-repeat url("images/mi_logo.png");
-  opacity: var(--wm-opacity); filter:grayscale(1);
+  opacity:var(--wm-opacity);
+  filter:grayscale(1);
 }
-.carrusel .banner-item.banner-item-texto > *{ position:relative; z-index:1; }
-.carrusel .banner-item.banner-item-texto h4{
-  margin:0 0 6px; color: var(--primary-color); width:100%;
-}
-.carrusel .banner-item.banner-item-texto p{
-  margin:0; color:var(--text-color); opacity:.95; width:100%;
-}
-
-/* Caso 2: el slide es .banner-item y adentro viene un div .banner-item-texto (ambas variantes cubiertas) */
-.carrusel .banner-item > .banner-item-texto{
-  height:100%; border-radius:inherit;
-  display:flex; align-items:center; justify-content:center;
-  text-align:center; padding:14px; isolation:isolate; background:#f8fafc;
-  position:relative;
-}
-.carrusel .banner-item > .banner-item-texto::before{
-  content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
-  background:center / var(--wm-size) no-repeat url("images/mi_logo.png");
-  opacity: var(--wm-opacity); filter:grayscale(1);
-}
-.carrusel .banner-item > .banner-item-texto > *{ position:relative; z-index:1; }
-.carrusel .banner-item > .banner-item-texto h4{
-  margin:0 0 6px; color: var(--primary-color); width:100%;
-}
-.carrusel .banner-item > .banner-item-texto p{
-  margin:0; color:var(--text-color); opacity:.95; width:100%;
-}
+.carrusel .banner-item-texto > *{ position:relative; z-index:1; }
+.carrusel .banner-item-texto h4{ margin:0 0 6px; color:var(--primary-color); }
+.carrusel .banner-item-texto p{ margin:0; color:var(--text-color); }
 
 /* Indicadores */
 .carrusel-indicadores{ text-align:center; margin-top:6px; }
@@ -245,9 +227,8 @@ input:checked + .slider:before{ transform:translateX(26px); }
   background:#ccc; margin:0 4px; cursor:pointer; transition:background-color .2s;
 }
 .carrusel-indicadores .indicador.activo{ background: var(--primary-color); }
+/* ====================================================================== */
 
-/* Arrastre desktop */
-.carrusel.arrastrando{ cursor:grabbing; scroll-behavior:auto; }
 
 /* ===================== SALDO A FAVOR (compacto) ===================== */
 #saldo-card{ padding:12px 14px; }
@@ -264,4 +245,5 @@ input:checked + .slider:before{ transform:translateX(26px); }
 #install-entrypoint{ margin-left:8px; }
 #btn-notifs{ display:none; position:relative; }
 #notif-counter{ display:none; position:absolute; top:-6px; right:-6px; background:#e11; color:#fff; border-radius:999px; padding:1px 6px; font:12px system-ui; }
+
 
