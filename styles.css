@@ -137,7 +137,7 @@ input:checked + .slider:before{ transform:translateX(26px); }
 #notif-prompt-card .prompt-actions .primary-btn,
 #notif-prompt-card .prompt-actions .secondary-btn{ flex-grow:1; }
 
-/* ===================== CARRUSEL ===================== */
+/* ===================== CARRUSEL (MODO BÁSICO y CONFIABLE) ===================== */
 .carrusel-container{ margin-bottom:18px; }
 .carrusel-container h3{ margin-bottom:10px; }
 
@@ -148,24 +148,29 @@ input:checked + .slider:before{ transform:translateX(26px); }
   overflow-x:auto;
   padding:6px 8px 12px;
 
+  /* snap nativo simple y compatible */
   scroll-snap-type: x mandatory;
   scroll-behavior: smooth;
   -webkit-overflow-scrolling: touch;
 
+  /* oculta scrollbar */
   scrollbar-width: none;
   -ms-overflow-style: none;
 
-  /* centrado a los extremos */
-  scroll-padding-left: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
-  scroll-padding-right: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
-
-  cursor: grab; /* mano */
+  /* cursor mano/drag en desktop */
+  cursor: grab;
 }
 .carrusel::-webkit-scrollbar{ display:none; }
 
-/* Slides (mismo tamaño para todos) */
-.carrusel .banner-item,
-.carrusel .banner-item-texto{
+/* Separadores flex (mejor que scroll-padding en Edge) */
+.carrusel::before,
+.carrusel::after{
+  content:"";
+  flex: 0 0 calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
+}
+
+/* Slides (idéntico tamaño con/sin imagen) */
+.carrusel .banner-item{
   flex: 0 0 var(--slide-w);
   max-width: var(--slide-max-w);
   height: var(--slide-h);
@@ -175,55 +180,62 @@ input:checked + .slider:before{ transform:translateX(26px); }
   position: relative;
   background: #fff;
 
+  /* snap centrado */
   scroll-snap-align: center;
-  scroll-snap-stop: always;
 }
 
-/* Con imagen */
+/* ===== Con imagen ===== */
 .banner-con-imagen{ position:relative; display:block; height:100%; }
 .banner-con-imagen > img{
   width:100%; height:100%;
-  object-fit: contain;          /* ← para ver completa la 225x225 */
-  background:#f8fafc;           /* fondo suave alrededor de la imagen cuadrada */
+  object-fit: contain;         /* se ve completa la 225x225 */
+  background:#f8fafc;          /* marco neutro alrededor si sobra */
   display:block; border-radius:12px;
 
-  /* bloqueo de arrastre/selección */
+  /* evita “arrastrar fuera” */
   pointer-events:none;
-  -webkit-user-drag: none;
-  user-select: none;
+  -webkit-user-drag:none;
+  user-select:none;
 }
-/* Overlay SOLO si querés texto sobre imagen (mantengo por compatibilidad, pero está sin conflicto) */
-.banner-con-imagen .banner-texto-overlay{
-  position:absolute; left:0; right:0; bottom:0;
-  padding:14px;
-  background:linear-gradient(to top, rgba(0,0,0,.65), rgba(0,0,0,0));
-  color:#fff; text-align:left;
-}
-.banner-con-imagen .banner-texto-overlay h4{ margin:0 0 4px; font-weight:700; }
-.banner-con-imagen .banner-texto-overlay p{ margin:0; opacity:.95; }
 
-/* Solo texto: sello centrado + textos centrados */
-.carrusel .banner-item-texto{
+/* ===== Solo texto ===== */
+/* Caso 1: el slide ES .banner-item.banner-item-texto (la clase en el <a>) */
+.carrusel .banner-item.banner-item-texto{
   display:flex; align-items:center; justify-content:center;
   text-align:center; padding:14px; isolation:isolate;
-  background:#f8fafc; height:100%;
+  background:#f8fafc; height: var(--slide-h);
 }
-.carrusel .banner-item-texto::before{
+.carrusel .banner-item.banner-item-texto::before{
   content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
   background:center / var(--wm-size) no-repeat url("images/mi_logo.png");
-  opacity:var(--wm-opacity);
-  filter:grayscale(1);
+  opacity: var(--wm-opacity); filter:grayscale(1);
 }
-.carrusel .banner-item-texto > *{ position:relative; z-index:1; }
-.carrusel .banner-item-texto h4{
-  margin:0 0 6px;
-  color: var(--primary-color);
-  width: 100%;
+.carrusel .banner-item.banner-item-texto > *{ position:relative; z-index:1; }
+.carrusel .banner-item.banner-item-texto h4{
+  margin:0 0 6px; color: var(--primary-color); width:100%;
 }
-.carrusel .banner-item-texto p{
-  margin:0;
-  color:var(--text-color); opacity:.95;
-  width: 100%;
+.carrusel .banner-item.banner-item-texto p{
+  margin:0; color:var(--text-color); opacity:.95; width:100%;
+}
+
+/* Caso 2: el slide es .banner-item y adentro viene un div .banner-item-texto (ambas variantes cubiertas) */
+.carrusel .banner-item > .banner-item-texto{
+  height:100%; border-radius:inherit;
+  display:flex; align-items:center; justify-content:center;
+  text-align:center; padding:14px; isolation:isolate; background:#f8fafc;
+  position:relative;
+}
+.carrusel .banner-item > .banner-item-texto::before{
+  content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
+  background:center / var(--wm-size) no-repeat url("images/mi_logo.png");
+  opacity: var(--wm-opacity); filter:grayscale(1);
+}
+.carrusel .banner-item > .banner-item-texto > *{ position:relative; z-index:1; }
+.carrusel .banner-item > .banner-item-texto h4{
+  margin:0 0 6px; color: var(--primary-color); width:100%;
+}
+.carrusel .banner-item > .banner-item-texto p{
+  margin:0; color:var(--text-color); opacity:.95; width:100%;
 }
 
 /* Indicadores */
@@ -252,3 +264,4 @@ input:checked + .slider:before{ transform:translateX(26px); }
 #install-entrypoint{ margin-left:8px; }
 #btn-notifs{ display:none; position:relative; }
 #notif-counter{ display:none; position:absolute; top:-6px; right:-6px; background:#e11; color:#fff; border-radius:999px; padding:1px 6px; font:12px system-ui; }
+
