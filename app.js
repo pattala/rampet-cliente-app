@@ -1,5 +1,5 @@
 // app.js (PWA del Cliente – instalación + notifs + INBOX modal con grupos y paginado)
-// + Carrusel: autoplay 2.5s, drag desktop, snap estable en Edge, cursor grab y bloque de arrastre de imágenes
+// + Carrusel: autoplay 2.5s con setTimeout, drag desktop, snap estable en Edge, cursor grab, bloqueo drag de imágenes
 
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -333,7 +333,7 @@ async function openInboxModal() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// CARRUSEL: autoplay 2.5s + drag desktop + snap robusto
+// CARRUSEL: autoplay 2.5s (setTimeout), drag desktop y snap robusto
 // ──────────────────────────────────────────────────────────────
 function getSlides(container) {
   if (!container) return [];
@@ -369,10 +369,23 @@ function updateActiveIndicator(container, indicadoresRoot) {
     else dot.classList.remove('activo');
   });
 }
-function wireIndicators(container, indicadoresRoot) {
+function wireIndicators(container, indicadoresRoot, resumeAutoplay) {
   if (!container || !indicadoresRoot) return;
   const dots = Array.from(indicadoresRoot.querySelectorAll('.indicador'));
-  dots.forEach((dot, i) => { dot.onclick = () => scrollToIndex(container, i); });
+  dots.forEach((dot, i) => {
+    dot.onclick = () => {
+      pauseAutoplay();
+      scrollToIndex(container, i);
+      // da un tiempo a que termine el smooth y retoma
+      setTimeout(() => resumeAutoplay(), 800);
+    };
+  });
+}
+
+let autoplayCancel = null;
+function pauseAutoplay() {
+  if (typeof autoplayCancel === 'function') autoplayCancel();
+  autoplayCancel = null;
 }
 
 function initCarouselWiring() {
@@ -380,31 +393,23 @@ function initCarouselWiring() {
   const indicadores = document.getElementById('carrusel-indicadores');
   if (!container) return;
 
-  // Evitar arrastrar imágenes fuera del carrusel
-  container.querySelectorAll('img').forEach(img => {
-    img.setAttribute('draggable', 'false');
-  });
-
-  // Cursor: mano / “grab”
+  // Evitar arrastrar imágenes fuera del carrusel + mostrar "mano"
+  container.querySelectorAll('img').forEach(img => img.setAttribute('draggable','false'));
   container.style.cursor = 'grab';
-  container.addEventListener('pointerdown', () => container.classList.add('arrastrando'));
-  container.addEventListener('pointerup',   () => container.classList.remove('arrastrando'));
-  container.addEventListener('pointercancel',() => container.classList.remove('arrastrando'));
-  container.addEventListener('mouseleave',  () => container.classList.remove('arrastrando'));
 
   // Drag con mouse (desktop)
   let isDown = false;
   let startX = 0;
   let startScroll = 0;
-  let userInteracting = false;
   let raf = null;
 
   const onPointerDown = (e) => {
     isDown = true;
-    userInteracting = true;
     startX = e.clientX;
     startScroll = container.scrollLeft;
+    container.classList.add('arrastrando');
     try { container.setPointerCapture(e.pointerId); } catch {}
+    pauseAutoplay();
   };
   const onPointerMove = (e) => {
     if (!isDown) return;
@@ -413,84 +418,87 @@ function initCarouselWiring() {
     if (e.cancelable) e.preventDefault();
   };
   const onPointerUp = (e) => {
+    if (!isDown) return;
     isDown = false;
+    container.classList.remove('arrastrando');
     try { container.releasePointerCapture(e.pointerId); } catch {}
-    centerNearestSoon();
-    // soltó → a los 1200ms retomamos autoplay
-    scheduleAutoplayResume(1200);
+    // centra el slide más cercano y luego reanuda autoplay
+    centerNearest(80, () => startAutoplay());
   };
 
   container.addEventListener('pointerdown', onPointerDown);
-  container.addEventListener('pointermove', onPointerMove);
+  container.addEventListener('pointermove', onPointerMove, { passive:false });
   container.addEventListener('pointerup', onPointerUp);
   container.addEventListener('pointercancel', onPointerUp);
+  container.addEventListener('mouseleave', () => { if (isDown) onPointerUp({pointerId:0}); });
 
-  // rueda/scroll → pausar autoplay, actualizar indicador
+  // Durante scroll, actualizar indicador (throttle con RAF)
   const onScroll = () => {
     if (raf) return;
     raf = requestAnimationFrame(() => {
       updateActiveIndicator(container, indicadores);
       raf = null;
     });
-    pauseAutoplay();
-    scheduleAutoplayResume(1200);
   };
   container.addEventListener('scroll', onScroll, { passive: true });
 
-  // Al entrar/salir con el mouse
-  container.addEventListener('mouseenter', () => { userInteracting = true; pauseAutoplay(); });
-  container.addEventListener('mouseleave', () => { userInteracting = false; scheduleAutoplayResume(800); });
-
   // Re-centrar en resize
-  window.addEventListener('resize', () => centerNearestSoon());
+  window.addEventListener('resize', () => centerNearest(120));
 
   // Dots
-  wireIndicators(container, indicadores);
+  wireIndicators(container, indicadores, startAutoplay);
   updateActiveIndicator(container, indicadores);
 
-  // ── Autoplay robusto ───────────────────────────────────────
-  const AUTOPLAY_MS = 2500;          // velocidad pedida
-  const SCROLL_TIME = 600;           // tiempo estimado del smooth scrolling
-
-  let autoplayTimer = null;
-  let centerTimer = null;
-  function centerNearestSoon(delay = 90) {
-    clearTimeout(centerTimer);
-    centerTimer = setTimeout(() => {
+  // Snap helper: centra el más cercano después de una pequeña pausa
+  function centerNearest(delay = 90, cb) {
+    setTimeout(() => {
       const idx = nearestIndex(container);
-      scrollToIndex(container, idx, true);
+      // primero sin animación para corregir “drift”, luego con smooth si quedó lejos
+      scrollToIndex(container, idx, false);
+      if (typeof cb === 'function') cb();
     }, delay);
   }
-  function pauseAutoplay() {
-    clearInterval(autoplayTimer); autoplayTimer = null;
-  }
-  function scheduleAutoplayResume(delay = AUTOPLAY_MS) {
-    clearInterval(autoplayTimer);
-    autoplayTimer = setInterval(() => {
-      // evitar mientras arrastra o si no hay slides
-      const slides = getSlides(container);
-      if (!slides.length || isDown) return;
 
+  // ── Autoplay con setTimeout encadenado (Edge-friendly) ─────
+  const AUTOPLAY_MS = 2500;   // pedido
+  const SCROLL_MS   = 600;    // tiempo estimado del smooth
+
+  function startAutoplay() {
+    pauseAutoplay();
+    let canceled = false;
+    autoplayCancel = () => { canceled = true; };
+
+    const tick = () => {
+      if (canceled) return;
+      const slides = getSlides(container);
+      if (!slides.length || isDown) { // si está arrastrando, reintenta más tarde
+        autoplayCancel = setTimeout(tick, AUTOPLAY_MS);
+        return;
+      }
       const current = nearestIndex(container);
       const next = (current + 1) % slides.length;
       scrollToIndex(container, next, true);
 
-      // evitamos que inmediatamente recalcule y “rebote”
-      pauseAutoplay();
-      setTimeout(() => { scheduleAutoplayResume(AUTOPLAY_MS); }, SCROLL_TIME + 100);
-    }, delay);
+      // al terminar el smooth, corregimos el snap si hace falta y programamos el próximo
+      setTimeout(() => {
+        if (canceled) return;
+        centerNearest(0);
+        autoplayCancel = setTimeout(tick, AUTOPLAY_MS);
+      }, SCROLL_MS + 40);
+    };
+
+    autoplayCancel = setTimeout(tick, AUTOPLAY_MS);
   }
 
-  // Arrancamos autoplay y lo pausamos si la pestaña pierde foco
-  scheduleAutoplayResume(AUTOPLAY_MS);
+  // Iniciar autoplay y pausar/continuar según visibilidad
+  startAutoplay();
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) pauseAutoplay();
-    else scheduleAutoplayResume(AUTOPLAY_MS);
+    else startAutoplay();
   });
 
-  // Si JS vuelve a renderizar los slides, re-wire
+  // Si JS vuelve a renderizar los slides, re-wire mínimo
   const mo = new MutationObserver(() => {
-    // bloquear drag de nuevas imágenes
     container.querySelectorAll('img').forEach(img => img.setAttribute('draggable','false'));
     updateActiveIndicator(container, indicadores);
   });
@@ -589,7 +597,7 @@ async function main() {
         installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
       }
 
-      // Carrusel listo (una vez que hay contenido en DOM)
+      // Carrusel listo
       initCarouselWiring();
     } else {
       if (bell) bell.style.display = 'none';
