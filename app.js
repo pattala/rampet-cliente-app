@@ -408,14 +408,16 @@ function initCarouselBasic(){
     resumeAutoplaySoon(1200);
   };
   root.addEventListener('scroll', onScroll, { passive:true });
-// Cualquier click dentro del carrusel → reanudar a los 1200ms
-root.addEventListener('click', () => resumeAutoplaySoon(1200), true);
+
+  // Cualquier click dentro del carrusel → reanudar a los 1200ms
+  root.addEventListener('click', () => resumeAutoplaySoon(1200), true);
+
   // Dots
   carruselWireDots(root, dotsRoot);
   carruselUpdateDots(root, dotsRoot);
   if (dotsRoot){
-  dotsRoot.addEventListener('click', () => resumeAutoplaySoon(1200));
-}
+    dotsRoot.addEventListener('click', () => resumeAutoplaySoon(1200));
+  }
 
   // Snap al centro al terminar de moverse
   let snapT = null;
@@ -557,9 +559,8 @@ async function main() {
         installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
       }
 
-      // Carrusel listo
-      initCarouselWiring();
-      setTimeout(initCarouselBasic, 0);
+      // Inicializar carrusel (simple y estable)
+      initCarouselBasic();
     } else {
       if (bell) bell.style.display = 'none';
       if (badge) badge.style.display = 'none';
@@ -573,5 +574,3 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
-
