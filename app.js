@@ -138,6 +138,87 @@ function on(id, event, handler) {
   const el = document.getElementById(id);
   if (el) el.addEventListener(event, handler);
 }
+// ==== [RAMPET][HOME LIMITS] Límite de historial y vencimientos + 'Ver todo' ====
+const UI_LIMITS = {
+  HISTORIAL_MAX: 8,   // muestra solo últimos 8 movimientos en Home
+  VENC_FECHAS_MAX: 3, // mantiene 3 fechas de próximos vencimientos en Home
+};
+
+const _rampetUiObservers = [];
+function registerObserver(mo){ _rampetUiObservers.push(mo); }
+function cleanupUiObservers(){
+  while (_rampetUiObservers.length) {
+    const mo = _rampetUiObservers.pop();
+    try { mo.disconnect(); } catch {}
+  }
+}
+
+// Crea (si no existe) un link 'Ver todo' en el contenedor dado
+function ensureVerTodoLink(container, linkId, text, onClick){
+  if (!container) return;
+  let link = container.querySelector('#' + linkId);
+  if (!link) {
+    link = document.createElement('a');
+    link.id = linkId;
+    link.className = 'ver-todo-link';
+    link.textContent = text;
+    link.href = 'javascript:void(0)';
+    container.appendChild(link);
+  }
+  link.onclick = onClick;
+}
+
+// Limita la lista de historial reciente en Home (#lista-historial)
+async function limitHistorialReciente() {
+  const ul = document.getElementById('lista-historial');
+  if (!ul) return;
+  // Oculta ítems extra para mantener la Home liviana
+  const items = Array.from(ul.querySelectorAll('li'));
+  if (items.length > UI_LIMITS.HISTORIAL_MAX) {
+    items.slice(UI_LIMITS.HISTORIAL_MAX).forEach(li => { li.style.display = 'none'; });
+    // Agrega 'Ver todo' al final de la tarjeta/lista
+    const container = ul.parentElement || ul;
+    ensureVerTodoLink(container, 'ver-historial-link', 'Ver todo el historial', async () => {
+      // Abre el modal extendido (por ahora sin filtro por categoría; eso llega en el Paso 2)
+      await openInboxModal();
+    });
+  }
+}
+
+// Limita la lista de próximas fechas de vencimiento (.venc-list) a 3
+async function limitVencimientos() {
+  const list = document.querySelector('.venc-list');
+  if (!list) return;
+  const items = Array.from(list.querySelectorAll('li')).filter(li => !li.classList.contains('venc-empty'));
+  if (items.length > UI_LIMITS.VENC_FECHAS_MAX) {
+    items.slice(UI_LIMITS.VENC_FECHAS_MAX).forEach(li => { li.style.display = 'none'; });
+    const container = list.parentElement || list;
+    ensureVerTodoLink(container, 'ver-venc-link', 'Ver todos los vencimientos', async () => {
+      await openInboxModal();
+      // (Paso 2: aplicaremos filtro a 'puntos/vencimientos' en el modal)
+    });
+  }
+}
+
+// Observa los contenedores para aplicar el límite cada vez que se actualicen desde Firestore
+function setupMainLimitsObservers() {
+  const hist = document.getElementById('lista-historial');
+  if (hist) {
+    const mo = new MutationObserver(() => limitHistorialReciente());
+    mo.observe(hist, { childList: true });
+    registerObserver(mo);
+    // Primer pase por si ya hay elementos
+    limitHistorialReciente();
+  }
+  const venc = document.querySelector('.venc-list');
+  if (venc) {
+    const mo2 = new MutationObserver(() => limitVencimientos());
+    mo2.observe(venc, { childList: true });
+    registerObserver(mo2);
+    // Primer pase
+    limitVencimientos();
+  }
+}
 
 // ──────────────────────────────────────────────────────────────
 /** INBOX MODAL — agrupado No leídas / Leídas + paginado */
@@ -530,10 +611,15 @@ function setupAuthScreenListeners() {
 }
 
 function setupMainAppScreenListeners() {
+  
   on('logout-btn', 'click', async () => {
     await handleSignOutCleanup();
     const c = document.getElementById('carrusel-campanas');
     if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
+    
+      // Limpia observadores de UI (Home limits)
+  cleanupUiObservers();
+
     Auth.logout();
   });
 
@@ -589,7 +675,8 @@ async function main() {
       setupMainAppScreenListeners();
 
       Data.listenToClientData(user);
-
+// Limitar Home (historial reciente + vencimientos) y agregar 'Ver todo'
+setupMainLimitsObservers();
       if (messagingSupported) {
         await gestionarPermisoNotificaciones();
         await ensureSingleToken();
@@ -619,3 +706,4 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
