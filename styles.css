@@ -146,12 +146,16 @@ input:checked + .slider:before{ transform:translateX(26px); }
   gap:12px;
   overflow-x:auto;
   padding:8px 10px 12px;
-  scroll-snap-type:x mandatory;      
+  scroll-snap-type:x mandatory;
   scroll-padding-left:  calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
   scroll-padding-right: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
   scroll-behavior:smooth;
   -webkit-overflow-scrolling:touch;
   scrollbar-width:none;
+
+  /* 🔧 Edge/Windows: evita rebotes e interpreta bien el pan horizontal */
+  overscroll-behavior-x: contain;
+  touch-action: pan-x;
 }
 .carrusel::-webkit-scrollbar{ display:none; }
 
@@ -166,11 +170,11 @@ input:checked + .slider:before{ transform:translateX(26px); }
   box-shadow:var(--box-shadow);
   background:#fff;
   position:relative;
-  scroll-snap-align:center;          
+  scroll-snap-align:center;
   scroll-snap-stop:always;
-  user-select:none;                   
-  -webkit-user-drag:none;             
-  cursor:grab;                        
+  user-select:none;
+  -webkit-user-drag:none;
+  cursor:grab;
 }
 .carrusel.arrastrando .banner-item,
 .carrusel.arrastrando .banner-item-texto{
@@ -185,6 +189,10 @@ input:checked + .slider:before{ transform:translateX(26px); }
   display:block;
   border-radius:12px;
   background:#f8fafc;
+  /* 🔒 Evita que el navegador “agarre” la imagen en drag */
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 /* Overlay de texto SOLO sobre imagen */
