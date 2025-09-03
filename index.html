@@ -152,6 +152,18 @@
           </label>
         </div>
       </div>
+<!-- Banner de ubicación -->
+<div id="geo-banner" class="card" style="display:none;">
+  <h3>Ofertas cerca tuyo</h3>
+  <p id="geo-banner-text" style="margin:8px 0 12px;">
+    📍 Ubicación activada para recibir beneficios cercanos.
+  </p>
+  <div class="prompt-actions" style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button id="geo-disable-btn" class="secondary-btn">Desactivar ubicación</button>
+    <button id="geo-enable-btn" class="primary-btn" style="display:none;">Activar ubicación</button>
+    <button id="geo-help-btn" class="secondary-btn" style="display:none;">Cómo habilitar en el navegador</button>
+  </div>
+</div>
 
       <div id="notif-blocked-warning" class="card warning-banner" style="display:none;">
         <p>⚠️ Has bloqueado las notificaciones. Habilítalas en la configuración de tu navegador.</p>
@@ -247,4 +259,5 @@
   <script src="app.js" type="module"></script>
 </body>
 </html>
+
 
