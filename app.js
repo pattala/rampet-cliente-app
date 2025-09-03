@@ -1,4 +1,4 @@
-// app.js (PWA del Cliente – instalación + notifs + INBOX modal con grupos y paginado)
+// app.js (PWA del Cliente – instalación + notifs + INBOX modal con filtros)
 // + Carrusel: autoplay 2.5s con setTimeout, drag desktop, snap estable en Edge, cursor grab, bloqueo drag de imágenes
 
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
@@ -99,7 +99,7 @@ async function handleDismissInstall() {
     console.warn('No se pudo registrar el dismiss en Firestore:', e);
   }
 }
-function getInstallInstructionsHTML() {
+function getInstallInstructions() {
   const ua = navigator.userAgent.toLowerCase();
   const isIOS = /iphone|ipad|ipod/.test(ua);
   const isAndroid = /android/.test(ua);
@@ -138,6 +138,7 @@ function on(id, event, handler) {
   const el = document.getElementById(id);
   if (el) el.addEventListener(event, handler);
 }
+
 // ==== [RAMPET][HOME LIMITS] Límite de historial y vencimientos + 'Ver todo' ====
 const UI_LIMITS = {
   HISTORIAL_MAX: 8,   // muestra solo últimos 8 movimientos en Home
@@ -172,14 +173,11 @@ function ensureVerTodoLink(container, linkId, text, onClick){
 async function limitHistorialReciente() {
   const ul = document.getElementById('lista-historial');
   if (!ul) return;
-  // Oculta ítems extra para mantener la Home liviana
   const items = Array.from(ul.querySelectorAll('li'));
   if (items.length > UI_LIMITS.HISTORIAL_MAX) {
     items.slice(UI_LIMITS.HISTORIAL_MAX).forEach(li => { li.style.display = 'none'; });
-    // Agrega 'Ver todo' al final de la tarjeta/lista
     const container = ul.parentElement || ul;
     ensureVerTodoLink(container, 'ver-historial-link', 'Ver todo el historial', async () => {
-      // Abre el modal extendido (por ahora sin filtro por categoría; eso llega en el Paso 2)
       await openInboxModal();
     });
   }
@@ -195,19 +193,17 @@ async function limitVencimientos() {
     const container = list.parentElement || list;
     ensureVerTodoLink(container, 'ver-venc-link', 'Ver todos los vencimientos', async () => {
       await openInboxModal();
-      // (Paso 2: aplicaremos filtro a 'puntos/vencimientos' en el modal)
     });
   }
 }
 
-// Observa los contenedores para aplicar el límite cada vez que se actualicen desde Firestore
+// Observa contenedores para aplicar límite cada vez que se actualicen desde Firestore
 function setupMainLimitsObservers() {
   const hist = document.getElementById('lista-historial');
   if (hist) {
     const mo = new MutationObserver(() => limitHistorialReciente());
     mo.observe(hist, { childList: true });
     registerObserver(mo);
-    // Primer pase por si ya hay elementos
     limitHistorialReciente();
   }
   const venc = document.querySelector('.venc-list');
@@ -215,60 +211,45 @@ function setupMainLimitsObservers() {
     const mo2 = new MutationObserver(() => limitVencimientos());
     mo2.observe(venc, { childList: true });
     registerObserver(mo2);
-    // Primer pase
     limitVencimientos();
   }
 }
 
 // ──────────────────────────────────────────────────────────────
-/** INBOX MODAL — agrupado No leídas / Leídas + paginado */
+// TÉRMINOS & CONDICIONES (modal existente en HTML)
 // ──────────────────────────────────────────────────────────────
-let inboxPagination = { lastReadDoc: null, clienteRefPath: null };
+function termsModal() { return document.getElementById('terms-modal'); }
+function termsTextEl() { return document.getElementById('terms-text'); }
 
-function ensureInboxModal() {
-  if (document.getElementById('inbox-modal')) return;
-
-  const overlay = document.createElement('div');
-  overlay.id = 'inbox-modal';
-  overlay.className = 'modal-overlay';
-  overlay.style.display = 'none';
-
-  overlay.innerHTML = `
-    <div class="modal-content" style="max-width: 560px;">
-      <span id="close-inbox-modal" class="modal-close-btn">×</span>
-      <h2 style="margin-bottom:12px;">Notificaciones</h2>
-
-      <div id="inbox-section-unread" class="card" style="padding:14px;">
-        <h3 style="margin:0 0 8px 0; border:none;">No leídas</h3>
-        <div id="inbox-list-unread"></div>
-      </div>
-
-      <div id="inbox-section-read" class="card" style="padding:14px;">
-        <h3 style="margin:0 0 8px 0; border:none;">Leídas</h3>
-        <div id="inbox-list-read"></div>
-        <div style="text-align:center; margin-top:10px;">
-          <button id="inbox-load-more" class="secondary-btn">Cargar más</button>
-        </div>
-      </div>
-    </div>
+function loadTermsContent() {
+  const el = termsTextEl();
+  if (!el) return;
+  el.innerHTML = `
+    <p><strong>1. Generalidades:</strong> El programa de fidelización "Club RAMPET" es un beneficio exclusivo para nuestros clientes. La participación en el programa es gratuita e implica la aceptación total de los presentes términos y condiciones.</p>
+    <p><strong>2. Consentimiento de Comunicaciones:</strong> Al registrarte y/o aceptar los términos en la aplicación, otorgas tu consentimiento explícito para recibir comunicaciones transaccionales y promocionales del Club RAMPET a través de correo electrónico y notificaciones push. Estas comunicaciones son parte integral del programa de fidelización e incluyen, entre otros, avisos sobre puntos ganados, premios canjeados, promociones especiales y vencimiento de puntos. Puedes gestionar tus preferencias de notificaciones en cualquier momento.</p>
+    <p><strong>3. Acumulación de Puntos:</strong> Los puntos se acumularán según la tasa de conversión vigente establecida por RAMPET. Los puntos no tienen valor monetario, no son transferibles a otras personas ni canjeables por dinero en efectivo.</p>
+    <p><strong>4. Canje de Premios:</strong> El canje de premios se realiza exclusivamente en el local físico y será procesado por un administrador del sistema. La PWA sirve como un catálogo para consultar los premios disponibles y los puntos necesarios. Para realizar un canje, el cliente debe presentar una identificación válida.</p>
+    <p><strong>5. Validez y Caducidad:</strong> Los puntos acumulados tienen una fecha de caducidad que se rige por las reglas definidas en el sistema. El cliente será notificado de los vencimientos próximos a través de los canales de comunicación aceptados para que pueda utilizarlos a tiempo.</p>
+    <p><strong>6. Modificaciones del Programa:</strong> RAMPET se reserva el derecho de modificar los términos y condiciones, la tasa de conversión, el catálogo de premios o cualquier otro aspecto del programa de fidelización, inclusive su finalizacion, en cualquier momento y sin previo aviso.</p>
   `;
-  document.body.appendChild(overlay);
-
-  // === Agregado: barra de filtros ===
-  ensureInboxFilters();
-
-  document.getElementById('close-inbox-modal').addEventListener('click', () => {
-    overlay.style.display = 'none';
-  });
-
-  document.getElementById('inbox-load-more').addEventListener('click', async () => {
-    await fetchInboxBatch({ more: true });
-  });
+}
+function openTermsModal(){ const m=termsModal(); if(!m) return; loadTermsContent(); m.style.display='flex'; }
+function closeTermsModal(){ const m=termsModal(); if(!m) return; m.style.display='none'; }
+function wireTermsModalBehavior(){
+  const m=termsModal(); if(!m||m._wired) return; m._wired=true;
+  on('close-terms-modal','click',closeTermsModal);
+  on('accept-terms-btn-modal','click',closeTermsModal);
+  m.addEventListener('click',(e)=>{ if(e.target===m) closeTermsModal(); });
+  document.addEventListener('keydown',(e)=>{ if(e.key==='Escape' && m.style.display==='flex') closeTermsModal(); });
 }
 
-// ==== [RAMPET][INBOX FILTERS] Barra de filtros + helpers ====
+// ──────────────────────────────────────────────────────────────
+// INBOX MODAL (REUTILIZA EL QUE YA ESTÁ EN EL HTML)
+// ──────────────────────────────────────────────────────────────
 
-let inboxFilter = 'all'; // 'all' | 'puntos' | 'promos' | 'otros'
+// Estado de filtro actual: 'all' | 'promos' | 'puntos' | 'otros'
+let inboxFilter = 'all';
+let inboxLastSnapshot = []; // cache local del último fetch (para "marcar todo leído")
 
 function normalizeCategory(v){
   if (!v) return '';
@@ -285,121 +266,17 @@ function itemMatchesFilter(it){
   return cat === inboxFilter;
 }
 
-function ensureInboxFilters(){
-  const modal = document.getElementById('inbox-modal');
-  if (!modal) return;
+function renderInboxList(items){
+  const list = document.getElementById('inbox-list');
+  const empty = document.getElementById('inbox-empty');
+  if (!list || !empty) return;
 
-  // --- Helpers locales ---
-  const labelToKey = (txt) => {
-    const t = (txt || '').trim().toLowerCase();
-    if (t === 'todos') return 'all';
-    if (t === 'puntos') return 'puntos';
-    if (t === 'promos') return 'promos';
-    if (t === 'otros')  return 'otros';
-    return '';
-  };
-  const isFilterBtn = (el) => {
-    if (!el) return false;
-    if (el.hasAttribute && el.hasAttribute('data-filter')) {
-      const v = (el.getAttribute('data-filter') || '').toLowerCase();
-      return ['all','puntos','promos','otros'].includes(v);
-    }
-    // si no tiene data-filter, miramos el texto
-    const k = labelToKey(el.textContent);
-    return !!k;
-  };
-  const containerHasFilterButtons = (el) => {
-    if (!el || !el.querySelectorAll) return false;
-    const candidates = Array.from(el.querySelectorAll('button, a'));
-    const hits = candidates.filter(isFilterBtn);
-    // al menos 2 botones válidos para considerarlo barra de filtros
-    return hits.length >= 2;
-  };
+  const data = items.filter(itemMatchesFilter);
+  empty.style.display = data.length ? 'none' : 'block';
 
-  // 1) Buscar todas las barras candidatas dentro del modal (muy amplio a propósito)
-  let candidates = Array.from(modal.querySelectorAll('*'))
-    .filter(containerHasFilterButtons);
+  if (!data.length) { list.innerHTML = ''; return; }
 
-  let filters = null;
-  if (candidates.length > 0) {
-    // 2) Quedarnos con la primera, eliminar duplicadas
-    filters = candidates[0];
-    candidates.slice(1).forEach(n => n.remove());
-  } else {
-    // 3) No existe ninguna: crear una sola barra propia
-    filters = document.createElement('div');
-    filters.className = 'inbox-filters';
-    filters.innerHTML = `
-      <button class="inbox-filter-btn" data-filter="all">Todos</button>
-      <button class="inbox-filter-btn" data-filter="puntos">Puntos</button>
-      <button class="inbox-filter-btn" data-filter="promos">Promos</button>
-      <button class="inbox-filter-btn" data-filter="otros">Otros</button>
-    `;
-    const h2 = modal.querySelector('h2');
-    if (h2 && h2.parentElement) {
-      h2.insertAdjacentElement('afterend', filters);
-    } else {
-      modal.querySelector('.modal-content')?.prepend(filters);
-    }
-  }
-
-  // 4) Normalizar/estilizar botones dentro de la barra elegida
-  const btns = Array.from(filters.querySelectorAll('button, a'));
-  btns.forEach(btn => {
-    // Asegurar data-filter según texto si falta
-    if (!btn.hasAttribute('data-filter')) {
-      const key = labelToKey(btn.textContent);
-      if (key) btn.setAttribute('data-filter', key);
-    }
-    // Asegurar clases básicas para estilo (no rompe si ya están)
-    btn.classList.add('inbox-filter-btn');
-  });
-
-  // 5) Filtrar a los válidos y cablear eventos (evitando duplicados)
-  const filterBtns = btns.filter(b =>
-    ['all','puntos','promos','otros'].includes(
-      (b.getAttribute('data-filter') || '').toLowerCase()
-    )
-  );
-
-  filterBtns.forEach(btn => {
-    if (btn._rampetBound) btn.removeEventListener('click', btn._rampetBound);
-    btn._rampetBound = async (e) => {
-      e?.preventDefault?.();
-      inboxFilter = (btn.getAttribute('data-filter') || 'all').toLowerCase();
-      updateInboxFilterButtons();
-      inboxPagination.lastReadDoc = null;
-      await fetchInboxBatch({ more: false });
-    };
-    btn.addEventListener('click', btn._rampetBound);
-  });
-
-  // 6) Sincronizar visualmente el activo
-  updateInboxFilterButtons();
-}
-
-
-
-
-function updateInboxFilterButtons(){
-  const modal = document.getElementById('inbox-modal');
-  if (!modal) return;
-  modal.querySelectorAll('.inbox-filter-btn').forEach(b=>{
-    const f = b.getAttribute('data-filter');
-    b.classList.toggle('active', f === inboxFilter);
-    b.setAttribute('aria-pressed', f === inboxFilter ? 'true' : 'false');
-  });
-}
-
-
-function renderList(containerId, items) {
-  const list = document.getElementById(containerId);
-  if (!list) return;
-  if (!items.length) {
-    list.innerHTML = `<p class="info-message">Sin elementos.</p>`;
-    return;
-  }
-  const html = items.map(it => {
+  list.innerHTML = data.map(it=>{
     const sentAt = it.sentAt ? (it.sentAt.toDate ? it.sentAt.toDate() : new Date(it.sentAt)) : null;
     const dateTxt = sentAt ? sentAt.toLocaleString() : '';
     const url = it.url || '/notificaciones';
@@ -416,20 +293,19 @@ function renderList(containerId, items) {
       </div>
     `;
   }).join('');
-  list.innerHTML = html;
 
-  list.querySelectorAll('.card[data-url]').forEach(el => {
-    el.addEventListener('click', () => {
+  list.querySelectorAll('.card[data-url]').forEach(el=>{
+    el.addEventListener('click', ()=>{
       const goto = el.getAttribute('data-url') || '/notificaciones';
       window.location.href = goto;
     });
   });
 }
 
+let inboxPagination = { clienteRefPath:null };
+
 async function resolveClienteRef() {
-  if (inboxPagination.clienteRefPath) {
-    return db.doc(inboxPagination.clienteRefPath);
-  }
+  if (inboxPagination.clienteRefPath) return db.doc(inboxPagination.clienteRefPath);
   const u = auth.currentUser;
   if (!u) return null;
   const qs = await db.collection('clientes').where('authUID','==', u.uid).limit(1).get();
@@ -438,133 +314,78 @@ async function resolveClienteRef() {
   return qs.docs[0].ref;
 }
 
-async function fetchInboxBatch({ more = false } = {}) {
+async function fetchInboxBatchUnified() {
   const clienteRef = await resolveClienteRef();
-  if (!clienteRef) {
-    renderList('inbox-list-unread', []);
-    renderList('inbox-list-read', []);
-    return;
-  }
+  if (!clienteRef) { renderInboxList([]); return; }
 
-  if (!more) {
-    // ------- No leídas -------
-    let unread = [];
-    try {
-      const unreadSnap = await clienteRef.collection('inbox')
-        .where('status', 'in', ['sent','delivered'])
-        .orderBy('sentAt', 'desc')
-        .limit(50)
-        .get();
+  try {
+    // Unificado: últimas 50 (leídas + no leídas), ordenadas por fecha
+    const snap = await clienteRef.collection('inbox')
+      .orderBy('sentAt','desc')
+      .limit(50)
+      .get();
 
-      unread = unreadSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      // aplicar filtro seleccionado
-      unread = unread.filter(itemMatchesFilter);
-    } catch (e) {
-      console.warn('[INBOX] unread error (creá índice si lo pide):', e?.message || e);
-    }
-    renderList('inbox-list-unread', unread);
-
-    // ------- Leídas (primer page) -------
-    try {
-      const readSnap = await clienteRef.collection('inbox')
-        .where('status', '==', 'read')
-        .orderBy('sentAt', 'desc')
-        .limit(20)
-        .get();
-
-      const readItems = readSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const readFiltered = readItems.filter(itemMatchesFilter);
-      renderList('inbox-list-read', readFiltered);
-
-      // Paginación
-      inboxPagination.lastReadDoc = readSnap.docs.length
-        ? readSnap.docs[readSnap.docs.length - 1]
-        : null;
-
-      const moreBtn = document.getElementById('inbox-load-more');
-      if (moreBtn) moreBtn.style.display = readFiltered.length < 20 ? 'none' : 'inline-block';
-    } catch (e) {
-      console.warn('[INBOX] read error (creá índice si lo pide):', e?.message || e);
-      renderList('inbox-list-read', []);
-      const moreBtn = document.getElementById('inbox-load-more');
-      if (moreBtn) moreBtn.style.display = 'none';
-    }
-
-  } else {
-    // ------- “Cargar más” (Leídas) -------
-    if (!inboxPagination.lastReadDoc) {
-      const moreBtn = document.getElementById('inbox-load-more');
-      if (moreBtn) moreBtn.style.display = 'none';
-      return;
-    }
-
-    try {
-      const nextSnap = await clienteRef.collection('inbox')
-        .where('status', '==', 'read')
-        .orderBy('sentAt', 'desc')
-        .startAfter(inboxPagination.lastReadDoc)
-        .limit(20)
-        .get();
-
-      const nextItems = nextSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const nextFiltered = nextItems.filter(itemMatchesFilter);
-
-      const container = document.getElementById('inbox-list-read');
-      if (container && nextFiltered.length) {
-        const tmp = document.createElement('div');
-        tmp.innerHTML = nextFiltered.map(it => {
-          const sentAt = it.sentAt ? (it.sentAt.toDate ? it.sentAt.toDate() : new Date(it.sentAt)) : null;
-          const dateTxt = sentAt ? sentAt.toLocaleString() : '';
-          const url = it.url || '/notificaciones';
-          return `
-            <div class="card" style="margin:8px 0; cursor:pointer;" data-url="${url}">
-              <div style="display:flex; justify-content:space-between; align-items:center; gap:10px;">
-                <div style="flex:1 1 auto;">
-                  <div style="font-weight:700;">${it.title || 'Mensaje'}</div>
-                  <div style="color:#555; margin-top:6px;">${it.body || ''}</div>
-                  <div style="color:#999; font-size:12px; margin-top:8px;">${dateTxt}</div>
-                </div>
-                <div style="flex:0 0 auto;">➡️</div>
-              </div>
-            </div>
-          `;
-        }).join('');
-        Array.from(tmp.children).forEach(n => container.appendChild(n));
-        container.querySelectorAll('.card[data-url]').forEach(el => {
-          el.addEventListener('click', () => {
-            const goto = el.getAttribute('data-url') || '/notificaciones';
-            window.location.href = goto;
-          });
-        });
-      }
-
-      // avanzar paginación
-      inboxPagination.lastReadDoc = nextSnap.docs.length
-        ? nextSnap.docs[nextSnap.docs.length - 1]
-        : null;
-
-      const moreBtn = document.getElementById('inbox-load-more');
-      if (moreBtn) moreBtn.style.display = nextFiltered.length < 20 ? 'none' : 'inline-block';
-    } catch (e) {
-      console.warn('[INBOX] read more error:', e?.message || e);
-      const moreBtn = document.getElementById('inbox-load-more');
-      if (moreBtn) moreBtn.style.display = 'none';
-    }
+    const items = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+    inboxLastSnapshot = items;
+    renderInboxList(items);
+  } catch (e) {
+    console.warn('[INBOX] fetch error:', e?.message || e);
+    inboxLastSnapshot = [];
+    renderInboxList([]);
   }
 }
 
+function wireInboxModal(){
+  const modal = document.getElementById('inbox-modal');
+  if (!modal || modal._wired) return;
+  modal._wired = true;
+
+  // Filtros (usa los botones que ya existen en tu HTML)
+  const setActive = (idActive)=>{
+    ['inbox-tab-todos','inbox-tab-promos','inbox-tab-puntos','inbox-tab-otros'].forEach(id=>{
+      const btn = document.getElementById(id);
+      if (!btn) return;
+      const isActive = id===idActive;
+      btn.classList.toggle('primary-btn', isActive);
+      btn.classList.toggle('secondary-btn', !isActive);
+    });
+  };
+
+  on('inbox-tab-todos','click', async ()=>{ inboxFilter='all';   setActive('inbox-tab-todos');  renderInboxList(inboxLastSnapshot); });
+  on('inbox-tab-promos','click',async ()=>{ inboxFilter='promos'; setActive('inbox-tab-promos'); renderInboxList(inboxLastSnapshot); });
+  on('inbox-tab-puntos','click',async ()=>{ inboxFilter='puntos'; setActive('inbox-tab-puntos'); renderInboxList(inboxLastSnapshot); });
+  on('inbox-tab-otros','click', async ()=>{ inboxFilter='otros';  setActive('inbox-tab-otros');  renderInboxList(inboxLastSnapshot); });
+
+  // Cerrar (X y botón)
+  on('close-inbox-modal','click', ()=> modal.style.display='none');
+  on('inbox-close-btn','click', ()=> modal.style.display='none');
+  modal.addEventListener('click',(e)=>{ if(e.target===modal) modal.style.display='none'; });
+
+  // Marcar todo como leído (del conjunto actual)
+  on('inbox-mark-read','click', async ()=>{
+    const clienteRef = await resolveClienteRef();
+    if (!clienteRef || !inboxLastSnapshot.length) return;
+    const batch = db.batch();
+    inboxLastSnapshot
+      .filter(itemMatchesFilter)
+      .forEach(it=>{
+        const ref = clienteRef.collection('inbox').doc(it.id);
+        batch.set(ref, { status:'read', readAt:new Date().toISOString() }, { merge:true });
+      });
+    try{ await batch.commit(); await fetchInboxBatchUnified(); }
+    catch(e){ console.warn('[INBOX] marcar leído error:', e?.message || e); }
+  });
+
+  // ESC para cerrar
+  document.addEventListener('keydown',(e)=>{ if(e.key==='Escape' && modal.style.display==='flex'){ modal.style.display='none'; }});
+}
 
 async function openInboxModal() {
-  ensureInboxModal();
-  inboxPagination.lastReadDoc = null;
-  // Filtro por defecto al abrir
+  wireInboxModal();
   inboxFilter = 'all';
-  ensureInboxFilters();
-  updateInboxFilterButtons();
-  
-  await fetchInboxBatch({ more: false });
-  const overlay = document.getElementById('inbox-modal');
-  if (overlay) overlay.style.display = 'flex';
+  await fetchInboxBatchUnified();
+  const modal = document.getElementById('inbox-modal');
+  if (modal) modal.style.display = 'flex';
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -614,26 +435,20 @@ function initCarouselBasic(){
   const dotsRoot = document.getElementById('carrusel-indicadores');
   if (!root) return;
 
-  // Bloquear arrastre nativo de imágenes (evita “sacarlas” del carrusel)
   root.querySelectorAll('img').forEach(img => img.setAttribute('draggable','false'));
 
-  // Helper para Edge: alternar scroll-behavior durante drag
   function setScrollBehaviorSmooth(enable){ root.style.scrollBehavior = enable ? 'smooth' : 'auto'; }
 
-  // Estados
   let isDown = false;
   let startX = 0;
   let startScroll = 0;
   let raf = null;
 
-  // Autoplay (setTimeout basado, no setInterval)
   const AUTOPLAY = 2500;
   const RESUME_DELAY = 1200;
   let autoplayTimer = null;
 
-  function clearAutoplay(){
-    if (autoplayTimer){ clearTimeout(autoplayTimer); autoplayTimer = null; }
-  }
+  function clearAutoplay(){ if (autoplayTimer){ clearTimeout(autoplayTimer); autoplayTimer = null; } }
   function scheduleAutoplay(delay = AUTOPLAY){
     clearAutoplay();
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
@@ -646,21 +461,18 @@ function initCarouselBasic(){
           carruselScrollTo(root, next, true);
         }
       }
-      // reprogramar
       scheduleAutoplay(AUTOPLAY);
     }, delay);
   }
   function pauseAutoplay(){ clearAutoplay(); }
   function resumeAutoplaySoon(delay = AUTOPLAY){ clearAutoplay(); autoplayTimer = setTimeout(()=> scheduleAutoplay(), delay); }
 
-  // Drag con mouse/pointer
   const onDown = (e)=>{
     isDown = true;
     startX = e.clientX;
     startScroll = root.scrollLeft;
     root.classList.add('arrastrando');
     try{ root.setPointerCapture(e.pointerId);}catch{}
-    // Desactivar smooth durante el drag para evitar pelea con snap (Edge)
     setScrollBehaviorSmooth(false);
     pauseAutoplay();
   };
@@ -674,9 +486,7 @@ function initCarouselBasic(){
     isDown = false;
     root.classList.remove('arrastrando');
     try{ if(e?.pointerId!=null) root.releasePointerCapture(e.pointerId);}catch{}
-    // Snap al terminar el drag
     const idx = carruselIdxCercano(root);
-    // Rehabilitar smooth para el snap
     setScrollBehaviorSmooth(true);
     carruselScrollTo(root, idx, true);
     resumeAutoplaySoon(RESUME_DELAY);
@@ -688,11 +498,9 @@ function initCarouselBasic(){
   root.addEventListener('pointercancel', finishDrag, { passive:true });
   root.addEventListener('mouseleave', ()=>{ if(isDown) finishDrag({}); }, { passive:true });
 
-  // Hover pausa/reanuda (desktop)
   root.addEventListener('mouseenter', pauseAutoplay, { passive:true });
   root.addEventListener('mouseleave', ()=> resumeAutoplaySoon(RESUME_DELAY), { passive:true });
 
-  // Scroll → actualizar puntos + pausar autoplay
   const onScroll = ()=>{
     if (raf) return;
     raf = requestAnimationFrame(()=>{
@@ -704,17 +512,14 @@ function initCarouselBasic(){
   };
   root.addEventListener('scroll', onScroll, { passive:true });
 
-  // Cualquier click dentro del carrusel → reanudar a los 1200ms
   root.addEventListener('click', () => resumeAutoplaySoon(RESUME_DELAY), true);
 
-  // Dots
   carruselWireDots(root, dotsRoot, pauseAutoplay, resumeAutoplaySoon);
   carruselUpdateDots(root, dotsRoot);
   if (dotsRoot){
     dotsRoot.addEventListener('click', () => resumeAutoplaySoon(RESUME_DELAY));
   }
 
-  // Re-snap suave al terminar de moverse (debounced)
   let snapT = null;
   function snapSoon(delay=90){
     clearTimeout(snapT);
@@ -726,19 +531,16 @@ function initCarouselBasic(){
   }
   window.addEventListener('resize', ()=> snapSoon(150));
 
-  // Inicialización: alinear al primero y arrancar autoplay
   setScrollBehaviorSmooth(false);
   carruselScrollTo(root, 0, false);
   setScrollBehaviorSmooth(true);
   scheduleAutoplay(AUTOPLAY);
 
-  // Visibilidad de pestaña
   document.addEventListener('visibilitychange', ()=>{
     if (document.hidden) pauseAutoplay();
     else resumeAutoplaySoon(AUTOPLAY);
   });
 
-  // Si más tarde el DOM agrega slides, re-wirear lo necesario
   const mo = new MutationObserver(()=>{
     root.querySelectorAll('img').forEach(img => img.setAttribute('draggable','false'));
     carruselUpdateDots(root, dotsRoot);
@@ -746,7 +548,6 @@ function initCarouselBasic(){
   mo.observe(root, { childList:true });
   root._rampetObs = mo;
 }
-
 
 // ──────────────────────────────────────────────────────────────
 // LISTENERS DE PANTALLAS
@@ -758,22 +559,19 @@ function setupAuthScreenListeners() {
   on('login-btn', 'click', Auth.login);
   on('register-btn', 'click', Auth.registerNewAccount);
 
-  on('show-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
+  // Abrir T&C desde registro/login/footers
+  on('show-terms-link', 'click', (e) => { e.preventDefault(); openTermsModal(); });
   on('forgot-password-link', 'click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
 
-  on('close-terms-modal', 'click', UI.closeTermsModal);
+  on('close-terms-modal', 'click', closeTermsModal);
 }
 
 function setupMainAppScreenListeners() {
-  
   on('logout-btn', 'click', async () => {
     await handleSignOutCleanup();
     const c = document.getElementById('carrusel-campanas');
     if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
-    
-      // Limpia observadores de UI (Home limits)
-  cleanupUiObservers();
-
+    cleanupUiObservers();
     Auth.logout();
   });
 
@@ -781,9 +579,9 @@ function setupMainAppScreenListeners() {
   on('save-new-password-btn', 'click', Auth.changePassword);
   on('close-password-modal', 'click', UI.closeChangePasswordModal);
 
-  on('show-terms-link-banner', 'click', (e) => { e.preventDefault(); UI.openTermsModal(true); });
-  on('footer-terms-link', 'click', (e) => { e.preventDefault(); UI.openTermsModal(false); });
-  on('accept-terms-btn-modal', 'click', Data.acceptTerms);
+  on('show-terms-link-banner', 'click', (e) => { e.preventDefault(); openTermsModal(); });
+  on('footer-terms-link', 'click', (e) => { e.preventDefault(); openTermsModal(); });
+  on('accept-terms-btn-modal', 'click', Data.acceptTerms); // si querés registrar aceptación
 
   on('btn-install-pwa', 'click', handleInstallPrompt);
   on('btn-dismiss-install', 'click', handleDismissInstall);
@@ -791,7 +589,6 @@ function setupMainAppScreenListeners() {
   on('btn-notifs', 'click', async () => {
     await openInboxModal();
     await handleBellClick();
-    await fetchInboxBatch({ more: false });
   });
 
   on('install-entrypoint', 'click', async () => {
@@ -800,7 +597,7 @@ function setupMainAppScreenListeners() {
     }
     const modal = document.getElementById('install-help-modal');
     const instructions = document.getElementById('install-instructions');
-    if (instructions) instructions.innerHTML = getInstallInstructionsHTML();
+    if (instructions) instructions.innerHTML = getInstallInstructions(); // ← nombre correcto
     if (modal) modal.style.display = 'block';
   });
   on('close-install-help', 'click', () => {
@@ -822,15 +619,17 @@ async function main() {
     const bell = document.getElementById('btn-notifs');
     const badge = document.getElementById('notif-counter');
 
-    ensureInboxModal();
+    // wiring de modales que YA existen en HTML
+    wireTermsModalBehavior();
+    wireInboxModal();
 
     if (user) {
       if (bell) bell.style.display = 'inline-block';
       setupMainAppScreenListeners();
 
       Data.listenToClientData(user);
-// Limitar Home (historial reciente + vencimientos) y agregar 'Ver todo'
-setupMainLimitsObservers();
+      setupMainLimitsObservers();
+
       if (messagingSupported) {
         await gestionarPermisoNotificaciones();
         await ensureSingleToken();
@@ -845,7 +644,6 @@ setupMainLimitsObservers();
         installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
       }
 
-      // Inicializar carrusel (simple y estable)
       initCarouselBasic();
     } else {
       if (bell) bell.style.display = 'none';
@@ -860,9 +658,3 @@ setupMainLimitsObservers();
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
-
-
-
-
-
