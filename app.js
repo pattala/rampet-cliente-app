@@ -289,22 +289,25 @@ function ensureInboxFilters(){
   const modal = document.getElementById('inbox-modal');
   if (!modal) return;
 
-  // 1) ¿Ya hay una barra de filtros en el modal? (intentamos encontrar varias variantes)
-  let filters =
-    modal.querySelector('.inbox-filters') ||
-    modal.querySelector('.inbox-tabs') ||
-    modal.querySelector('.tabs') ||
-    modal.querySelector('#notif-filters');
+  // 1) Buscar barras existentes (varias variantes de clase/ID comunes)
+  const candidates = Array.from(
+    modal.querySelectorAll('.inbox-filters, .inbox-tabs, .tabs, #notif-filters')
+  );
 
-  // 2) Si no hay, crear la nuestra (.inbox-filters) una sola vez
-  if (!filters) {
+  let filters = null;
+  if (candidates.length > 0) {
+    // Usamos la primera y removemos duplicadas
+    filters = candidates[0];
+    candidates.slice(1).forEach(n => n.remove());
+  } else {
+    // 2) No había: crear una sola barra propia
     filters = document.createElement('div');
     filters.className = 'inbox-filters';
     filters.innerHTML = `
       <button class="inbox-filter-btn" data-filter="all">Todos</button>
       <button class="inbox-filter-btn" data-filter="puntos">Puntos</button>
       <button class="inbox-filter-btn" data-filter="promos">Promos</button>
-      <button class="inbox-filter-btn" data-filter="otos">Otros</button>
+      <button class="inbox-filter-btn" data-filter="otros">Otros</button>
     `;
     const h2 = modal.querySelector('h2');
     if (h2 && h2.parentElement) {
@@ -314,23 +317,39 @@ function ensureInboxFilters(){
     }
   }
 
-  // 3) Conectar eventos a cualquier botón con data-filter
-  const btns = filters.querySelectorAll('[data-filter]');
-  btns.forEach(btn=>{
-    // evitar listeners duplicados
-    btn._rampetBound && btn.removeEventListener('click', btn._rampetBound);
-    btn._rampetBound = async ()=>{
+  // 3) Normalizar botones: asegurar data-filter según el texto si no existe
+  const map = { 'todos': 'all', 'puntos': 'puntos', 'promos': 'promos', 'otros': 'otros' };
+  const btns = Array.from(filters.querySelectorAll('button, a'));
+
+  btns.forEach(btn => {
+    if (!btn.hasAttribute('data-filter')) {
+      const txt = (btn.textContent || '').trim().toLowerCase();
+      if (map[txt]) btn.setAttribute('data-filter', map[txt]);
+    }
+  });
+
+  // 4) Quedarnos sólo con los que efectivamente tienen data-filter válido
+  const filterBtns = Array.from(filters.querySelectorAll('[data-filter]'))
+    .filter(b => ['all','puntos','promos','otros'].includes(
+      (b.getAttribute('data-filter') || '').toLowerCase()
+    ));
+
+  // 5) Enlazar eventos (evitar dobles listeners)
+  filterBtns.forEach(btn => {
+    if (btn._rampetBound) btn.removeEventListener('click', btn._rampetBound);
+    btn._rampetBound = async (e) => {
+      e?.preventDefault?.();
       inboxFilter = (btn.getAttribute('data-filter') || 'all').toLowerCase();
-      updateInboxFilterButtons();            // pinta activo
-      inboxPagination.lastReadDoc = null;    // resetea paginado
-      await fetchInboxBatch({ more:false }); // recarga con filtro
+      updateInboxFilterButtons();
+      inboxPagination.lastReadDoc = null;
+      await fetchInboxBatch({ more: false });
     };
     btn.addEventListener('click', btn._rampetBound);
   });
 
-  // 4) Sincronizar estado visual inicialmente
   updateInboxFilterButtons();
 }
+
 
 
 function updateInboxFilterButtons(){
@@ -812,6 +831,7 @@ setupMainLimitsObservers();
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
