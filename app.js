@@ -254,6 +254,9 @@ function ensureInboxModal() {
   `;
   document.body.appendChild(overlay);
 
+  // === Agregado: barra de filtros ===
+  ensureInboxFilters();
+
   document.getElementById('close-inbox-modal').addEventListener('click', () => {
     overlay.style.display = 'none';
   });
@@ -262,6 +265,69 @@ function ensureInboxModal() {
     await fetchInboxBatch({ more: true });
   });
 }
+
+// ==== [RAMPET][INBOX FILTERS] Barra de filtros + helpers ====
+
+let inboxFilter = 'all'; // 'all' | 'puntos' | 'promos' | 'otros'
+
+function normalizeCategory(v){
+  if (!v) return '';
+  const x = String(v).toLowerCase();
+  if (['punto','puntos','movimientos','historial'].includes(x)) return 'puntos';
+  if (['promo','promos','promoción','promocion','campaña','campanas','campaña','campañas'].includes(x)) return 'promos';
+  if (['otro','otros','general','aviso','avisos'].includes(x)) return 'otros';
+  return x;
+}
+
+function itemMatchesFilter(it){
+  if (inboxFilter === 'all') return true;
+  const cat = normalizeCategory(it.categoria || it.category);
+  return cat === inboxFilter;
+}
+
+function ensureInboxFilters(){
+  const modal = document.getElementById('inbox-modal');
+  if (!modal) return;
+  if (modal.querySelector('.inbox-filters')) return;
+
+  const filters = document.createElement('div');
+  filters.className = 'inbox-filters';
+  filters.innerHTML = `
+    <button class="inbox-filter-btn" data-filter="all">Todos</button>
+    <button class="inbox-filter-btn" data-filter="puntos">Puntos</button>
+    <button class="inbox-filter-btn" data-filter="promos">Promos</button>
+    <button class="inbox-filter-btn" data-filter="otros">Otros</button>
+  `;
+
+  const h2 = modal.querySelector('h2');
+  if (h2 && h2.parentElement) {
+    h2.insertAdjacentElement('afterend', filters);
+  } else {
+    modal.querySelector('.modal-content')?.prepend(filters);
+  }
+
+  filters.querySelectorAll('.inbox-filter-btn').forEach(btn=>{
+    btn.addEventListener('click', async ()=>{
+      inboxFilter = btn.getAttribute('data-filter') || 'all';
+      updateInboxFilterButtons();
+      inboxPagination.lastReadDoc = null;
+      await fetchInboxBatch({ more:false });
+    });
+  });
+
+  updateInboxFilterButtons();
+}
+
+function updateInboxFilterButtons(){
+  const modal = document.getElementById('inbox-modal');
+  if (!modal) return;
+  modal.querySelectorAll('.inbox-filter-btn').forEach(b=>{
+    const f = b.getAttribute('data-filter');
+    b.classList.toggle('active', f === inboxFilter);
+    b.setAttribute('aria-pressed', f === inboxFilter ? 'true' : 'false');
+  });
+}
+
 
 function renderList(containerId, items) {
   const list = document.getElementById(containerId);
@@ -326,6 +392,9 @@ async function fetchInboxBatch({ more = false } = {}) {
         .limit(50)
         .get();
       unread = unreadSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      // aplicar filtro seleccionado
+unread = unread.filter(itemMatchesFilter);
+
     } catch (e) {
       console.warn('[INBOX] unread error (creá índice si lo pide):', e?.message || e);
     }
@@ -339,7 +408,9 @@ async function fetchInboxBatch({ more = false } = {}) {
         .get();
 
       const read = readSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderList('inbox-list-read', read);
+      const read = readSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+const readFiltered = read.filter(itemMatchesFilter);
+renderList('inbox-list-read', readFiltered);
       inboxPagination.lastReadDoc = readSnap.docs.length ? readSnap.docs[readSnap.docs.length - 1] : null;
 
       const moreBtn = document.getElementById('inbox-load-more');
@@ -365,10 +436,11 @@ async function fetchInboxBatch({ more = false } = {}) {
         .get();
 
       const next = nextSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const nextFiltered = next.filter(itemMatchesFilter);
       const container = document.getElementById('inbox-list-read');
       if (container && next.length) {
         const tmp = document.createElement('div');
-        tmp.innerHTML = next.map(it => {
+      tmp.innerHTML = nextFiltered.map(it => {
           const sentAt = it.sentAt ? (it.sentAt.toDate ? it.sentAt.toDate() : new Date(it.sentAt)) : null;
           const dateTxt = sentAt ? sentAt.toLocaleString() : '';
           const url = it.url || '/notificaciones';
@@ -408,6 +480,11 @@ async function fetchInboxBatch({ more = false } = {}) {
 async function openInboxModal() {
   ensureInboxModal();
   inboxPagination.lastReadDoc = null;
+  // Filtro por defecto al abrir
+  inboxFilter = 'all';
+  ensureInboxFilters();
+  updateInboxFilterButtons();
+  
   await fetchInboxBatch({ more: false });
   const overlay = document.getElementById('inbox-modal');
   if (overlay) overlay.style.display = 'flex';
@@ -706,4 +783,5 @@ setupMainLimitsObservers();
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
