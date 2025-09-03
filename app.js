@@ -365,10 +365,12 @@ function carruselUpdateDots(root, dotsRoot){
   const idx = carruselIdxCercano(root);
   dots.forEach((d,i)=> d.classList.toggle('activo', i===idx));
 }
-function carruselWireDots(root, dotsRoot){
+function carruselWireDots(root, dotsRoot, pause, resumeSoon){
   if (!root || !dotsRoot) return;
   Array.from(dotsRoot.querySelectorAll('.indicador')).forEach((dot,i)=>{
-    dot.onclick = ()=> carruselScrollTo(root, i);
+    dot.tabIndex = 0;
+    dot.onclick = ()=>{ pause(); carruselScrollTo(root, i); resumeSoon(1200); };
+    dot.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); dot.click(); } };
   });
 }
 
@@ -380,22 +382,80 @@ function initCarouselBasic(){
   // Bloquear arrastre nativo de imágenes (evita “sacarlas” del carrusel)
   root.querySelectorAll('img').forEach(img => img.setAttribute('draggable','false'));
 
+  // Helper para Edge: alternar scroll-behavior durante drag
+  function setScrollBehaviorSmooth(enable){ root.style.scrollBehavior = enable ? 'smooth' : 'auto'; }
+
   // Estados
   let isDown = false;
   let startX = 0;
   let startScroll = 0;
   let raf = null;
 
-  // Drag con mouse
-  const onDown = (e)=>{ isDown = true; startX = e.clientX; startScroll = root.scrollLeft; root.classList.add('arrastrando'); try{ root.setPointerCapture(e.pointerId);}catch{} };
-  const onMove = (e)=>{ if(!isDown) return; root.scrollLeft = startScroll - (e.clientX - startX); if (e.cancelable) e.preventDefault(); };
-  const onUp   = (e)=>{ isDown = false; root.classList.remove('arrastrando'); try{ root.releasePointerCapture(e.pointerId);}catch{}; snapSoon(); resumeAutoplaySoon(1200); };
+  // Autoplay (setTimeout basado, no setInterval)
+  const AUTOPLAY = 2500;
+  const RESUME_DELAY = 1200;
+  let autoplayTimer = null;
+
+  function clearAutoplay(){
+    if (autoplayTimer){ clearTimeout(autoplayTimer); autoplayTimer = null; }
+  }
+  function scheduleAutoplay(delay = AUTOPLAY){
+    clearAutoplay();
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    autoplayTimer = setTimeout(()=>{
+      if (!isDown && document.visibilityState === 'visible'){
+        const slides = carruselSlides(root);
+        if (slides.length){
+          const cur = carruselIdxCercano(root);
+          const next = (cur + 1) % slides.length;
+          carruselScrollTo(root, next, true);
+        }
+      }
+      // reprogramar
+      scheduleAutoplay(AUTOPLAY);
+    }, delay);
+  }
+  function pauseAutoplay(){ clearAutoplay(); }
+  function resumeAutoplaySoon(delay = AUTOPLAY){ clearAutoplay(); autoplayTimer = setTimeout(()=> scheduleAutoplay(), delay); }
+
+  // Drag con mouse/pointer
+  const onDown = (e)=>{
+    isDown = true;
+    startX = e.clientX;
+    startScroll = root.scrollLeft;
+    root.classList.add('arrastrando');
+    try{ root.setPointerCapture(e.pointerId);}catch{}
+    // Desactivar smooth durante el drag para evitar pelea con snap (Edge)
+    setScrollBehaviorSmooth(false);
+    pauseAutoplay();
+  };
+  const onMove = (e)=>{
+    if(!isDown) return;
+    root.scrollLeft = startScroll - (e.clientX - startX);
+    if (e.cancelable) e.preventDefault();
+  };
+  const finishDrag = (e)=>{
+    if(!isDown) return;
+    isDown = false;
+    root.classList.remove('arrastrando');
+    try{ if(e?.pointerId!=null) root.releasePointerCapture(e.pointerId);}catch{}
+    // Snap al terminar el drag
+    const idx = carruselIdxCercano(root);
+    // Rehabilitar smooth para el snap
+    setScrollBehaviorSmooth(true);
+    carruselScrollTo(root, idx, true);
+    resumeAutoplaySoon(RESUME_DELAY);
+  };
 
   root.addEventListener('pointerdown', onDown);
-  root.addEventListener('pointermove', onMove);
-  root.addEventListener('pointerup', onUp);
-  root.addEventListener('pointercancel', onUp);
-  root.addEventListener('mouseleave', ()=>{ if(isDown) onUp({pointerId:0}); });
+  root.addEventListener('pointermove', onMove, { passive:true });
+  root.addEventListener('pointerup', finishDrag, { passive:true });
+  root.addEventListener('pointercancel', finishDrag, { passive:true });
+  root.addEventListener('mouseleave', ()=>{ if(isDown) finishDrag({}); }, { passive:true });
+
+  // Hover pausa/reanuda (desktop)
+  root.addEventListener('mouseenter', pauseAutoplay, { passive:true });
+  root.addEventListener('mouseleave', ()=> resumeAutoplaySoon(RESUME_DELAY), { passive:true });
 
   // Scroll → actualizar puntos + pausar autoplay
   const onScroll = ()=>{
@@ -405,54 +465,39 @@ function initCarouselBasic(){
       raf = null;
     });
     pauseAutoplay();
-    resumeAutoplaySoon(1200);
+    resumeAutoplaySoon(RESUME_DELAY);
   };
   root.addEventListener('scroll', onScroll, { passive:true });
 
   // Cualquier click dentro del carrusel → reanudar a los 1200ms
-  root.addEventListener('click', () => resumeAutoplaySoon(1200), true);
+  root.addEventListener('click', () => resumeAutoplaySoon(RESUME_DELAY), true);
 
   // Dots
-  carruselWireDots(root, dotsRoot);
+  carruselWireDots(root, dotsRoot, pauseAutoplay, resumeAutoplaySoon);
   carruselUpdateDots(root, dotsRoot);
   if (dotsRoot){
-    dotsRoot.addEventListener('click', () => resumeAutoplaySoon(1200));
+    dotsRoot.addEventListener('click', () => resumeAutoplaySoon(RESUME_DELAY));
   }
 
-  // Snap al centro al terminar de moverse
+  // Re-snap suave al terminar de moverse (debounced)
   let snapT = null;
   function snapSoon(delay=90){
     clearTimeout(snapT);
     snapT = setTimeout(()=>{
       const idx = carruselIdxCercano(root);
+      setScrollBehaviorSmooth(true);
       carruselScrollTo(root, idx, true);
     }, delay);
   }
   window.addEventListener('resize', ()=> snapSoon(150));
 
-  // Autoplay básico
-  const AUTOPLAY = 2500;
-  const SCROLL_TIME = 500; // ms
-  let timer = null;
+  // Inicialización: alinear al primero y arrancar autoplay
+  setScrollBehaviorSmooth(false);
+  carruselScrollTo(root, 0, false);
+  setScrollBehaviorSmooth(true);
+  scheduleAutoplay(AUTOPLAY);
 
-  function pauseAutoplay(){ clearInterval(timer); timer = null; }
-  function resumeAutoplaySoon(delay = AUTOPLAY){
-    pauseAutoplay();
-    timer = setInterval(()=>{
-      const slides = carruselSlides(root);
-      if (!slides.length || isDown) return;
-      const cur = carruselIdxCercano(root);
-      const next = (cur + 1) % slides.length;
-      carruselScrollTo(root, next, true);
-
-      // evitar “rebote”: pausar y volver a programar
-      pauseAutoplay();
-      setTimeout(()=> resumeAutoplaySoon(AUTOPLAY), SCROLL_TIME + 100);
-    }, delay);
-  }
-
-  // Arrancar y gestionar visibilidad pestaña
-  resumeAutoplaySoon(AUTOPLAY);
+  // Visibilidad de pestaña
   document.addEventListener('visibilitychange', ()=>{
     if (document.hidden) pauseAutoplay();
     else resumeAutoplaySoon(AUTOPLAY);
