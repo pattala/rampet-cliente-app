@@ -384,6 +384,7 @@ async function fetchInboxBatch({ more = false } = {}) {
   }
 
   if (!more) {
+    // ------- No leídas -------
     let unread = [];
     try {
       const unreadSnap = await clienteRef.collection('inbox')
@@ -391,15 +392,16 @@ async function fetchInboxBatch({ more = false } = {}) {
         .orderBy('sentAt', 'desc')
         .limit(50)
         .get();
+
       unread = unreadSnap.docs.map(d => ({ id: d.id, ...d.data() }));
       // aplicar filtro seleccionado
-unread = unread.filter(itemMatchesFilter);
-
+      unread = unread.filter(itemMatchesFilter);
     } catch (e) {
       console.warn('[INBOX] unread error (creá índice si lo pide):', e?.message || e);
     }
     renderList('inbox-list-unread', unread);
 
+    // ------- Leídas (primer page) -------
     try {
       const readSnap = await clienteRef.collection('inbox')
         .where('status', '==', 'read')
@@ -407,26 +409,32 @@ unread = unread.filter(itemMatchesFilter);
         .limit(20)
         .get();
 
-      const read = readSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const read = readSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-const readFiltered = read.filter(itemMatchesFilter);
-renderList('inbox-list-read', readFiltered);
-      inboxPagination.lastReadDoc = readSnap.docs.length ? readSnap.docs[readSnap.docs.length - 1] : null;
+      const readItems = readSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const readFiltered = readItems.filter(itemMatchesFilter);
+      renderList('inbox-list-read', readFiltered);
+
+      // Paginación
+      inboxPagination.lastReadDoc = readSnap.docs.length
+        ? readSnap.docs[readSnap.docs.length - 1]
+        : null;
 
       const moreBtn = document.getElementById('inbox-load-more');
-      if (moreBtn) moreBtn.style.display = readSnap.size < 20 ? 'none' : 'inline-block';
+      if (moreBtn) moreBtn.style.display = readFiltered.length < 20 ? 'none' : 'inline-block';
     } catch (e) {
       console.warn('[INBOX] read error (creá índice si lo pide):', e?.message || e);
       renderList('inbox-list-read', []);
       const moreBtn = document.getElementById('inbox-load-more');
       if (moreBtn) moreBtn.style.display = 'none';
     }
+
   } else {
+    // ------- “Cargar más” (Leídas) -------
     if (!inboxPagination.lastReadDoc) {
       const moreBtn = document.getElementById('inbox-load-more');
       if (moreBtn) moreBtn.style.display = 'none';
       return;
     }
+
     try {
       const nextSnap = await clienteRef.collection('inbox')
         .where('status', '==', 'read')
@@ -435,12 +443,13 @@ renderList('inbox-list-read', readFiltered);
         .limit(20)
         .get();
 
-      const next = nextSnap.docs.map(d => ({ id: d.id, ...d.data() }));
-      const nextFiltered = next.filter(itemMatchesFilter);
+      const nextItems = nextSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const nextFiltered = nextItems.filter(itemMatchesFilter);
+
       const container = document.getElementById('inbox-list-read');
-      if (container && next.length) {
+      if (container && nextFiltered.length) {
         const tmp = document.createElement('div');
-      tmp.innerHTML = nextFiltered.map(it => {
+        tmp.innerHTML = nextFiltered.map(it => {
           const sentAt = it.sentAt ? (it.sentAt.toDate ? it.sentAt.toDate() : new Date(it.sentAt)) : null;
           const dateTxt = sentAt ? sentAt.toLocaleString() : '';
           const url = it.url || '/notificaciones';
@@ -466,9 +475,13 @@ renderList('inbox-list-read', readFiltered);
         });
       }
 
-      inboxPagination.lastReadDoc = nextSnap.docs.length ? nextSnap.docs[nextSnap.docs.length - 1] : null;
+      // avanzar paginación
+      inboxPagination.lastReadDoc = nextSnap.docs.length
+        ? nextSnap.docs[nextSnap.docs.length - 1]
+        : null;
+
       const moreBtn = document.getElementById('inbox-load-more');
-      if (moreBtn) moreBtn.style.display = nextSnap.size < 20 ? 'none' : 'inline-block';
+      if (moreBtn) moreBtn.style.display = nextFiltered.length < 20 ? 'none' : 'inline-block';
     } catch (e) {
       console.warn('[INBOX] read more error:', e?.message || e);
       const moreBtn = document.getElementById('inbox-load-more');
@@ -476,6 +489,7 @@ renderList('inbox-list-read', readFiltered);
     }
   }
 }
+
 
 async function openInboxModal() {
   ensureInboxModal();
@@ -783,5 +797,6 @@ setupMainLimitsObservers();
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
