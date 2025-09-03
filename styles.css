@@ -115,6 +115,25 @@ button:disabled{ opacity:.6; cursor:not-allowed; }
 .modal-close-btn{ align-self:flex-end; cursor:pointer; font-size:28px; color:#aaa; }
 .terms-text-container{ overflow-y:auto; margin:10px 0 20px; }
 .modal-content h2{ margin-top:0; }
+/* === Inbox Filters (modal Notificaciones & Historial) === */
+.inbox-filters{
+  display:flex; gap:8px; flex-wrap:wrap;
+  margin:6px 0 12px; 
+}
+.inbox-filter-btn{
+  border:1px solid var(--border-color);
+  background:#fff;
+  color:var(--text-color);
+  padding:6px 10px;
+  font-size:.9rem;
+  border-radius:999px;
+  cursor:pointer;
+}
+.inbox-filter-btn.active{
+  background:var(--primary-color);
+  color:#fff;
+  border-color:var(--primary-color);
+}
 
 /* Switch notificaciones */
 .notif-setting{ display:flex; justify-content:space-between; align-items:center; }
@@ -256,3 +275,4 @@ input:checked + .slider:before{ transform:translateX(26px); }
   text-decoration: underline;
   cursor: pointer;
 }
+
