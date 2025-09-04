@@ -138,6 +138,284 @@ function on(id, event, handler) {
   const el = document.getElementById(id);
   if (el) el.addEventListener(event, handler);
 }
+
+// ==== [RAMPET][GEO v2] Ubicación ON por defecto (si permitido) + franjas + refresco 6h ====
+
+// Configuración
+const GEO_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 horas para refresco silencioso
+const SLOT_RADIUS_M = 200;                  // radio de consistencia (~200m)
+const STABILITY_TARGET = 10;                // cuántas muestras "buenas" para estabilidad alta
+
+// Franjas (07–12 / 12–18 / 18–24). Si querés otro corte, cambiá aquí.
+function currentTimeSlot(d = new Date()) {
+  const h = d.getHours();
+  if (h >= 7 && h < 12) return 'morning';
+  if (h >= 12 && h < 18) return 'afternoon';
+  return 'evening'; // 18–24 y 0–6 las consideramos evening para simplificar
+}
+
+// Utilidades
+function roundCoord(value, decimals = 3) {
+  const f = Math.pow(10, decimals);
+  return Math.round(value * f) / f;
+}
+function haversineMeters(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const toRad = (x) => x * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+// Calcula nuevo centro y estabilidad simple
+function updateSlotModel(slotData, lat, lng) {
+  const prev = slotData || {};
+  const center = prev.center || { lat, lng };
+  const dist = haversineMeters(center.lat, center.lng, lat, lng);
+  let samples = Math.max(0, prev.samples || 0);
+  let stability = Math.max(0, Math.min(1, prev.stabilityScore || 0));
+
+  if (dist <= SLOT_RADIUS_M) {
+    samples += 1;
+    // sube estabilidad en proporción a muestras buenas
+    stability = Math.min(1, samples / STABILITY_TARGET);
+    // ajuste leve del centro hacia el nuevo punto (promedio ponderado)
+    const w = 1 / Math.max(1, samples);
+    const newLat = center.lat * (1 - w) + lat * w;
+    const newLng = center.lng * (1 - w) + lng * w;
+    return {
+      center: { lat: newLat, lng: newLng },
+      samples,
+      stabilityScore: stability,
+      capturedAt: new Date().toISOString(),
+      centerRounded: { lat3: roundCoord(newLat, 3), lng3: roundCoord(newLng, 3) }
+    };
+  } else {
+    // muestra fuera de radio: penalizamos un poco la estabilidad y movemos centro mínimamente
+    stability = Math.max(0, stability - 0.1);
+    const w = 0.15; // pequeño empuje hacia el nuevo punto para adaptarse si cambió la rutina
+    const newLat = center.lat * (1 - w) + lat * w;
+    const newLng = center.lng * (1 - w) + lng * w;
+    return {
+      center: { lat: newLat, lng: newLng },
+      samples, // no contamos como “buena”
+      stabilityScore: stability,
+      capturedAt: new Date().toISOString(),
+      centerRounded: { lat3: roundCoord(newLat, 3), lng3: roundCoord(newLng, 3) }
+    };
+  }
+}
+
+// Banner (ON/OFF/DENIED)
+function showGeoBanner({ state, message }) {
+  const wrap = document.getElementById('geo-banner');
+  const txt  = document.getElementById('geo-banner-text');
+  const btnOff  = document.getElementById('geo-disable-btn');
+  const btnOn   = document.getElementById('geo-enable-btn');
+  const btnHelp = document.getElementById('geo-help-btn');
+  if (!wrap || !txt || !btnOff || !btnOn || !btnHelp) return;
+
+  wrap.style.display = 'block';
+  txt.textContent = message || (
+    state === 'on'
+      ? '📍 Ubicación activada para recibir beneficios cercanos.'
+      : state === 'denied'
+        ? '⚠️ Tu navegador tiene la ubicación bloqueada para esta app.'
+        : 'Podés activar tu ubicación para recibir beneficios cercanos.'
+  );
+  btnOff.style.display  = state === 'on'     ? 'inline-block' : 'none';
+  btnOn.style.display   = state !== 'on'     ? 'inline-block' : 'none';
+  btnHelp.style.display = state === 'denied' ? 'inline-block' : 'none';
+}
+
+// Guarda última ubicación “cruda” (y redondeada) + consentimiento
+async function saveLastLocationToFirestore(pos) {
+  const clienteRef = await resolveClienteRef();
+  if (!clienteRef) return;
+
+  const { latitude: lat, longitude: lng, accuracy } = pos.coords || {};
+  await clienteRef.set({
+    locationConsent: true,
+    lastLocation: {
+      lat, lng, accuracy,
+      capturedAt: new Date().toISOString(),
+      source: 'geolocation'
+    },
+    lastLocationRounded: { lat3: roundCoord(lat,3), lng3: roundCoord(lng,3) }
+  }, { merge: true });
+}
+
+// Actualiza el slot de la franja actual (centro + estabilidad)
+async function saveSlotSample(pos) {
+  const clienteRef = await resolveClienteRef();
+  if (!clienteRef) return;
+
+  const { latitude: lat, longitude: lng } = pos.coords || {};
+  const slot = currentTimeSlot();
+
+  // leer datos previos del slot para actualizar el modelo
+  const snap = await clienteRef.get();
+  const data = snap.exists ? snap.data() : {};
+  const prevSlot = data?.timeSlots?.[slot] || null;
+
+  const updated = updateSlotModel(prevSlot, lat, lng);
+
+  const patch = {
+    [`timeSlots.${slot}.center`]: updated.center,
+    [`timeSlots.${slot}.centerRounded`]: updated.centerRounded,
+    [`timeSlots.${slot}.capturedAt`]: updated.capturedAt,
+    [`timeSlots.${slot}.samples`]: updated.samples,
+    [`timeSlots.${slot}.stabilityScore`]: updated.stabilityScore
+  };
+  await clienteRef.set(patch, { merge: true });
+}
+
+// Desactivar desde UI
+async function disableLocationInFirestore() {
+  const clienteRef = await resolveClienteRef();
+  if (!clienteRef) return;
+  await clienteRef.set({
+    locationConsent: false,
+    lastLocation: null,
+    lastLocationRounded: null,
+    timeSlots: {}
+  }, { merge: true });
+}
+
+// Solicita posición y guarda (éxito/errores)
+async function requestAndSaveLocation(reason = 'startup') {
+  if (!('geolocation' in navigator)) {
+    showGeoBanner({ state: 'off', message: 'Este dispositivo no soporta geolocalización.' });
+    return;
+  }
+  navigator.geolocation.getCurrentPosition(async (pos) => {
+    try {
+      await saveLastLocationToFirestore(pos);
+      await saveSlotSample(pos);
+      showGeoBanner({ state: 'on' });
+    } catch (e) {
+      console.warn('[GEO] save error:', e?.message || e);
+      showGeoBanner({ state: 'off' });
+    }
+  }, (err) => {
+    console.warn('[GEO] getCurrentPosition error:', err?.code, err?.message);
+    if (err?.code === 1) showGeoBanner({ state: 'denied' });
+    else showGeoBanner({ state: 'off' });
+  }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
+}
+
+// Primera interacción natural para pedir permiso si está en "prompt"
+let _geoFirstInteractionBound = false;
+function setupFirstInteractionOnce() {
+  if (_geoFirstInteractionBound) return;
+  _geoFirstInteractionBound = true;
+
+  const handler = async () => {
+    document.removeEventListener('click', handler, true);
+    document.removeEventListener('keydown', handler, true);
+    document.removeEventListener('touchstart', handler, true);
+    await requestAndSaveLocation('first_interaction');
+  };
+  document.addEventListener('click', handler, true);
+  document.addEventListener('keydown', handler, true);
+  document.addEventListener('touchstart', handler, true);
+}
+
+// ON por defecto si ya está “granted”; si “prompt”, pedimos en primera interacción; si “denied”, avisamos.
+async function ensureGeoOnStartup() {
+  const clienteRef = await resolveClienteRef();
+  if (!clienteRef) return;
+
+  try {
+    // Si el usuario ya desactivó explícitamente en nuestro sistema, no forzamos nada
+    const snap = await clienteRef.get();
+    const data = snap.exists ? snap.data() : {};
+    if (data?.locationConsent === false) {
+      showGeoBanner({ state: 'off' });
+      return;
+    }
+  } catch (_) {}
+
+  if ('permissions' in navigator && navigator.permissions?.query) {
+    try {
+      const st = await navigator.permissions.query({ name: 'geolocation' });
+      if (st.state === 'granted') {
+        // ON silencioso
+        await requestAndSaveLocation('startup_granted');
+      } else if (st.state === 'prompt') {
+        // Pedimos en primera interacción (no bloqueamos UX)
+        showGeoBanner({ state: 'off' });
+        setupFirstInteractionOnce();
+      } else {
+        // denied
+        showGeoBanner({ state: 'denied' });
+      }
+      // si el estado cambia (usuario reconfigura permisos en vivo)
+      st.onchange = () => {
+        if (st.state === 'granted') requestAndSaveLocation('perm_change_granted');
+        else if (st.state === 'denied') showGeoBanner({ state: 'denied' });
+      };
+      return;
+    } catch (_) {}
+  }
+
+  // Fallback (iOS/Safari): pedimos en primera interacción
+  showGeoBanner({ state: 'off' });
+  setupFirstInteractionOnce();
+}
+
+// Refresco silencioso si la última captura (global o de la franja) está “vieja”
+async function maybeRefreshIfStale() {
+  const clienteRef = await resolveClienteRef();
+  if (!clienteRef) return;
+  try {
+    const snap = await clienteRef.get();
+    const data = snap.exists ? snap.data() : {};
+    if (data?.locationConsent === false) return;
+
+    const now = Date.now();
+    let stale = true;
+
+    // Miramos última global
+    if (data?.lastLocation?.capturedAt) {
+      const t = new Date(data.lastLocation.capturedAt).getTime();
+      if (isFinite(t) && (now - t) < GEO_MAX_AGE_MS) stale = false;
+    }
+    // Miramos la franja actual
+    const slot = currentTimeSlot();
+    const slotCap = data?.timeSlots?.[slot]?.capturedAt;
+    if (slotCap) {
+      const t2 = new Date(slotCap).getTime();
+      if (isFinite(t2) && (now - t2) < GEO_MAX_AGE_MS) stale = false;
+    }
+
+    if (stale) {
+      // Solo intentamos si el permiso está concedido; si está denegado, el getCurrentPosition nos avisará
+      await requestAndSaveLocation('refresh_visible');
+    }
+  } catch (e) {
+    console.warn('[GEO] maybeRefreshIfStale error:', e?.message || e);
+  }
+}
+
+// Cableado botones del banner
+function setupGeoUi() {
+  on('geo-enable-btn', 'click', async () => {
+    await requestAndSaveLocation('enable_click');
+  });
+  on('geo-disable-btn', 'click', async () => {
+    try {
+      await disableLocationInFirestore();
+      showGeoBanner({ state: 'off', message: 'Ubicación desactivada. Podés volver a activarla cuando quieras.' });
+    } catch (e) {
+      console.warn('[GEO] disable error:', e?.message || e);
+    }
+  });
+  on('geo-help-btn', 'click', () => {
+    alert('Para habilitar la ubicación, abrí los permisos del sitio en tu navegador y permití "Ubicación". Luego tocá "Activar ubicación".');
+  });
+}
+
 // ==== [RAMPET][GEO] Geolocalización exacta + guardado en Firestore + banner UI ====
 
 // Redondeo útil para mapas de calor (3 dec ~ 110m). Guardamos exacto y redondeado.
@@ -776,6 +1054,16 @@ async function main() {
       setupMainAppScreenListeners();
 
       Data.listenToClientData(user);
+            // Geo: ON por defecto si está concedido; prompt en primera interacción; refresco 6h
+      await ensureGeoOnStartup();
+
+      // Refresco silencioso al volver a foco (si pasó el umbral)
+      document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible') {
+          await maybeRefreshIfStale();
+        }
+      });
+
       setupMainLimitsObservers();
  await ensureGeoOnce();
       if (messagingSupported) {
@@ -806,4 +1094,5 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
