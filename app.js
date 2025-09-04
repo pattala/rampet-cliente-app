@@ -416,153 +416,7 @@ function setupGeoUi() {
   });
 }
 
-// ==== [RAMPET][GEO] Geolocalización exacta + guardado en Firestore + banner UI ====
 
-// Redondeo útil para mapas de calor (3 dec ~ 110m). Guardamos exacto y redondeado.
-function roundCoord(value, decimals = 3) {
-  const f = Math.pow(10, decimals);
-  return Math.round(value * f) / f;
-}
-
-function showGeoBanner({ state, message }) {
-  // state: 'on' | 'off' | 'denied'
-  const wrap = document.getElementById('geo-banner');
-  const txt = document.getElementById('geo-banner-text');
-  const btnOff = document.getElementById('geo-disable-btn');
-  const btnOn  = document.getElementById('geo-enable-btn');
-  const btnHelp= document.getElementById('geo-help-btn');
-  if (!wrap || !txt || !btnOff || !btnOn || !btnHelp) return;
-
-  wrap.style.display = 'block';
-  txt.textContent = message || (
-    state === 'on'
-      ? '📍 Ubicación activada para recibir beneficios cercanos.'
-      : state === 'denied'
-        ? '⚠️ Tu navegador tiene la ubicación bloqueada para esta app.'
-        : 'Podés activar tu ubicación para recibir beneficios cercanos.'
-  );
-
-  btnOff.style.display  = state === 'on' ? 'inline-block' : 'none';
-  btnOn.style.display   = state !== 'on' ? 'inline-block' : 'none';
-  btnHelp.style.display = state === 'denied' ? 'inline-block' : 'none';
-}
-
-// Guarda la ubicación (exacta y redondeada) en clientes/{cliente}/
-async function saveLocationToFirestore(pos) {
-  const clienteRef = await resolveClienteRef();
-  if (!clienteRef) return;
-
-  const { latitude:lat, longitude:lng, accuracy } = pos.coords || {};
-  const nowIso = new Date().toISOString();
-
-  await clienteRef.set({
-    locationConsent: true,
-    location: {
-      lat, lng, accuracy,
-      capturedAt: nowIso,
-      source: 'geolocation'
-    },
-    locationRounded: {
-      lat3: roundCoord(lat, 3),
-      lng3: roundCoord(lng, 3)
-    }
-  }, { merge: true });
-}
-
-// Desactiva ubicación
-async function disableLocationInFirestore() {
-  const clienteRef = await resolveClienteRef();
-  if (!clienteRef) return;
-  await clienteRef.set({
-    locationConsent: false,
-    location: null,
-    locationRounded: null
-  }, { merge: true });
-}
-
-// Pide geo 1 sola vez por sesión si no hay datos y el usuario no la apagó
-async function ensureGeoOnce() {
-  const u = auth.currentUser;
-  if (!u) return;
-
-  const clienteRef = await resolveClienteRef();
-  if (!clienteRef) return;
-
-  try {
-    const snap = await clienteRef.get();
-    const data = snap.exists ? snap.data() : {};
-    if (data?.locationConsent === false) {
-      showGeoBanner({ state: 'off' });
-      return;
-    }
-    if (data?.locationConsent === true && data?.location) {
-      showGeoBanner({ state: 'on' });
-      return;
-    }
-  } catch (_) {}
-
-  if (!('geolocation' in navigator)) {
-    showGeoBanner({ state: 'off', message: 'Este dispositivo no soporta geolocalización.' });
-    return;
-  }
-
-  navigator.geolocation.getCurrentPosition(async (pos) => {
-    try {
-      await saveLocationToFirestore(pos);
-      showGeoBanner({ state: 'on' });
-    } catch (e) {
-      console.warn('[GEO] error guardando ubicación:', e?.message || e);
-      showGeoBanner({ state: 'off' });
-    }
-  }, (err) => {
-    console.warn('[GEO] getCurrentPosition error:', err?.code, err?.message);
-    if (err?.code === 1 /* PERMISSION_DENIED */) {
-      showGeoBanner({ state: 'denied' });
-    } else {
-      showGeoBanner({ state: 'off' });
-    }
-  }, {
-    enableHighAccuracy: true,
-    timeout: 8000,
-    maximumAge: 0
-  });
-}
-
-// Cableado de botones del banner
-function setupGeoUi() {
-  on('geo-enable-btn', 'click', async () => {
-    if (!('geolocation' in navigator)) {
-      showGeoBanner({ state: 'off', message: 'Este dispositivo no soporta geolocalización.' });
-      return;
-    }
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      try {
-        await saveLocationToFirestore(pos);
-        showGeoBanner({ state: 'on' });
-      } catch (e) {
-        console.warn('[GEO] error guardando ubicación (enable):', e?.message || e);
-        showGeoBanner({ state: 'off' });
-      }
-    }, (err) => {
-      console.warn('[GEO] enable error:', err?.code, err?.message);
-      if (err?.code === 1) showGeoBanner({ state: 'denied' });
-      else showGeoBanner({ state: 'off' });
-    }, { enableHighAccuracy:true, timeout:8000, maximumAge:0 });
-  });
-
-  on('geo-disable-btn', 'click', async () => {
-    try {
-      await disableLocationInFirestore();
-      showGeoBanner({ state: 'off', message: 'Ubicación desactivada. Podés volver a activarla cuando quieras.' });
-    } catch (e) {
-      console.warn('[GEO] error desactivando ubicación:', e?.message || e);
-    }
-  });
-
-  on('geo-help-btn', 'click', () => {
-    alert('Para habilitar la ubicación, abrí los permisos del sitio en tu navegador y permití "Ubicación". Luego tocá "Activar ubicación".');
-  });
-}
 
 // ==== [RAMPET][HOME LIMITS] Límite de historial y vencimientos + 'Ver todo' ====
 const UI_LIMITS = {
@@ -1065,7 +919,7 @@ async function main() {
       });
 
       setupMainLimitsObservers();
- await ensureGeoOnce();
+
       if (messagingSupported) {
         await gestionarPermisoNotificaciones();
         await ensureSingleToken();
@@ -1094,5 +948,6 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
