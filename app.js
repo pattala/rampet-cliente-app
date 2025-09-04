@@ -273,21 +273,22 @@ async function saveLastLocationToFirestore(pos) {
   await clienteRef.set(patch, { merge: true });
 
   // ===== Espejo público opcional para el heatmap =====
-  // Si tus reglas NO permiten escribir en public_heatmap, esto fallará y se ignora.
-  try {
-    const uid = auth.currentUser?.uid;
-    if (uid) {
-      await db.collection('public_heatmap').doc(uid).set({
-        // usamos lat/lng redondeados para anonimizar
-        lat: roundCoord(lat, 3),
-        lng: roundCoord(lng, 3),
-        capturedAt: nowIso,
-        ownerUID: uid
-      }, { merge: true });
-    }
-  } catch (e) {
-    console.warn('[HEATMAP] espejo público omitido (reglas solo lectura):', e?.message || e);
-  }
+// ===== Espejo público para el heatmap (solo redondeado) =====
+try {
+  const u = auth.currentUser;
+  if (!u) return;
+
+  await db.collection('public_heatmap').doc(u.uid).set({
+    lat3: Math.round(lat * 1000) / 1000,
+    lng3: Math.round(lng * 1000) / 1000,
+    capturedAt: nowIso,
+    rounded: true,
+    source: 'geolocation'
+  }, { merge: true });
+} catch (e) {
+  console.warn('[HEATMAP] write espejo falló (no crítico):', e?.message || e);
+}
+
 }
 
 // Actualiza el slot de la franja actual (centro + estabilidad)
@@ -979,3 +980,4 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
