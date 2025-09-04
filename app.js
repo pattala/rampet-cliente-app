@@ -248,7 +248,6 @@ async function saveLastLocationToFirestore(pos) {
   if (accuracy > 150) quality = 'low';
   else if (accuracy > 50) quality = 'medium';
 
-  // Si la nueva es “low” y ya teníamos una mejor, no pisamos la exacta
   const hadGoodExact =
     prev?.lastLocation?.accuracy != null && prev.lastLocation.accuracy <= 80;
 
@@ -262,7 +261,6 @@ async function saveLastLocationToFirestore(pos) {
   };
 
   if (!(quality === 'low' && hadGoodExact)) {
-    // Guardamos la exacta solo si no estaríamos degradando
     patch.lastLocation = {
       lat, lng, accuracy,
       capturedAt: nowIso,
@@ -270,7 +268,6 @@ async function saveLastLocationToFirestore(pos) {
       quality
     };
   } else {
-    // Conservamos la exacta previa, pero anotamos que llegó señal floja
     patch.lastLocationLowSample = {
       lat, lng, accuracy,
       capturedAt: nowIso,
@@ -280,7 +277,21 @@ async function saveLastLocationToFirestore(pos) {
   }
 
   await clienteRef.set(patch, { merge: true });
+
+  // ===== Espejo público para el heatmap (solo redondeado) =====
+  try {
+    await db.collection('public_heatmap').add({
+      lat3: roundCoord(lat, 3),
+      lng3: roundCoord(lng, 3),
+      capturedAt: nowIso,
+      rounded: true,
+      source: 'geolocation'
+    });
+  } catch (e) {
+    console.warn('[HEATMAP] write espejo falló (no crítico):', e?.message || e);
+  }
 }
+
 
 // Actualiza el slot de la franja actual (centro + estabilidad)
 async function saveSlotSample(pos) {
@@ -1001,3 +1012,4 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
