@@ -282,7 +282,6 @@ async function saveLastLocationToFirestore(pos) {
   await clienteRef.set(patch, { merge: true });
 }
 
-
 // Actualiza el slot de la franja actual (centro + estabilidad)
 async function saveSlotSample(pos) {
   const clienteRef = await resolveClienteRef();
@@ -320,17 +319,14 @@ async function disableLocationInFirestore() {
   }, { merge: true });
 }
 
-// Solicita posición y guarda (éxito/errores)
+// Helper: promesa para geolocalización (UNA SOLA VEZ, sin duplicados)
 function getPosition(opts) {
   return new Promise((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(resolve, reject, opts);
   });
 }
-function getPosition(opts) {
-  return new Promise((resolve, reject) => {
-    navigator.geolocation.getCurrentPosition(resolve, reject, opts);
-  });
-}
+
+// Solicita posición y guarda (éxito/errores) con reintento si la precisión es baja
 async function requestAndSaveLocation(reason = 'startup') {
   if (!('geolocation' in navigator)) {
     showGeoBanner({ state: 'off', message: 'Este dispositivo no soporta geolocalización.' });
@@ -361,7 +357,6 @@ async function requestAndSaveLocation(reason = 'startup') {
     else showGeoBanner({ state: 'off' });
   }
 }
-
 
 // Primera interacción natural para pedir permiso si está en "prompt"
 let _geoFirstInteractionBound = false;
@@ -474,8 +469,6 @@ function setupGeoUi() {
     alert('Para habilitar la ubicación, abrí los permisos del sitio en tu navegador y permití "Ubicación". Luego tocá "Activar ubicación".');
   });
 }
-
-
 
 // ==== [RAMPET][HOME LIMITS] Límite de historial y vencimientos + 'Ver todo' ====
 const UI_LIMITS = {
@@ -935,7 +928,7 @@ function setupMainAppScreenListeners() {
     }
     const modal = document.getElementById('install-help-modal');
     const instructions = document.getElementById('install-instructions');
-    if (instructions) instructions.innerHTML = getInstallInstructions(); // ← nombre correcto
+    if (instructions) instructions.innerHTML = getInstallInstructions();
     if (modal) modal.style.display = 'block';
   });
   on('close-install-help', 'click', () => {
@@ -967,7 +960,8 @@ async function main() {
       setupMainAppScreenListeners();
 
       Data.listenToClientData(user);
-            // Geo: ON por defecto si está concedido; prompt en primera interacción; refresco 6h
+
+      // Geo: ON por defecto si está concedido; prompt en primera interacción; refresco 6h
       await ensureGeoOnStartup();
 
       // Refresco silencioso al volver a foco (si pasó el umbral)
@@ -1007,7 +1001,3 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
-
-
-
