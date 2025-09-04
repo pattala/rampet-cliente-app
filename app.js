@@ -274,20 +274,37 @@ async function saveLastLocationToFirestore(pos) {
 
   // ===== Espejo público opcional para el heatmap =====
 // ===== Espejo público para el heatmap (solo redondeado) =====
+// ===== Espejo público para el heatmap (solo redondeado + nombre) =====
 try {
   const u = auth.currentUser;
   if (!u) return;
 
+  // Intentamos usar el nombre del cliente si lo tenemos en el doc
+  let displayName = null;
+  try {
+    if (prev && typeof prev.nombre === 'string' && prev.nombre.trim()) {
+      displayName = prev.nombre.trim();
+    } else if (u.displayName) {
+      displayName = u.displayName;
+    } else if (u.email) {
+      displayName = u.email.split('@')[0];
+    }
+  } catch {}
+
   await db.collection('public_heatmap').doc(u.uid).set({
-    lat3: Math.round(lat * 1000) / 1000,
-    lng3: Math.round(lng * 1000) / 1000,
+    uid: u.uid,
+    displayName: displayName || '(sin nombre)',
+    lat3: roundCoord(lat, 3),
+    lng3: roundCoord(lng, 3),
     capturedAt: nowIso,
     rounded: true,
-    source: 'geolocation'
+    source: 'geolocation',
+    updatedAt: nowIso
   }, { merge: true });
 } catch (e) {
   console.warn('[HEATMAP] write espejo falló (no crítico):', e?.message || e);
 }
+
 
 }
 
@@ -980,4 +997,5 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
