@@ -234,16 +234,54 @@ async function saveLastLocationToFirestore(pos) {
   if (!clienteRef) return;
 
   const { latitude: lat, longitude: lng, accuracy } = pos.coords || {};
-  await clienteRef.set({
+  const nowIso = new Date().toISOString();
+
+  // Traer último snapshot para “no degradar”
+  let prev = null;
+  try {
+    const snap = await clienteRef.get();
+    prev = snap.exists ? snap.data() : null;
+  } catch (_) {}
+
+  // Clasificación de calidad
+  let quality = 'high';
+  if (accuracy > 150) quality = 'low';
+  else if (accuracy > 50) quality = 'medium';
+
+  // Si la nueva es “low” y ya teníamos una mejor, no pisamos la exacta
+  const hadGoodExact =
+    prev?.lastLocation?.accuracy != null && prev.lastLocation.accuracy <= 80;
+
+  const patch = {
     locationConsent: true,
-    lastLocation: {
+    lastLocationRounded: {
+      lat3: roundCoord(lat, 3),
+      lng3: roundCoord(lng, 3),
+      capturedAt: nowIso
+    }
+  };
+
+  if (!(quality === 'low' && hadGoodExact)) {
+    // Guardamos la exacta solo si no estaríamos degradando
+    patch.lastLocation = {
       lat, lng, accuracy,
-      capturedAt: new Date().toISOString(),
-      source: 'geolocation'
-    },
-    lastLocationRounded: { lat3: roundCoord(lat,3), lng3: roundCoord(lng,3) }
-  }, { merge: true });
+      capturedAt: nowIso,
+      source: 'geolocation',
+      quality
+    };
+  } else {
+    // Conservamos la exacta previa, pero anotamos que llegó señal floja
+    patch.lastLocationLowSample = {
+      lat, lng, accuracy,
+      capturedAt: nowIso,
+      source: 'geolocation',
+      quality: 'low'
+    };
+  }
+
+  await clienteRef.set(patch, { merge: true });
 }
+
 
 // Actualiza el slot de la franja actual (centro + estabilidad)
 async function saveSlotSample(pos) {
@@ -283,26 +321,47 @@ async function disableLocationInFirestore() {
 }
 
 // Solicita posición y guarda (éxito/errores)
+function getPosition(opts) {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, opts);
+  });
+}
+function getPosition(opts) {
+  return new Promise((resolve, reject) => {
+    navigator.geolocation.getCurrentPosition(resolve, reject, opts);
+  });
+}
 async function requestAndSaveLocation(reason = 'startup') {
   if (!('geolocation' in navigator)) {
     showGeoBanner({ state: 'off', message: 'Este dispositivo no soporta geolocalización.' });
     return;
   }
-  navigator.geolocation.getCurrentPosition(async (pos) => {
-    try {
-      await saveLastLocationToFirestore(pos);
-      await saveSlotSample(pos);
-      showGeoBanner({ state: 'on' });
-    } catch (e) {
-      console.warn('[GEO] save error:', e?.message || e);
-      showGeoBanner({ state: 'off' });
+
+  const opts = { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 };
+  try {
+    let pos = await getPosition(opts);
+
+    // ⛛ Filtro de calidad (umbral = 80 m). Reintenta una vez si viene flojo.
+    const ACC_THRESHOLD = 80;
+    if (typeof pos.coords.accuracy === 'number' && pos.coords.accuracy > ACC_THRESHOLD) {
+      console.warn(`[GEO] Precisión baja (${pos.coords.accuracy} m). Reintentando...`);
+      try {
+        pos = await getPosition({ enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+      } catch (_) {
+        console.warn('[GEO] Reintento fallido, se usa la primera lectura igualmente.');
+      }
     }
-  }, (err) => {
+
+    await saveLastLocationToFirestore(pos);
+    await saveSlotSample(pos);
+    showGeoBanner({ state: 'on' });
+  } catch (err) {
     console.warn('[GEO] getCurrentPosition error:', err?.code, err?.message);
     if (err?.code === 1) showGeoBanner({ state: 'denied' });
     else showGeoBanner({ state: 'off' });
-  }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
+  }
 }
+
 
 // Primera interacción natural para pedir permiso si está en "prompt"
 let _geoFirstInteractionBound = false;
@@ -948,6 +1007,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
