@@ -167,7 +167,6 @@ function haversineMeters(lat1, lon1, lat2, lon2) {
   const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
   return 2 * R * Math.asin(Math.sqrt(a));
 }
-// Calcula nuevo centro y estabilidad simple
 function updateSlotModel(slotData, lat, lng) {
   const prev = slotData || {};
   const center = prev.center || { lat, lng };
@@ -177,9 +176,7 @@ function updateSlotModel(slotData, lat, lng) {
 
   if (dist <= SLOT_RADIUS_M) {
     samples += 1;
-    // sube estabilidad en proporción a muestras buenas
     stability = Math.min(1, samples / STABILITY_TARGET);
-    // ajuste leve del centro hacia el nuevo punto (promedio ponderado)
     const w = 1 / Math.max(1, samples);
     const newLat = center.lat * (1 - w) + lat * w;
     const newLng = center.lng * (1 - w) + lng * w;
@@ -191,14 +188,13 @@ function updateSlotModel(slotData, lat, lng) {
       centerRounded: { lat3: roundCoord(newLat, 3), lng3: roundCoord(newLng, 3) }
     };
   } else {
-    // muestra fuera de radio: penalizamos un poco la estabilidad y movemos centro mínimamente
     stability = Math.max(0, stability - 0.1);
-    const w = 0.15; // pequeño empuje hacia el nuevo punto para adaptarse si cambió la rutina
+    const w = 0.15;
     const newLat = center.lat * (1 - w) + lat * w;
     const newLng = center.lng * (1 - w) + lng * w;
     return {
       center: { lat: newLat, lng: newLng },
-      samples, // no contamos como “buena”
+      samples,
       stabilityScore: stability,
       capturedAt: new Date().toISOString(),
       centerRounded: { lat3: roundCoord(newLat, 3), lng3: roundCoord(newLng, 3) }
@@ -236,14 +232,12 @@ async function saveLastLocationToFirestore(pos) {
   const { latitude: lat, longitude: lng, accuracy } = pos.coords || {};
   const nowIso = new Date().toISOString();
 
-  // Traer último snapshot para “no degradar”
   let prev = null;
   try {
     const snap = await clienteRef.get();
     prev = snap.exists ? snap.data() : null;
   } catch (_) {}
 
-  // Clasificación de calidad
   let quality = 'high';
   if (accuracy > 150) quality = 'low';
   else if (accuracy > 50) quality = 'medium';
@@ -278,20 +272,23 @@ async function saveLastLocationToFirestore(pos) {
 
   await clienteRef.set(patch, { merge: true });
 
-  // ===== Espejo público para el heatmap (solo redondeado) =====
+  // ===== Espejo público opcional para el heatmap =====
+  // Si tus reglas NO permiten escribir en public_heatmap, esto fallará y se ignora.
   try {
-    await db.collection('public_heatmap').add({
-      lat3: roundCoord(lat, 3),
-      lng3: roundCoord(lng, 3),
-      capturedAt: nowIso,
-      rounded: true,
-      source: 'geolocation'
-    });
+    const uid = auth.currentUser?.uid;
+    if (uid) {
+      await db.collection('public_heatmap').doc(uid).set({
+        // usamos lat/lng redondeados para anonimizar
+        lat: roundCoord(lat, 3),
+        lng: roundCoord(lng, 3),
+        capturedAt: nowIso,
+        ownerUID: uid
+      }, { merge: true });
+    }
   } catch (e) {
-    console.warn('[HEATMAP] write espejo falló (no crítico):', e?.message || e);
+    console.warn('[HEATMAP] espejo público omitido (reglas solo lectura):', e?.message || e);
   }
 }
-
 
 // Actualiza el slot de la franja actual (centro + estabilidad)
 async function saveSlotSample(pos) {
@@ -301,7 +298,6 @@ async function saveSlotSample(pos) {
   const { latitude: lat, longitude: lng } = pos.coords || {};
   const slot = currentTimeSlot();
 
-  // leer datos previos del slot para actualizar el modelo
   const snap = await clienteRef.get();
   const data = snap.exists ? snap.data() : {};
   const prevSlot = data?.timeSlots?.[slot] || null;
@@ -330,14 +326,13 @@ async function disableLocationInFirestore() {
   }, { merge: true });
 }
 
-// Helper: promesa para geolocalización (UNA SOLA VEZ, sin duplicados)
+// Helper geolocalización
 function getPosition(opts) {
   return new Promise((resolve, reject) => {
     navigator.geolocation.getCurrentPosition(resolve, reject, opts);
   });
 }
 
-// Solicita posición y guarda (éxito/errores) con reintento si la precisión es baja
 async function requestAndSaveLocation(reason = 'startup') {
   if (!('geolocation' in navigator)) {
     showGeoBanner({ state: 'off', message: 'Este dispositivo no soporta geolocalización.' });
@@ -348,7 +343,6 @@ async function requestAndSaveLocation(reason = 'startup') {
   try {
     let pos = await getPosition(opts);
 
-    // ⛛ Filtro de calidad (umbral = 80 m). Reintenta una vez si viene flojo.
     const ACC_THRESHOLD = 80;
     if (typeof pos.coords.accuracy === 'number' && pos.coords.accuracy > ACC_THRESHOLD) {
       console.warn(`[GEO] Precisión baja (${pos.coords.accuracy} m). Reintentando...`);
@@ -392,7 +386,6 @@ async function ensureGeoOnStartup() {
   if (!clienteRef) return;
 
   try {
-    // Si el usuario ya desactivó explícitamente en nuestro sistema, no forzamos nada
     const snap = await clienteRef.get();
     const data = snap.exists ? snap.data() : {};
     if (data?.locationConsent === false) {
@@ -405,17 +398,13 @@ async function ensureGeoOnStartup() {
     try {
       const st = await navigator.permissions.query({ name: 'geolocation' });
       if (st.state === 'granted') {
-        // ON silencioso
         await requestAndSaveLocation('startup_granted');
       } else if (st.state === 'prompt') {
-        // Pedimos en primera interacción (no bloqueamos UX)
         showGeoBanner({ state: 'off' });
         setupFirstInteractionOnce();
       } else {
-        // denied
         showGeoBanner({ state: 'denied' });
       }
-      // si el estado cambia (usuario reconfigura permisos en vivo)
       st.onchange = () => {
         if (st.state === 'granted') requestAndSaveLocation('perm_change_granted');
         else if (st.state === 'denied') showGeoBanner({ state: 'denied' });
@@ -424,12 +413,10 @@ async function ensureGeoOnStartup() {
     } catch (_) {}
   }
 
-  // Fallback (iOS/Safari): pedimos en primera interacción
   showGeoBanner({ state: 'off' });
   setupFirstInteractionOnce();
 }
 
-// Refresco silencioso si la última captura (global o de la franja) está “vieja”
 async function maybeRefreshIfStale() {
   const clienteRef = await resolveClienteRef();
   if (!clienteRef) return;
@@ -441,12 +428,10 @@ async function maybeRefreshIfStale() {
     const now = Date.now();
     let stale = true;
 
-    // Miramos última global
     if (data?.lastLocation?.capturedAt) {
       const t = new Date(data.lastLocation.capturedAt).getTime();
       if (isFinite(t) && (now - t) < GEO_MAX_AGE_MS) stale = false;
     }
-    // Miramos la franja actual
     const slot = currentTimeSlot();
     const slotCap = data?.timeSlots?.[slot]?.capturedAt;
     if (slotCap) {
@@ -455,7 +440,6 @@ async function maybeRefreshIfStale() {
     }
 
     if (stale) {
-      // Solo intentamos si el permiso está concedido; si está denegado, el getCurrentPosition nos avisará
       await requestAndSaveLocation('refresh_visible');
     }
   } catch (e) {
@@ -483,8 +467,8 @@ function setupGeoUi() {
 
 // ==== [RAMPET][HOME LIMITS] Límite de historial y vencimientos + 'Ver todo' ====
 const UI_LIMITS = {
-  HISTORIAL_MAX: 8,   // muestra solo últimos 8 movimientos en Home
-  VENC_FECHAS_MAX: 3, // mantiene 3 fechas de próximos vencimientos en Home
+  HISTORIAL_MAX: 8,
+  VENC_FECHAS_MAX: 3,
 };
 
 const _rampetUiObservers = [];
@@ -496,7 +480,6 @@ function cleanupUiObservers(){
   }
 }
 
-// Crea (si no existe) un link 'Ver todo' en el contenedor dado
 function ensureVerTodoLink(container, linkId, text, onClick){
   if (!container) return;
   let link = container.querySelector('#' + linkId);
@@ -511,7 +494,6 @@ function ensureVerTodoLink(container, linkId, text, onClick){
   link.onclick = onClick;
 }
 
-// Limita la lista de historial reciente en Home (#lista-historial)
 async function limitHistorialReciente() {
   const ul = document.getElementById('lista-historial');
   if (!ul) return;
@@ -525,7 +507,6 @@ async function limitHistorialReciente() {
   }
 }
 
-// Limita la lista de próximas fechas de vencimiento (.venc-list) a 3
 async function limitVencimientos() {
   const list = document.querySelector('.venc-list');
   if (!list) return;
@@ -539,7 +520,6 @@ async function limitVencimientos() {
   }
 }
 
-// Observa contenedores para aplicar límite cada vez que se actualicen desde Firestore
 function setupMainLimitsObservers() {
   const hist = document.getElementById('lista-historial');
   if (hist) {
@@ -586,12 +566,10 @@ function wireTermsModalBehavior(){
 }
 
 // ──────────────────────────────────────────────────────────────
-// INBOX MODAL (REUTILIZA EL QUE YA ESTÁ EN EL HTML)
+// INBOX MODAL
 // ──────────────────────────────────────────────────────────────
-
-// Estado de filtro actual: 'all' | 'promos' | 'puntos' | 'otros'
 let inboxFilter = 'all';
-let inboxLastSnapshot = []; // cache local del último fetch (para "marcar todo leído")
+let inboxLastSnapshot = [];
 
 function normalizeCategory(v){
   if (!v) return '';
@@ -601,13 +579,11 @@ function normalizeCategory(v){
   if (['otro','otros','general','aviso','avisos'].includes(x)) return 'otros';
   return x;
 }
-
 function itemMatchesFilter(it){
   if (inboxFilter === 'all') return true;
   const cat = normalizeCategory(it.categoria || it.category);
   return cat === inboxFilter;
 }
-
 function renderInboxList(items){
   const list = document.getElementById('inbox-list');
   const empty = document.getElementById('inbox-empty');
@@ -661,7 +637,6 @@ async function fetchInboxBatchUnified() {
   if (!clienteRef) { renderInboxList([]); return; }
 
   try {
-    // Unificado: últimas 50 (leídas + no leídas), ordenadas por fecha
     const snap = await clienteRef.collection('inbox')
       .orderBy('sentAt','desc')
       .limit(50)
@@ -682,7 +657,6 @@ function wireInboxModal(){
   if (!modal || modal._wired) return;
   modal._wired = true;
 
-  // Filtros (usa los botones que ya existen en tu HTML)
   const setActive = (idActive)=>{
     ['inbox-tab-todos','inbox-tab-promos','inbox-tab-puntos','inbox-tab-otros'].forEach(id=>{
       const btn = document.getElementById(id);
@@ -698,12 +672,10 @@ function wireInboxModal(){
   on('inbox-tab-puntos','click',async ()=>{ inboxFilter='puntos'; setActive('inbox-tab-puntos'); renderInboxList(inboxLastSnapshot); });
   on('inbox-tab-otros','click', async ()=>{ inboxFilter='otros';  setActive('inbox-tab-otros');  renderInboxList(inboxLastSnapshot); });
 
-  // Cerrar (X y botón)
   on('close-inbox-modal','click', ()=> modal.style.display='none');
   on('inbox-close-btn','click', ()=> modal.style.display='none');
   modal.addEventListener('click',(e)=>{ if(e.target===modal) modal.style.display='none'; });
 
-  // Marcar todo como leído (del conjunto actual)
   on('inbox-mark-read','click', async ()=>{
     const clienteRef = await resolveClienteRef();
     if (!clienteRef || !inboxLastSnapshot.length) return;
@@ -718,7 +690,6 @@ function wireInboxModal(){
     catch(e){ console.warn('[INBOX] marcar leído error:', e?.message || e); }
   });
 
-  // ESC para cerrar
   document.addEventListener('keydown',(e)=>{ if(e.key==='Escape' && modal.style.display==='flex'){ modal.style.display='none'; }});
 }
 
@@ -731,7 +702,7 @@ async function openInboxModal() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// CARRUSEL (simple): autoplay 2.5s + drag desktop + snap al centro
+// CARRUSEL
 // ──────────────────────────────────────────────────────────────
 function carruselSlides(root){
   return root ? Array.from(root.querySelectorAll('.banner-item, .banner-item-texto')) : [];
@@ -901,7 +872,6 @@ function setupAuthScreenListeners() {
   on('login-btn', 'click', Auth.login);
   on('register-btn', 'click', Auth.registerNewAccount);
 
-  // Abrir T&C desde registro/login/footers
   on('show-terms-link', 'click', (e) => { e.preventDefault(); openTermsModal(); });
   on('forgot-password-link', 'click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
 
@@ -923,7 +893,7 @@ function setupMainAppScreenListeners() {
 
   on('show-terms-link-banner', 'click', (e) => { e.preventDefault(); openTermsModal(); });
   on('footer-terms-link', 'click', (e) => { e.preventDefault(); openTermsModal(); });
-  on('accept-terms-btn-modal', 'click', Data.acceptTerms); // si querés registrar aceptación
+  on('accept-terms-btn-modal', 'click', Data.acceptTerms);
 
   on('btn-install-pwa', 'click', handleInstallPrompt);
   on('btn-dismiss-install', 'click', handleDismissInstall);
@@ -962,7 +932,6 @@ async function main() {
     const bell = document.getElementById('btn-notifs');
     const badge = document.getElementById('notif-counter');
 
-    // wiring de modales que YA existen en HTML
     wireTermsModalBehavior();
     wireInboxModal();
 
@@ -972,10 +941,8 @@ async function main() {
 
       Data.listenToClientData(user);
 
-      // Geo: ON por defecto si está concedido; prompt en primera interacción; refresco 6h
       await ensureGeoOnStartup();
 
-      // Refresco silencioso al volver a foco (si pasó el umbral)
       document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'visible') {
           await maybeRefreshIfStale();
@@ -1012,4 +979,3 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
