@@ -924,6 +924,33 @@ function setupAuthScreenListeners() {
 
   on('close-terms-modal', 'click', closeTermsModal);
 }
+// ──────────────────────────────────────────────────────────────
+// GEO UI (NO-OP seguro si no están los elementos)
+// ──────────────────────────────────────────────────────────────
+function setupGeoUi() {
+  const on = (id, ev, fn) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener(ev, fn);
+  };
+
+  on('geo-enable-btn', 'click', async () => {
+    try { await requestAndSaveLocation('enable_click'); }
+    catch (e) { console.warn('[GEO] enable click error:', e?.message || e); }
+  });
+
+  on('geo-disable-btn', 'click', async () => {
+    try {
+      await disableLocationInFirestore();
+      showGeoBanner({ state: 'off', message: 'Ubicación desactivada. Podés volver a activarla cuando quieras.' });
+    } catch (e) {
+      console.warn('[GEO] disable error:', e?.message || e);
+    }
+  });
+
+  on('geo-help-btn', 'click', () => {
+    alert('Para habilitar la ubicación, abrí los permisos del sitio en tu navegador y permití "Ubicación". Luego tocá "Activar ubicación".');
+  });
+}
 
 function setupMainAppScreenListeners() {
   on('logout-btn', 'click', async () => {
@@ -1026,4 +1053,5 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
