@@ -146,12 +146,12 @@ const GEO_MAX_AGE_MS = 6 * 60 * 60 * 1000; // 6 horas para refresco silencioso
 const SLOT_RADIUS_M = 200;                  // radio de consistencia (~200m)
 const STABILITY_TARGET = 10;                // cuántas muestras "buenas" para estabilidad alta
 
-// Franjas (07–12 / 12–18 / 18–24). Si querés otro corte, cambiá aquí.
+// Franjas (07–12 / 12–18 / 18–24)
 function currentTimeSlot(d = new Date()) {
   const h = d.getHours();
   if (h >= 7 && h < 12) return 'morning';
   if (h >= 12 && h < 18) return 'afternoon';
-  return 'evening'; // 18–24 y 0–6 las consideramos evening para simplificar
+  return 'evening';
 }
 
 // Utilidades
@@ -202,6 +202,17 @@ function updateSlotModel(slotData, lat, lng) {
   }
 }
 
+// Detección simple de dispositivo (para marcar si es desktop/ip based)
+function getDeviceInfo() {
+  const ua = navigator.userAgent || '';
+  const isMobile = /Android|iPhone|iPad|iPod|IEMobile|WPDesktop/i.test(ua);
+  const isTablet = /iPad|Tablet/i.test(ua);
+  const isIOS = /iPhone|iPad|iPod/i.test(ua);
+  const isAndroid = /Android/i.test(ua);
+  const deviceType = isMobile ? (isTablet ? 'tablet' : 'mobile') : 'desktop';
+  return { deviceType, isIOS, isAndroid, ua };
+}
+
 // Banner (ON/OFF/DENIED)
 function showGeoBanner({ state, message }) {
   const wrap = document.getElementById('geo-banner');
@@ -232,15 +243,20 @@ async function saveLastLocationToFirestore(pos) {
   const { latitude: lat, longitude: lng, accuracy } = pos.coords || {};
   const nowIso = new Date().toISOString();
 
+  // snapshot previo para no degradar exactitud y para nombre/numeroSocio
   let prev = null;
   try {
     const snap = await clienteRef.get();
     prev = snap.exists ? snap.data() : null;
   } catch (_) {}
 
+  // Clasificación de calidad + flag heurístico desktop/ip
   let quality = 'high';
   if (accuracy > 150) quality = 'low';
   else if (accuracy > 50) quality = 'medium';
+
+  const { deviceType } = getDeviceInfo();
+  const lowConfidence = (deviceType === 'desktop' && (accuracy == null || accuracy > 800)); // heurística PC/IP
 
   const hadGoodExact =
     prev?.lastLocation?.accuracy != null && prev.lastLocation.accuracy <= 80;
@@ -259,53 +275,71 @@ async function saveLastLocationToFirestore(pos) {
       lat, lng, accuracy,
       capturedAt: nowIso,
       source: 'geolocation',
-      quality
+      quality,
+      flags: { lowConfidence, deviceType }
     };
   } else {
     patch.lastLocationLowSample = {
       lat, lng, accuracy,
       capturedAt: nowIso,
       source: 'geolocation',
-      quality: 'low'
+      quality: 'low',
+      flags: { lowConfidence, deviceType }
     };
   }
 
   await clienteRef.set(patch, { merge: true });
 
-  // ===== Espejo público opcional para el heatmap =====
-// ===== Espejo público para el heatmap (solo redondeado) =====
-// ===== Espejo público para el heatmap (solo redondeado + nombre) =====
-try {
-  const u = auth.currentUser;
-  if (!u) return;
-
-  // Intentamos usar el nombre del cliente si lo tenemos en el doc
-  let displayName = null;
+  // ===== Espejo público (último punto) para el mapa =====
   try {
-    if (prev && typeof prev.nombre === 'string' && prev.nombre.trim()) {
-      displayName = prev.nombre.trim();
+    const u = auth.currentUser;
+    if (!u) return;
+
+    // Preferencias de nombre/identificador
+    let displayName = null;
+    if (prev?.nombre && String(prev.nombre).trim()) {
+      displayName = String(prev.nombre).trim();
+    } else if (prev?.numeroSocio != null && String(prev.numeroSocio).trim()) {
+      displayName = `Socio ${String(prev.numeroSocio).trim()}`;
     } else if (u.displayName) {
       displayName = u.displayName;
     } else if (u.email) {
       displayName = u.email.split('@')[0];
+    } else {
+      displayName = u.uid;
     }
-  } catch {}
 
-  await db.collection('public_heatmap').doc(u.uid).set({
-    uid: u.uid,
-    displayName: displayName || '(sin nombre)',
-    lat3: roundCoord(lat, 3),
-    lng3: roundCoord(lng, 3),
-    capturedAt: nowIso,
-    rounded: true,
-    source: 'geolocation',
-    updatedAt: nowIso
-  }, { merge: true });
-} catch (e) {
-  console.warn('[HEATMAP] write espejo falló (no crítico):', e?.message || e);
-}
+    await db.collection('public_heatmap').doc(u.uid).set({
+      uid: u.uid,
+      name: displayName,
+      lat3: roundCoord(lat, 3),
+      lng3: roundCoord(lng, 3),
+      capturedAt: nowIso,
+      rounded: true,
+      source: 'geolocation',
+      updatedAt: nowIso
+    }, { merge: true });
+  } catch (e) {
+    console.warn('[HEATMAP] write espejo falló (no crítico):', e?.message || e);
+  }
 
-
+  // ===== Histórico (recorrido) opcional =====
+  try {
+    const u = auth.currentUser;
+    if (u) {
+      await db.collection('public_geo').doc(u.uid).collection('samples').add({
+        lat3: roundCoord(lat, 3),
+        lng3: roundCoord(lng, 3),
+        capturedAt: nowIso,
+        source: 'geolocation',
+        accuracy: accuracy ?? null,
+        deviceType: getDeviceInfo().deviceType
+      });
+    }
+  } catch (e) {
+    // Si no existen reglas para public_geo, se ignora sin romper el flujo
+    console.warn('[GEO] histórico no guardado (reglas o índices):', e?.message || e);
+  }
 }
 
 // Actualiza el slot de la franja actual (centro + estabilidad)
@@ -463,24 +497,6 @@ async function maybeRefreshIfStale() {
   } catch (e) {
     console.warn('[GEO] maybeRefreshIfStale error:', e?.message || e);
   }
-}
-
-// Cableado botones del banner
-function setupGeoUi() {
-  on('geo-enable-btn', 'click', async () => {
-    await requestAndSaveLocation('enable_click');
-  });
-  on('geo-disable-btn', 'click', async () => {
-    try {
-      await disableLocationInFirestore();
-      showGeoBanner({ state: 'off', message: 'Ubicación desactivada. Podés volver a activarla cuando quieras.' });
-    } catch (e) {
-      console.warn('[GEO] disable error:', e?.message || e);
-    }
-  });
-  on('geo-help-btn', 'click', () => {
-    alert('Para habilitar la ubicación, abrí los permisos del sitio en tu navegador y permití "Ubicación". Luego tocá "Activar ubicación".');
-  });
 }
 
 // ==== [RAMPET][HOME LIMITS] Límite de historial y vencimientos + 'Ver todo' ====
@@ -675,7 +691,7 @@ function wireInboxModal(){
   if (!modal || modal._wired) return;
   modal._wired = true;
 
-  const setActive = (idActive)=>{
+  const setActive =(idActive)=>{
     ['inbox-tab-todos','inbox-tab-promos','inbox-tab-puntos','inbox-tab-otros'].forEach(id=>{
       const btn = document.getElementById(id);
       if (!btn) return;
@@ -997,5 +1013,3 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
-
