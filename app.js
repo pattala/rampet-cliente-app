@@ -290,38 +290,51 @@ async function saveLastLocationToFirestore(pos) {
 
   await clienteRef.set(patch, { merge: true });
 
-  // ===== Espejo público (último punto) para el mapa =====
-  try {
-    const u = auth.currentUser;
-    if (!u) return;
+// ===== Espejo público (último punto) para el mapa =====
+try {
+  const u = auth.currentUser;
+  if (!u) return;
 
-    // Preferencias de nombre/identificador
-    let displayName = null;
-    if (prev?.nombre && String(prev.nombre).trim()) {
-      displayName = String(prev.nombre).trim();
-    } else if (prev?.numeroSocio != null && String(prev.numeroSocio).trim()) {
-      displayName = `Socio ${String(prev.numeroSocio).trim()}`;
-    } else if (u.displayName) {
-      displayName = u.displayName;
-    } else if (u.email) {
-      displayName = u.email.split('@')[0];
-    } else {
-      displayName = u.uid;
+  // Leemos del doc del cliente para armar identidad visible
+  // (si no hay, caemos a displayName/email/uid)
+  let nombreOut = null;
+  let numeroSocioOut = null;
+
+  if (prev) {
+    if (typeof prev.nombre === 'string' && prev.nombre.trim()) {
+      nombreOut = prev.nombre.trim();
     }
-
-    await db.collection('public_heatmap').doc(u.uid).set({
-      uid: u.uid,
-      name: displayName,
-      lat3: roundCoord(lat, 3),
-      lng3: roundCoord(lng, 3),
-      capturedAt: nowIso,
-      rounded: true,
-      source: 'geolocation',
-      updatedAt: nowIso
-    }, { merge: true });
-  } catch (e) {
-    console.warn('[HEATMAP] write espejo falló (no crítico):', e?.message || e);
+    if (prev.numeroSocio != null && String(prev.numeroSocio).trim()) {
+      numeroSocioOut = String(prev.numeroSocio).trim();
+    }
   }
+
+  let fallback =
+    (u.displayName && u.displayName.trim()) ? u.displayName.trim()
+      : (u.email ? u.email.split('@')[0] : u.uid);
+
+  // Si hay numeroSocio, lo mostramos como “Socio NNN”
+  const display =
+    nombreOut ? nombreOut
+      : (numeroSocioOut ? `Socio ${numeroSocioOut}` : fallback);
+
+  await db.collection('public_heatmap').doc(u.uid).set({
+    uid: u.uid,
+    // guardamos TODOS para que el mapa los pueda leer sin joins
+    nombre: nombreOut || null,
+    numeroSocio: numeroSocioOut || null,
+    display,                 // texto ya resuelto para mostrar
+    lat3: roundCoord(lat, 3),
+    lng3: roundCoord(lng, 3),
+    capturedAt: nowIso,
+    rounded: true,
+    source: 'geolocation',
+    updatedAt: nowIso
+  }, { merge: true });
+} catch (e) {
+  console.warn('[HEATMAP] write espejo falló (no crítico):', e?.message || e);
+}
+
 
   // ===== Histórico (recorrido) opcional =====
   try {
@@ -1013,3 +1026,4 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
