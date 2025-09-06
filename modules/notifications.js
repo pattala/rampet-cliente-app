@@ -3,6 +3,31 @@
 
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
+// Registra/obtiene el SW de FCM con scope raíz y sin cachear el script
+async function registerFcmSW() {
+  if (!('serviceWorker' in navigator)) return null;
+
+  try {
+    // Si ya hay registro en '/', usalo (y actualizalo)
+    const existing = await navigator.serviceWorker.getRegistration('/');
+    if (existing) {
+      try { await existing.update(); } catch {}
+      return existing;
+    }
+
+    // Si no hay, registralo
+    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js', {
+      scope: '/',
+      updateViaCache: 'none'
+    });
+    if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+    console.log('✅ SW FCM registrado:', reg.scope);
+    return reg;
+  } catch (e) {
+    console.warn('[FCM] No se pudo registrar el SW:', e);
+    return null;
+  }
+}
 
 const TOKEN_LS_KEY = 'fcmToken';
 
@@ -181,7 +206,11 @@ export function gestionarPermisoNotificaciones() {
 async function obtenerYGuardarToken() {
   if (!isMessagingSupported || !auth.currentUser || !messaging) return null;
   try {
-    const registration = await navigator.serviceWorker.ready;
+ const registration =
+  (await navigator.serviceWorker.getRegistration('/')) ||
+  (await registerFcmSW()) ||
+  (await navigator.serviceWorker.ready);
+
     const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
 
     const currentToken = await messaging.getToken({
@@ -189,13 +218,18 @@ async function obtenerYGuardarToken() {
       serviceWorkerRegistration: registration
     });
 
-    if (currentToken) {
-      await saveSingleTokenForUser(currentToken);
-      return currentToken;
-    } else {
-      console.warn('⚠️ No se pudo obtener token');
-      return null;
-    }
+if (!currentToken) {
+  console.warn('⚠️ No se pudo obtener token');
+  return null;
+}
+const prev = localStorage.getItem(TOKEN_LS_KEY);
+if (prev && prev === currentToken) {
+  console.log('ℹ️ Token FCM sin cambios (no se re-guarda)');
+  return currentToken;
+}
+await saveSingleTokenForUser(currentToken);
+return currentToken;
+
   } catch (err) {
     console.error('obtenerYGuardarToken error:', err);
     if (err.code === 'messaging/permission-blocked' || err.code === 'messaging/permission-default') {
@@ -489,3 +523,4 @@ export async function showInboxModal() {
     if (el) el.onclick = () => renderInboxByTab(tab);
   });
 }
+
