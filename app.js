@@ -6,7 +6,7 @@ import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 // BEGIN PATCH (app.js)
-import { initNotificationsOnce } from './modules/notifications.js';
+import {  } from './modules/notifications.js';
 // END PATCH
 
 // Notificaciones (módulo de la PWA)
@@ -1026,8 +1026,9 @@ async function main() {
 
       setupMainLimitsObservers();
 
-      if (messagingSupported) {
-  await initNotificationsOnce(); // inicializa canal SW, onMessage y token una sola vez por usuario/sesión
+      iif (messagingSupported) {
+  await initNotificationsOnce();
+  console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
 }
 
 
@@ -1052,6 +1053,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
