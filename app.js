@@ -912,8 +912,9 @@ function setupAuthScreenListeners() {
   on('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
   on('show-login-link', 'click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
 
-  on('login-form', 'submit', (e) => { e.preventDefault(); Auth.login(); });
-on('register-form', 'submit', (e) => { e.preventDefault(); Auth.registerNewAccount(); });
+ on('login-btn', 'click', Auth.login);
+  on('register-btn', 'click', Auth.registerNewAccount);
+
 
   on('show-terms-link', 'click', (e) => { e.preventDefault(); openTermsModal(); });
   on('forgot-password-link', 'click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
@@ -1047,5 +1048,6 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
