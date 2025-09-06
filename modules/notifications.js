@@ -224,6 +224,59 @@ async function obtenerYGuardarToken() {
   return NOTIFS.inFlight;
 }
 
+// --- Pedir permiso / descartar / switch ---
+export function handlePermissionRequest() {
+  localStorage.setItem(`notifGestionado_${auth.currentUser?.uid}`, 'true');
+  const card = document.getElementById('notif-prompt-card');
+  if (card) card.style.display = 'none';
+
+  Notification.requestPermission().then(async (p) => {
+    if (p === 'granted') {
+      UI.showToast('¡Notificaciones activadas!', 'success');
+      await obtenerYGuardarToken();
+      await ensureSingleToken();
+    } else {
+      const sc = document.getElementById('notif-card');
+      const sw = document.getElementById('notif-switch');
+      if (sc) sc.style.display = 'block';
+      if (sw) sw.checked = false;
+    }
+  });
+}
+
+export function dismissPermissionRequest() {
+  localStorage.setItem(`notifGestionado_${auth.currentUser?.uid}`, 'true');
+  const pc = document.getElementById('notif-prompt-card');
+  const sc = document.getElementById('notif-card');
+  if (pc) pc.style.display = 'none';
+  if (sc) sc.style.display = 'block';
+  const sw = document.getElementById('notif-switch');
+  if (sw) sw.checked = false;
+}
+
+export function handlePermissionSwitch(e) {
+  if (e.target.checked) {
+    Notification.requestPermission().then(async (p) => {
+      if (p === 'granted') {
+        UI.showToast('¡Notificaciones activadas!', 'success');
+        const sc = document.getElementById('notif-card');
+        if (sc) sc.style.display = 'none';
+        await obtenerYGuardarToken();
+        await ensureSingleToken();
+      } else {
+        e.target.checked = false;
+      }
+    });
+  }
+}
+
+
+
+
+
+
+
+
 // ──────────────────────────────────────────────────────────────
 // Canal FG (app visible)
 // ──────────────────────────────────────────────────────────────
@@ -472,3 +525,4 @@ export async function initNotificationsOnce() {
   await gestionarPermisoNotificaciones(); // pide permiso y obtiene token si aplica
   await ensureSingleToken();              // dedupe en Firestore si hubiera más de uno
 }
+
