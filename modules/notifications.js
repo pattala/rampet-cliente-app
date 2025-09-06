@@ -321,8 +321,8 @@ export function handlePermissionSwitch(e) {
 // --- Canal FG (app visible) ---
 export function listenForInAppMessages() {
   if (!messaging) return;
-   if (__onMessageHooked) return;    // ← evita múltiples hooks
-  __onMessageHooked = true;
+  if (NOTIFS.onMsg) return;      // ← evita enganchar 2+ veces
+  NOTIFS.onMsg = true;
   
   messaging.onMessage(async (payload) => {
     const data = payload?.data || {};
@@ -355,9 +355,9 @@ function swMessageHandler(event) {
 
 export function initNotificationChannel() {
   if (!('serviceWorker' in navigator)) return;
-  if (__swChannelInited) return;               // ← NO volver a registrar
+  if (NOTIFS.swChan) return;     // ← no duplicar
   navigator.serviceWorker.addEventListener('message', swMessageHandler);
-  __swChannelInited = true;
+  NOTIFS.swChan = true;
   console.log('[INIT] SW message channel listo');
 }
 
@@ -586,29 +586,20 @@ export async function showInboxModal() {
 }
 // Inicializa canal SW→APP, onMessage y token SOLO una vez por usuario/sesión
 export async function initNotificationsOnce() {
-  try {
-    const u = auth.currentUser;
-    if (!u || !isMessagingSupported || !messaging) return;
+  const u = auth.currentUser;
+  if (!u || !isMessagingSupported || !messaging) return;
 
-    // si ya se inicializó para este usuario, no repetir
-    if (__notifsInitUid === u.uid) return;
-    __notifsInitUid = u.uid;
+  if (NOTIFS.initUid === u.uid) return; // ← guard centralizado
+  NOTIFS.initUid = u.uid;
 
-    // 1) canal del SW → app (con guard interno)
-    initNotificationChannel();
+  initNotificationChannel();
+  listenForInAppMessages();
 
-    // 2) mensajes en foreground (con guard interno __onMessageHooked si lo usás)
-    listenForInAppMessages();
-
-    // 3) permisos + token (adentro ya usa obtenerYGuardarToken y dedupe)
-    await gestionarPermisoNotificaciones();
-
-    // 4) limpieza de tokens en Firestore si hubiera más de uno
-    await ensureSingleToken();
-  } catch (e) {
-    console.warn('[notifs] initNotificationsOnce error:', e);
-  }
+  await gestionarPermisoNotificaciones(); // pide permiso y obtiene token si aplica
+  await ensureSingleToken();              // dedupe en Firestore si hubiera más de uno
 }
+
+
 
 
 
