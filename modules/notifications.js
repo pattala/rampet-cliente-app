@@ -3,6 +3,12 @@
 
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
+// Evita inicializar notificaciones más de una vez por usuario/sesión
+
+// Si no los tenés ya, estos ayudan a no duplicar listeners:
+let __onMessageHooked = false;
+let __swChannelInited = false;
+
 // Evita inicializar notificaciones más de una vez por usuario
 let __notifsInitUid = null;
 
@@ -581,6 +587,32 @@ export async function showInboxModal() {
     if (el) el.onclick = () => renderInboxByTab(tab);
   });
 }
+// Inicializa canal SW→APP, onMessage y token SOLO una vez por usuario/sesión
+export async function initNotificationsOnce() {
+  try {
+    const u = auth.currentUser;
+    if (!u || !isMessagingSupported || !messaging) return;
+
+    // si ya se inicializó para este usuario, no repetir
+    if (__notifsInitUid === u.uid) return;
+    __notifsInitUid = u.uid;
+
+    // 1) canal del SW → app (con guard interno)
+    initNotificationChannel();
+
+    // 2) mensajes en foreground (con guard interno __onMessageHooked si lo usás)
+    listenForInAppMessages();
+
+    // 3) permisos + token (adentro ya usa obtenerYGuardarToken y dedupe)
+    await gestionarPermisoNotificaciones();
+
+    // 4) limpieza de tokens en Firestore si hubiera más de uno
+    await ensureSingleToken();
+  } catch (e) {
+    console.warn('[notifs] initNotificationsOnce error:', e);
+  }
+}
+
 
 
 
