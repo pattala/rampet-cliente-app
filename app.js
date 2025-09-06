@@ -1026,7 +1026,7 @@ async function main() {
 
       setupMainLimitsObservers();
 
-      iif (messagingSupported) {
+      if (messagingSupported) {
   await initNotificationsOnce();
   console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
 }
