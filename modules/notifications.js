@@ -3,20 +3,17 @@
 
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
-// Evita inicializar notificaciones más de una vez por usuario/sesión
 
-// Si no los tenés ya, estos ayudan a no duplicar listeners:
+// Estado único para notificaciones (persiste si el módulo se vuelve a evaluar)
+const NOTIFS = (window.__RAMPET_NOTIFS ||= {
+  onMsg: false,                                      // reemplaza __onMessageHooked
+  swChan: false,                                     // reemplaza __swChannelInited
+  initUid: null,                                     // reemplaza __notifsInitUid
+  inFlight: null,                                    // reemplaza __getTokenInFlight
+  lastToken: localStorage.getItem('fcmToken') || null// reemplaza __lastSavedToken
+});
 
 
-
-// Evita inicializar notificaciones más de una vez por usuario
-let __notifsInitUid = null;
-
-// --- Guards para evitar duplicados ---
-let __getTokenInFlight = null;           // evita llamadas paralelas a getToken()
-let __lastSavedToken   = localStorage.getItem('fcmToken') || null; // cache local rápido
-let __onMessageHooked  = false;          // evita enganchar onMessage 2+ veces
-let __swChannelInited  = false;          // evita duplicar el canal SW→APP
 
 
 // Registra/obtiene el SW de FCM con scope raíz y sin cachear el script
@@ -612,6 +609,7 @@ export async function initNotificationsOnce() {
     console.warn('[notifs] initNotificationsOnce error:', e);
   }
 }
+
 
 
 
