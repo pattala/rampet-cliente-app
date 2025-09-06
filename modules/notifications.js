@@ -6,8 +6,8 @@ import * as UI from './ui.js';
 // Evita inicializar notificaciones más de una vez por usuario/sesión
 
 // Si no los tenés ya, estos ayudan a no duplicar listeners:
-let __onMessageHooked = false;
-let __swChannelInited = false;
+
+
 
 // Evita inicializar notificaciones más de una vez por usuario
 let __notifsInitUid = null;
@@ -612,6 +612,7 @@ export async function initNotificationsOnce() {
     console.warn('[notifs] initNotificationsOnce error:', e);
   }
 }
+
 
 
 
