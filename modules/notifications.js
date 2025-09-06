@@ -124,7 +124,8 @@ async function saveSingleTokenForUser(token) {
   await ref.set({ fcmTokens: [token] }, { merge: true });
 
   localStorage.setItem(TOKEN_LS_KEY, token);
-  console.log('✅ Token FCM guardado como único:', token);
+  // console.debug('✅ Token FCM guardado como único:', token);
+
 }
 
 export async function handleSignOutCleanup() {
@@ -235,21 +236,23 @@ async function obtenerYGuardarToken() {
       });
 
       if (!currentToken) {
-        console.warn('⚠️ No se pudo obtener token');
-        return null;
-      }
+  console.warn('⚠️ No se pudo obtener token');
+  return null;
+}
 
-      // Dedupe fuerte: si es el mismo, no re-guardar ni re-loggear
-      if (__lastSavedToken && __lastSavedToken === currentToken) {
-        console.log('ℹ️ Token FCM sin cambios (no se re-guarda)');
-        return currentToken;
-      }
+// Dedupe fuerte: si es el mismo, no re-guardar ni loguear
+if ((__lastSavedToken && __lastSavedToken === currentToken) ||
+    (localStorage.getItem('fcmToken') === currentToken)) {
+  // silencio: ya está guardado, no spameamos logs
+  return currentToken;
+}
 
-      await saveSingleTokenForUser(currentToken);   // tu función actual (deja fcmTokens = [token] y setea LS)
-      __lastSavedToken = currentToken;              // cache en memoria para futuras llamadas de esta sesión
+await saveSingleTokenForUser(currentToken);   // guarda en Firestore y setea localStorage
+__lastSavedToken = currentToken;              // cache en memoria
 
-      console.log('✅ Token FCM (nuevo) guardado:', currentToken);
-      return currentToken;
+console.log('✅ Token FCM (nuevo) guardado:', currentToken);
+return currentToken;
+
 
     } catch (err) {
       console.error('obtenerYGuardarToken error:', err);
@@ -578,6 +581,7 @@ export async function showInboxModal() {
     if (el) el.onclick = () => renderInboxByTab(tab);
   });
 }
+
 
 
 
