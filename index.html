@@ -40,42 +40,52 @@
     <div id="loading-screen" class="screen active"><p>Cargando...</p></div>
 
     <!-- LOGIN -->
-    <div id="login-screen" class="screen">
-      <h2>Bienvenido</h2>
-      <p>Ingresa para consultar tus puntos y beneficios.</p>
-      <div class="form-group">
-        <input type="email" id="login-email" placeholder="Tu Email" autocomplete="email" required>
-        <input type="password" id="login-password" placeholder="Tu Contraseña o DNI" required>
-        <button id="login-btn" class="primary-btn">Ingresar</button>
-      </div>
-      <p class="toggle-link" style="margin-top: 15px;">
-        <a href="#" id="forgot-password-link">¿Olvidaste tu contraseña?</a>
-      </p>
-      <p class="toggle-link">¿Aún no eres miembro? <a href="#" id="show-register-link">Regístrate aquí</a></p>
-    </div>
+    <!-- LOGIN -->
+<div id="login-screen" class="screen">
+  <h2>Bienvenido</h2>
+  <p>Ingresa para consultar tus puntos y beneficios.</p>
+
+  <form id="login-form" class="form-group" onsubmit="return false" autocomplete="on">
+    <input type="email" id="login-email" placeholder="Tu Email" autocomplete="email" required>
+    <input type="password" id="login-password" placeholder="Tu Contraseña o DNI" autocomplete="current-password" required>
+    <button id="login-btn" class="primary-btn" type="button">Ingresar</button>
+  </form>
+
+  <p class="toggle-link" style="margin-top: 15px;">
+    <a href="#" id="forgot-password-link">¿Olvidaste tu contraseña?</a>
+  </p>
+  <p class="toggle-link">¿Aún no eres miembro? <a href="#" id="show-register-link">Regístrate aquí</a></p>
+</div>
+
 
     <!-- REGISTRO -->
-    <div id="register-screen" class="screen">
-      <h2>Únete al Club</h2>
-      <p>Completa tus datos para empezar a sumar puntos.</p>
-      <div class="form-group">
-        <input type="text" id="register-nombre" placeholder="Nombre Completo" required>
-        <input type="text" id="register-dni" placeholder="DNI" required>
-        <input type="email" id="register-email" placeholder="Email" required autocomplete="email">
-        <input type="tel" id="register-telefono" placeholder="Teléfono" required>
-        <label for="register-fecha-nacimiento">Fecha de Nacimiento</label>
-        <input type="date" id="register-fecha-nacimiento" required>
-        <input type="password" id="register-password" placeholder="Crea una Contraseña (mín. 6 caracteres)" required>
+    <!-- REGISTRO -->
+<div id="register-screen" class="screen">
+  <h2>Únete al Club</h2>
+  <p>Completa tus datos para empezar a sumar puntos.</p>
 
-        <div class="terms-container">
-          <input type="checkbox" id="register-terms">
-          <label for="register-terms">He leído y acepto los <a href="#" id="show-terms-link">Términos y Condiciones</a>.</label>
-        </div>
+  <form id="register-form" class="form-group" onsubmit="return false" autocomplete="on">
+    <input type="text" id="register-nombre" placeholder="Nombre Completo" autocomplete="name" required>
+    <input type="text" id="register-dni" placeholder="DNI" required>
+    <input type="email" id="register-email" placeholder="Email" required autocomplete="email">
+    <input type="tel" id="register-telefono" placeholder="Teléfono" autocomplete="tel" required>
 
-        <button id="register-btn" class="primary-btn">Crear Cuenta</button>
-      </div>
-      <p class="toggle-link">¿Ya tienes cuenta? <a href="#" id="show-login-link">Ingresa aquí</a></p>
+    <label for="register-fecha-nacimiento">Fecha de Nacimiento</label>
+    <input type="date" id="register-fecha-nacimiento" required>
+
+    <input type="password" id="register-password" placeholder="Crea una Contraseña (mín. 6 caracteres)" autocomplete="new-password" required>
+
+    <div class="terms-container">
+      <input type="checkbox" id="register-terms" required>
+      <label for="register-terms">He leído y acepto los <a href="#" id="show-terms-link">Términos y Condiciones</a>.</label>
     </div>
+
+    <button id="register-btn" class="primary-btn" type="button">Crear Cuenta</button>
+  </form>
+
+  <p class="toggle-link">¿Ya tienes cuenta? <a href="#" id="show-login-link">Ingresa aquí</a></p>
+</div>
+
 
     <!-- APP -->
     <div id="main-app-screen" class="screen">
@@ -260,6 +270,7 @@
   <script src="app.js" type="module"></script>
 </body>
 </html>
+
 
 
 
