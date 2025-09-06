@@ -5,6 +5,9 @@ import { setupFirebase, checkMessagingSupport, auth, db } from './modules/fireba
 import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
+// BEGIN PATCH (app.js)
+import { initNotificationsOnce } from './modules/notifications.js';
+// END PATCH
 
 // Notificaciones (módulo de la PWA)
 import {
@@ -1053,5 +1056,6 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
