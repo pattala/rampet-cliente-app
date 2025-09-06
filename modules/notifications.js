@@ -220,10 +220,10 @@ export function gestionarPermisoNotificaciones() {
 async function obtenerYGuardarToken() {
   if (!isMessagingSupported || !auth.currentUser || !messaging) return null;
 
-  // Si ya hay una obtención en curso, reutilizamos esa promesa
-  if (__getTokenInFlight) return __getTokenInFlight;
+  // Evita llamadas paralelas
+  if (NOTIFS.inFlight) return NOTIFS.inFlight;
 
-  __getTokenInFlight = (async () => {
+  NOTIFS.inFlight = (async () => {
     try {
       // usar el SW ya registrado o registrarlo (evita cache del script)
       const registration =
@@ -239,9 +239,38 @@ async function obtenerYGuardarToken() {
       });
 
       if (!currentToken) {
-  console.warn('⚠️ No se pudo obtener token');
-  return null;
+        console.warn('⚠️ No se pudo obtener token');
+        return null;
+      }
+
+      // Dedupe fuerte: si es el mismo, no re-guardar ni loguear
+      if ((NOTIFS.lastToken && NOTIFS.lastToken === currentToken) ||
+          (localStorage.getItem('fcmToken') === currentToken)) {
+        // silencio: ya está guardado, no spameamos logs
+        return currentToken;
+      }
+
+      await saveSingleTokenForUser(currentToken); // guarda en Firestore y setea localStorage
+      NOTIFS.lastToken = currentToken;            // cache en memoria
+
+      console.log('✅ Token FCM (nuevo) guardado:', currentToken);
+      return currentToken;
+
+    } catch (err) {
+      console.error('obtenerYGuardarToken error:', err);
+      if (err.code === 'messaging/permission-blocked' || err.code === 'messaging/permission-default') {
+        const warn = document.getElementById('notif-blocked-warning');
+        if (warn) warn.style.display = 'block';
+      }
+      return null;
+    } finally {
+      NOTIFS.inFlight = null; // libera el candado
+    }
+  })();
+
+  return NOTIFS.inFlight;
 }
+
 
 // Dedupe fuerte: si es el mismo, no re-guardar ni loguear
 if ((__lastSavedToken && __lastSavedToken === currentToken) ||
@@ -321,9 +350,9 @@ export function handlePermissionSwitch(e) {
 // --- Canal FG (app visible) ---
 export function listenForInAppMessages() {
   if (!messaging) return;
-  if (NOTIFS.onMsg) return;      // ← evita enganchar 2+ veces
+  if (NOTIFS.onMsg) return;      // evita enganchar 2+ veces
   NOTIFS.onMsg = true;
-  
+
   messaging.onMessage(async (payload) => {
     const data = payload?.data || {};
     console.log('[FG] onMessage', data);
@@ -333,6 +362,7 @@ export function listenForInAppMessages() {
     UI.showToast(`📢 ${title}: ${body}`, 'info', 10000);
   });
 }
+
 
 // --- Canal BG → SW postMessage ---
 function swMessageHandler(event) {
@@ -355,11 +385,12 @@ function swMessageHandler(event) {
 
 export function initNotificationChannel() {
   if (!('serviceWorker' in navigator)) return;
-  if (NOTIFS.swChan) return;     // ← no duplicar
+  if (NOTIFS.swChan) return;     // no duplicar
   navigator.serviceWorker.addEventListener('message', swMessageHandler);
   NOTIFS.swChan = true;
   console.log('[INIT] SW message channel listo');
 }
+
 
 
 // --- Campanita ---
@@ -390,29 +421,8 @@ export async function markAllDeliveredAsRead() {
 export async function handleBellClick() {
   await showInboxModal();
 }
-// Llamar una sola vez por sesión/usuario
-export async function initNotificationsOnce() {
-  const u = auth.currentUser;
-  if (!u || !isMessagingSupported || !messaging) return;
 
-  if (__notifsInitUid === u.uid) {
-    // Ya inicializado para este usuario; no repetir
-    return;
-  }
-  __notifsInitUid = u.uid;
 
-  // 1) Canal SW→APP (con guard que ya agregaste)
-  initNotificationChannel();
-
-  // 2) Mensajes en foreground (con guard __onMessageHooked si lo agregaste)
-  listenForInAppMessages();
-
-  // 3) Permisos + token (esto internamente llama a obtenerYGuardarToken(), ahora sin duplicar)
-  gestionarPermisoNotificaciones();
-
-  // 4) Extra: dedupe en Firestore si había viejos (tu helper)
-  ensureSingleToken();
-}
 
 // ========== INBOX ==========
 function formatDate(ts) {
@@ -598,6 +608,7 @@ export async function initNotificationsOnce() {
   await gestionarPermisoNotificaciones(); // pide permiso y obtiene token si aplica
   await ensureSingleToken();              // dedupe en Firestore si hubiera más de uno
 }
+
 
 
 
