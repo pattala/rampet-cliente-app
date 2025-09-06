@@ -1,6 +1,8 @@
 // firebase-messaging-sw.js  (compat, limpio y con tracking)
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js');
+self.addEventListener('install', () => self.skipWaiting());
+self.addEventListener('activate',  (e) => e.waitUntil(self.clients.claim()));
 
 const firebaseConfig = {
   apiKey: "AIzaSyAvBw_Cc-t8lfip_FtQ1w_w3DrPDYpxINs",
@@ -58,3 +60,4 @@ self.addEventListener("notificationclick", (event) => {
     return clients.openWindow(absolute);
   })());
 });
+
