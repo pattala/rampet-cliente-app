@@ -3,6 +3,14 @@
 
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
+
+// --- Guards para evitar duplicados ---
+let __getTokenInFlight = null;           // evita llamadas paralelas a getToken()
+let __lastSavedToken   = localStorage.getItem('fcmToken') || null; // cache local rápido
+let __onMessageHooked  = false;          // evita enganchar onMessage 2+ veces
+let __swChannelInited  = false;          // evita duplicar el canal SW→APP
+
+
 // Registra/obtiene el SW de FCM con scope raíz y sin cachear el script
 async function registerFcmSW() {
   if (!('serviceWorker' in navigator)) return null;
@@ -205,40 +213,57 @@ export function gestionarPermisoNotificaciones() {
 
 async function obtenerYGuardarToken() {
   if (!isMessagingSupported || !auth.currentUser || !messaging) return null;
-  try {
- const registration =
-  (await navigator.serviceWorker.getRegistration('/')) ||
-  (await registerFcmSW()) ||
-  (await navigator.serviceWorker.ready);
 
-    const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
+  // Si ya hay una obtención en curso, reutilizamos esa promesa
+  if (__getTokenInFlight) return __getTokenInFlight;
 
-    const currentToken = await messaging.getToken({
-      vapidKey,
-      serviceWorkerRegistration: registration
-    });
+  __getTokenInFlight = (async () => {
+    try {
+      // usar el SW ya registrado o registrarlo (evita cache del script)
+      const registration =
+        (await navigator.serviceWorker.getRegistration('/')) ||
+        (await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/', updateViaCache: 'none' })) ||
+        (await navigator.serviceWorker.ready);
 
-if (!currentToken) {
-  console.warn('⚠️ No se pudo obtener token');
-  return null;
-}
-const prev = localStorage.getItem(TOKEN_LS_KEY);
-if (prev && prev === currentToken) {
-  console.log('ℹ️ Token FCM sin cambios (no se re-guarda)');
-  return currentToken;
-}
-await saveSingleTokenForUser(currentToken);
-return currentToken;
+      const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
 
-  } catch (err) {
-    console.error('obtenerYGuardarToken error:', err);
-    if (err.code === 'messaging/permission-blocked' || err.code === 'messaging/permission-default') {
-      const warn = document.getElementById('notif-blocked-warning');
-      if (warn) warn.style.display = 'block';
+      const currentToken = await messaging.getToken({
+        vapidKey,
+        serviceWorkerRegistration: registration
+      });
+
+      if (!currentToken) {
+        console.warn('⚠️ No se pudo obtener token');
+        return null;
+      }
+
+      // Dedupe fuerte: si es el mismo, no re-guardar ni re-loggear
+      if (__lastSavedToken && __lastSavedToken === currentToken) {
+        console.log('ℹ️ Token FCM sin cambios (no se re-guarda)');
+        return currentToken;
+      }
+
+      await saveSingleTokenForUser(currentToken);   // tu función actual (deja fcmTokens = [token] y setea LS)
+      __lastSavedToken = currentToken;              // cache en memoria para futuras llamadas de esta sesión
+
+      console.log('✅ Token FCM (nuevo) guardado:', currentToken);
+      return currentToken;
+
+    } catch (err) {
+      console.error('obtenerYGuardarToken error:', err);
+      if (err.code === 'messaging/permission-blocked' || err.code === 'messaging/permission-default') {
+        const warn = document.getElementById('notif-blocked-warning');
+        if (warn) warn.style.display = 'block';
+      }
+      return null;
+    } finally {
+      __getTokenInFlight = null; // libera el candado
     }
-    return null;
-  }
+  })();
+
+  return __getTokenInFlight;
 }
+
 
 export function handlePermissionRequest() {
   localStorage.setItem(`notifGestionado_${auth.currentUser?.uid}`, 'true');
@@ -288,6 +313,9 @@ export function handlePermissionSwitch(e) {
 // --- Canal FG (app visible) ---
 export function listenForInAppMessages() {
   if (!messaging) return;
+   if (__onMessageHooked) return;    // ← evita múltiples hooks
+  __onMessageHooked = true;
+  
   messaging.onMessage(async (payload) => {
     const data = payload?.data || {};
     console.log('[FG] onMessage', data);
@@ -319,10 +347,12 @@ function swMessageHandler(event) {
 
 export function initNotificationChannel() {
   if (!('serviceWorker' in navigator)) return;
-  navigator.serviceWorker.removeEventListener('message', swMessageHandler);
+  if (__swChannelInited) return;               // ← NO volver a registrar
   navigator.serviceWorker.addEventListener('message', swMessageHandler);
+  __swChannelInited = true;
   console.log('[INIT] SW message channel listo');
 }
+
 
 // --- Campanita ---
 export async function markAllDeliveredAsRead() {
@@ -523,4 +553,5 @@ export async function showInboxModal() {
     if (el) el.onclick = () => renderInboxByTab(tab);
   });
 }
+
 
