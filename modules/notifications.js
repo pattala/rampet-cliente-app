@@ -3,6 +3,8 @@
 
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
+// Evita inicializar notificaciones más de una vez por usuario
+let __notifsInitUid = null;
 
 // --- Guards para evitar duplicados ---
 let __getTokenInFlight = null;           // evita llamadas paralelas a getToken()
@@ -382,6 +384,29 @@ export async function markAllDeliveredAsRead() {
 export async function handleBellClick() {
   await showInboxModal();
 }
+// Llamar una sola vez por sesión/usuario
+export async function initNotificationsOnce() {
+  const u = auth.currentUser;
+  if (!u || !isMessagingSupported || !messaging) return;
+
+  if (__notifsInitUid === u.uid) {
+    // Ya inicializado para este usuario; no repetir
+    return;
+  }
+  __notifsInitUid = u.uid;
+
+  // 1) Canal SW→APP (con guard que ya agregaste)
+  initNotificationChannel();
+
+  // 2) Mensajes en foreground (con guard __onMessageHooked si lo agregaste)
+  listenForInAppMessages();
+
+  // 3) Permisos + token (esto internamente llama a obtenerYGuardarToken(), ahora sin duplicar)
+  gestionarPermisoNotificaciones();
+
+  // 4) Extra: dedupe en Firestore si había viejos (tu helper)
+  ensureSingleToken();
+}
 
 // ========== INBOX ==========
 function formatDate(ts) {
@@ -553,5 +578,6 @@ export async function showInboxModal() {
     if (el) el.onclick = () => renderInboxByTab(tab);
   });
 }
+
 
 
