@@ -10,17 +10,15 @@ import { initNotificationsOnce } from './modules/notifications.js';
 // END PATCH
 
 // Notificaciones (módulo de la PWA)
+// Notificaciones (módulo de la PWA) — solo UI y logout; el resto lo orquesta initNotificationsOnce()
 import {
-  gestionarPermisoNotificaciones,
-  listenForInAppMessages,
   handlePermissionRequest,
   dismissPermissionRequest,
   handlePermissionSwitch,
-  initNotificationChannel,
   handleBellClick,
-  ensureSingleToken,
   handleSignOutCleanup
 } from './modules/notifications.js';
+
 
 // ──────────────────────────────────────────────────────────────
 // LÓGICA DE INSTALACIÓN PWA
@@ -1029,11 +1027,9 @@ async function main() {
       setupMainLimitsObservers();
 
       if (messagingSupported) {
-        await gestionarPermisoNotificaciones();
-        await ensureSingleToken();
-        initNotificationChannel();
-        listenForInAppMessages();
-      }
+  await initNotificationsOnce(); // inicializa canal SW, onMessage y token una sola vez por usuario/sesión
+}
+
 
       showInstallPromptIfAvailable();
 
@@ -1056,6 +1052,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
