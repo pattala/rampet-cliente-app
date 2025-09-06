@@ -5,20 +5,16 @@ import { setupFirebase, checkMessagingSupport, auth, db } from './modules/fireba
 import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
-// BEGIN PATCH (app.js)
-import {  } from './modules/notifications.js';
-// END PATCH
 
-// Notificaciones (módulo de la PWA)
-// Notificaciones (módulo de la PWA) — solo UI y logout; el resto lo orquesta initNotificationsOnce()
+// Notificaciones (único import desde notifications.js)
 import {
-  handlePermissionRequest,
-  dismissPermissionRequest,
-  handlePermissionSwitch,
-  handleBellClick,
-  handleSignOutCleanup
+  initNotificationsOnce,        // ← orquestador (canal SW→APP, onMessage, permisos y token, dedupe)
+  handlePermissionRequest,       // UI: activar notifs desde tarjeta
+  dismissPermissionRequest,      // UI: rechazar tarjeta
+  handlePermissionSwitch,        // UI: switch en ajustes
+  handleBellClick,               // UI: abrir modal inbox (sin autoleer)
+  handleSignOutCleanup           // logout: limpieza token en Firestore/LS
 } from './modules/notifications.js';
-
 
 // ──────────────────────────────────────────────────────────────
 // LÓGICA DE INSTALACIÓN PWA
@@ -291,51 +287,50 @@ async function saveLastLocationToFirestore(pos) {
 
   await clienteRef.set(patch, { merge: true });
 
-// ===== Espejo público (último punto) para el mapa =====
-try {
-  const u = auth.currentUser;
-  if (!u) return;
+  // ===== Espejo público (último punto) para el mapa =====
+  try {
+    const u = auth.currentUser;
+    if (!u) return;
 
-  // Leemos del doc del cliente para armar identidad visible
-  // (si no hay, caemos a displayName/email/uid)
-  let nombreOut = null;
-  let numeroSocioOut = null;
+    // Leemos del doc del cliente para armar identidad visible
+    // (si no hay, caemos a displayName/email/uid)
+    let nombreOut = null;
+    let numeroSocioOut = null;
 
-  if (prev) {
-    if (typeof prev.nombre === 'string' && prev.nombre.trim()) {
-      nombreOut = prev.nombre.trim();
+    if (prev) {
+      if (typeof prev.nombre === 'string' && prev.nombre.trim()) {
+        nombreOut = prev.nombre.trim();
+      }
+      if (prev.numeroSocio != null && String(prev.numeroSocio).trim()) {
+        numeroSocioOut = String(prev.numeroSocio).trim();
+      }
     }
-    if (prev.numeroSocio != null && String(prev.numeroSocio).trim()) {
-      numeroSocioOut = String(prev.numeroSocio).trim();
-    }
+
+    let fallback =
+      (u.displayName && u.displayName.trim()) ? u.displayName.trim()
+        : (u.email ? u.email.split('@')[0] : u.uid);
+
+    // Si hay numeroSocio, lo mostramos como “Socio NNN”
+    const display =
+      nombreOut ? nombreOut
+        : (numeroSocioOut ? `Socio ${numeroSocioOut}` : fallback);
+
+    await db.collection('public_heatmap').doc(u.uid).set({
+      uid: u.uid,
+      // guardamos TODOS para que el mapa los pueda leer sin joins
+      nombre: nombreOut || null,
+      numeroSocio: numeroSocioOut || null,
+      display,                 // texto ya resuelto para mostrar
+      lat3: roundCoord(lat, 3),
+      lng3: roundCoord(lng, 3),
+      capturedAt: nowIso,
+      rounded: true,
+      source: 'geolocation',
+      updatedAt: nowIso
+    }, { merge: true });
+  } catch (e) {
+    console.warn('[HEATMAP] write espejo falló (no crítico):', e?.message || e);
   }
-
-  let fallback =
-    (u.displayName && u.displayName.trim()) ? u.displayName.trim()
-      : (u.email ? u.email.split('@')[0] : u.uid);
-
-  // Si hay numeroSocio, lo mostramos como “Socio NNN”
-  const display =
-    nombreOut ? nombreOut
-      : (numeroSocioOut ? `Socio ${numeroSocioOut}` : fallback);
-
-  await db.collection('public_heatmap').doc(u.uid).set({
-    uid: u.uid,
-    // guardamos TODOS para que el mapa los pueda leer sin joins
-    nombre: nombreOut || null,
-    numeroSocio: numeroSocioOut || null,
-    display,                 // texto ya resuelto para mostrar
-    lat3: roundCoord(lat, 3),
-    lng3: roundCoord(lng, 3),
-    capturedAt: nowIso,
-    rounded: true,
-    source: 'geolocation',
-    updatedAt: nowIso
-  }, { merge: true });
-} catch (e) {
-  console.warn('[HEATMAP] write espejo falló (no crítico):', e?.message || e);
-}
-
 
   // ===== Histórico (recorrido) opcional =====
   try {
@@ -1027,10 +1022,9 @@ async function main() {
       setupMainLimitsObservers();
 
       if (messagingSupported) {
-  await initNotificationsOnce();
-  console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
-}
-
+        await initNotificationsOnce();
+        console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
+      }
 
       showInstallPromptIfAvailable();
 
@@ -1053,8 +1047,3 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
-
-
-
-
