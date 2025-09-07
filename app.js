@@ -415,62 +415,59 @@ async function requestAndSaveLocation(reason = 'startup') {
     return;
   }
 
-  // Diagnóstico antes de pedir posición
-  let permState = 'unknown';
-  try {
-    const st = await navigator.permissions?.query?.({ name: 'geolocation' });
-    if (st && st.state) permState = st.state; // 'granted' | 'prompt' | 'denied'
-  } catch (_) {}
+  // Helper local para pedir posición con opciones
+  function attempt(opts) {
+    return new Promise((resolve, reject) => {
+      navigator.geolocation.getCurrentPosition(resolve, reject, opts);
+    });
+  }
 
-  const opts = { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 };
+  // Leemos estado actual (informativo / UX)
+  let perm = 'unknown';
   try {
-    let pos = await getPosition(opts);
+    perm = (await navigator.permissions?.query?.({ name: 'geolocation' }))?.state || 'unknown';
+  } catch {}
 
-    const ACC_THRESHOLD = 80;
-    if (typeof pos.coords.accuracy === 'number' && pos.coords.accuracy > ACC_THRESHOLD) {
-      console.warn(`[GEO] Precisión baja (${pos.coords.accuracy} m). Reintentando...`);
-      try {
-        pos = await getPosition({ enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
-      } catch (_) {
-        console.warn('[GEO] Reintento fallido, se usa la primera lectura igualmente.');
+  try {
+    let pos;
+
+    // Intento A: más exigente, para disparar prompt si está en "prompt"
+    try {
+      pos = await attempt({ enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+    } catch (e1) {
+      // Si se pasó de tiempo o no hay proveedor, intentamos con menos precisión y más tiempo
+      if (e1?.code === 3 /* TIMEOUT */ || e1?.code === 2 /* POSITION_UNAVAILABLE */) {
+        pos = await attempt({ enableHighAccuracy: false, timeout: 25000, maximumAge: 0 });
+      } else {
+        throw e1; // otros errores (por ej. denied) se propagan
       }
     }
 
+    // Guardado + UI
     await saveLastLocationToFirestore(pos);
     await saveSlotSample(pos);
     showGeoBanner({ state: 'on' });
   } catch (err) {
     const code = err?.code;
-    const msg  = err?.message || String(err);
-    console.warn('[GEO] getCurrentPosition error:', code, msg, '(perm:', permState, ')');
+    const msg  = err?.message || '';
+    console.warn(`[GEO] getCurrentPosition error: ${code} ${msg} (perm: ${perm})`);
 
-    // Mensajes más precisos según contexto
-    if (code === 1) { // PERMISSION_DENIED
-      if (permState === 'granted') {
-        // Permiso del sitio concedido, pero bloqueado a nivel SO / app instalada / sensor
-        showGeoBanner({
-          state: 'off',
-          message: 'No pudimos leer tu ubicación aunque el permiso del sitio está concedido. Revisá permisos del sistema operativo / app instalada y que el GPS/servicios de ubicación estén activos.'
-        });
-      } else {
-        // Realmente denegado por el navegador para este origen
-        showGeoBanner({ state: 'denied' });
-      }
-    } else if (code === 2) { // POSITION_UNAVAILABLE
+    // 1 = PERMISSION_DENIED (usuario o navegador lo negó)
+    if (code === 1 || perm === 'denied') {
       showGeoBanner({
-        state: 'off',
-        message: 'Ubicación no disponible. Verificá que el GPS/servicios de ubicación estén activos y que no haya bloqueos por VPN.'
-      });
-    } else if (code === 3) { // TIMEOUT
-      showGeoBanner({
-        state: 'off',
-        message: 'Expiró el intento de obtener ubicación. Probá nuevamente o movete a un lugar con mejor señal.'
+        state: 'denied',
+        message: '⚠️ La ubicación está bloqueada para este sitio. Habilitala desde el candado (ubicación → Permitir) y recargá.'
       });
     } else {
-      showGeoBanner({ state: 'off' });
+      // 2 = POSITION_UNAVAILABLE, 3 = TIMEOUT (mostramos "off" amigable)
+      showGeoBanner({
+        state: 'off',
+        message: 'No pudimos obtener tu ubicación. Intentá de nuevo o revisá el permiso en el candado.'
+      });
     }
   }
 }
+
 
 
 // Primera interacción natural para pedir permiso si está en "prompt"
@@ -1095,4 +1092,5 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
