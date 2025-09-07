@@ -415,6 +415,13 @@ async function requestAndSaveLocation(reason = 'startup') {
     return;
   }
 
+  // Diagnóstico antes de pedir posición
+  let permState = 'unknown';
+  try {
+    const st = await navigator.permissions?.query?.({ name: 'geolocation' });
+    if (st && st.state) permState = st.state; // 'granted' | 'prompt' | 'denied'
+  } catch (_) {}
+
   const opts = { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 };
   try {
     let pos = await getPosition(opts);
@@ -433,11 +440,38 @@ async function requestAndSaveLocation(reason = 'startup') {
     await saveSlotSample(pos);
     showGeoBanner({ state: 'on' });
   } catch (err) {
-    console.warn('[GEO] getCurrentPosition error:', err?.code, err?.message);
-    if (err?.code === 1) showGeoBanner({ state: 'denied' });
-    else showGeoBanner({ state: 'off' });
+    const code = err?.code;
+    const msg  = err?.message || String(err);
+    console.warn('[GEO] getCurrentPosition error:', code, msg, '(perm:', permState, ')');
+
+    // Mensajes más precisos según contexto
+    if (code === 1) { // PERMISSION_DENIED
+      if (permState === 'granted') {
+        // Permiso del sitio concedido, pero bloqueado a nivel SO / app instalada / sensor
+        showGeoBanner({
+          state: 'off',
+          message: 'No pudimos leer tu ubicación aunque el permiso del sitio está concedido. Revisá permisos del sistema operativo / app instalada y que el GPS/servicios de ubicación estén activos.'
+        });
+      } else {
+        // Realmente denegado por el navegador para este origen
+        showGeoBanner({ state: 'denied' });
+      }
+    } else if (code === 2) { // POSITION_UNAVAILABLE
+      showGeoBanner({
+        state: 'off',
+        message: 'Ubicación no disponible. Verificá que el GPS/servicios de ubicación estén activos y que no haya bloqueos por VPN.'
+      });
+    } else if (code === 3) { // TIMEOUT
+      showGeoBanner({
+        state: 'off',
+        message: 'Expiró el intento de obtener ubicación. Probá nuevamente o movete a un lugar con mejor señal.'
+      });
+    } else {
+      showGeoBanner({ state: 'off' });
+    }
   }
 }
+
 
 // Primera interacción natural para pedir permiso si está en "prompt"
 let _geoFirstInteractionBound = false;
@@ -1061,3 +1095,4 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
