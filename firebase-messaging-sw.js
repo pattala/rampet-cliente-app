@@ -55,9 +55,9 @@ self.addEventListener("notificationclick", (event) => {
     clientsList.forEach(c => c.postMessage({ type: "PUSH_READ", data: { id: d.id } }));
 
     const absolute = new URL(targetUrl, self.location.origin).href;
+    // Si el match exacto no está, abrimos una nueva
     const existing = clientsList.find(c => c.url === absolute);
     if (existing) return existing.focus();
     return clients.openWindow(absolute);
   })());
 });
-
