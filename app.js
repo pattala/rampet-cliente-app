@@ -224,6 +224,13 @@ function getDeviceInfo() {
   const deviceType = isMobile ? (isTablet ? 'tablet' : 'mobile') : 'desktop';
   return { deviceType, isIOS, isAndroid, ua };
 }
+async function isEphemeralContext() {
+  try {
+    if (!navigator.storage?.estimate) return false;
+    const { quota } = await navigator.storage.estimate();
+    return !!quota && quota < 160 * 1024 * 1024;
+  } catch { return false; }
+}
 
 // Banner (ON/OFF/DENIED)
 function showGeoBanner({ state, message }) {
@@ -489,6 +496,19 @@ function setupFirstInteractionOnce() {
 
 // ON por defecto si ya está “granted”; si “prompt”, pedimos en primera interacción; si “denied”, avisamos.
 async function ensureGeoOnStartup() {
+   // Si es invitado/incógnito, no forzamos geo; mostramos info y pedimos en primer gesto
+  if (await isEphemeralContext()) {
+    showGeoBanner({
+      state: 'off',
+      message: 'Estás en modo Invitado/Incógnito: la ubicación sólo funciona temporalmente en esta sesión.'
+    });
+    setupFirstInteractionOnce(); // que el usuario la active manualmente
+    return;
+  }
+
+  
+  
+  
   const clienteRef = await resolveClienteRef();
   if (!clienteRef) return;
 
@@ -1092,5 +1112,6 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
