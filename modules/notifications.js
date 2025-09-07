@@ -240,8 +240,11 @@ export function handlePermissionRequest() {
   Notification.requestPermission().then(async (p) => {
     if (p === 'granted') {
       UI.showToast('¡Notificaciones activadas!', 'success');
+      const sc = document.getElementById('notif-card');
+      if (sc) sc.style.display = 'none';            // <-- oculta el switch
       await obtenerYGuardarToken();
       await ensureSingleToken();
+      await gestionarPermisoNotificaciones();        // <-- refresca UI por si quedó algo visible
     } else {
       const sc = document.getElementById('notif-card');
       const sw = document.getElementById('notif-switch');
@@ -250,6 +253,7 @@ export function handlePermissionRequest() {
     }
   });
 }
+
 
 export function dismissPermissionRequest() {
   localStorage.setItem(`notifGestionado_${auth.currentUser?.uid}`, 'true');
@@ -335,3 +339,4 @@ export async function initNotificationsOnce() {
   await gestionarPermisoNotificaciones();
   await ensureSingleToken();
 }
+
