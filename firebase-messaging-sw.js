@@ -1,6 +1,7 @@
-// firebase-messaging-sw.js  (compat, limpio y con tracking)
+// firebase-messaging-sw.js  (compat)
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js');
+
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate',  (e) => e.waitUntil(self.clients.claim()));
 
@@ -16,7 +17,6 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-// Normaliza payload data-only y conserva el id
 function normalizeData(raw = {}) {
   const d = raw.data || {};
   return {
@@ -29,9 +29,9 @@ function normalizeData(raw = {}) {
   };
 }
 
-// Llega en background → notificación + postMessage a pestañas
 messaging.onBackgroundMessage((payload) => {
   const d = normalizeData(payload);
+
   self.clients.matchAll({ includeUncontrolled: true, type: "window" })
     .then(list => list.forEach(c => c.postMessage({ type: "PUSH_DELIVERED", data: d })));
 
@@ -44,7 +44,6 @@ messaging.onBackgroundMessage((payload) => {
   });
 });
 
-// Click → enfocamos/abrimos la PWA y avisamos “read”
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
   const d = (event.notification && event.notification.data) || {};
@@ -55,7 +54,6 @@ self.addEventListener("notificationclick", (event) => {
     clientsList.forEach(c => c.postMessage({ type: "PUSH_READ", data: { id: d.id } }));
 
     const absolute = new URL(targetUrl, self.location.origin).href;
-    // Si el match exacto no está, abrimos una nueva
     const existing = clientsList.find(c => c.url === absolute);
     if (existing) return existing.focus();
     return clients.openWindow(absolute);
