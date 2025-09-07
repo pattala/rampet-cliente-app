@@ -1,9 +1,10 @@
 // pwa/modules/notifications.js
-// FG (onMessage) + BG (SW->postMessage) + Firestore helpers + campanita + token único + Inbox
+// Orquesta: permisos/UI, token único, canal SW→APP, onMessage, Inbox
 
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
-// Heurística: en Incógnito/Invitado la cuota suele ser muy baja (≈50–120MB).
+
+// —— Heurística de contexto efímero (incógnito/invitado) —— //
 async function isEphemeralContext() {
   try {
     if (!navigator.storage?.estimate) return false;
@@ -12,33 +13,38 @@ async function isEphemeralContext() {
   } catch { return false; }
 }
 
-function showIncognitoWarningIfAny() {
-  const el = document.getElementById('notif-incognito-warning');
-  if (el) el.style.display = 'block'; // si no existe, no pasa nada
-}
-
-// ──────────────────────────────────────────────────────────────
-// Estado único para evitar re-declaraciones y duplicados
-// ──────────────────────────────────────────────────────────────
+// —— Estado único (evita duplicados) —— //
 const NOTIFS = (window.__RAMPET_NOTIFS ||= {
-  onMsg: false,                                        // hook onMessage puesto
-  swChan: false,                                       // canal SW→APP inicializado
-  initUid: null,                                       // usuario ya inicializado
-  inFlight: null,                                      // promesa de getToken en curso
-  lastToken: localStorage.getItem('fcmToken') || null, // último token guardado
+  onMsg: false,
+  swChan: false,
+  initUid: null,
+  inFlight: null,
+  lastToken: localStorage.getItem('fcmToken') || null,
 });
-
 const TOKEN_LS_KEY = 'fcmToken';
 
-// ──────────────────────────────────────────────────────────────
-// Firestore utils
-// ──────────────────────────────────────────────────────────────
+// —— Helpers UI centralizados —— //
+function setNotifUI({ prompt=false, card=false, blocked=false, switchChecked=false, incognito=false } = {}) {
+  const promptCard = document.getElementById('notif-prompt-card');
+  const switchCard = document.getElementById('notif-card');
+  const blockedWarning = document.getElementById('notif-blocked-warning');
+  const incogWarn = document.getElementById('notif-incognito-warning');
+
+  if (promptCard) promptCard.style.display = prompt ? 'block' : 'none';
+  if (switchCard) switchCard.style.display = card ? 'block' : 'none';
+  if (blockedWarning) blockedWarning.style.display = blocked ? 'block' : 'none';
+  if (incogWarn) incogWarn.style.display = incognito ? 'block' : 'none';
+
+  const sw = document.getElementById('notif-switch');
+  if (sw) sw.checked = !!switchChecked;
+}
+
+// —— Firestore utils —— //
 async function getClienteDocRef() {
   try {
-    if (!auth.currentUser) return null;
-    const q = await db.collection('clientes')
-      .where('authUID', '==', auth.currentUser.uid)
-      .limit(1).get();
+    const u = auth.currentUser;
+    if (!u) return null;
+    const q = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
     if (q.empty) return null;
     return q.docs[0].ref;
   } catch {
@@ -77,7 +83,7 @@ async function markReadInInbox(notifId) {
   }
 }
 
-// ──────────────────────────────────────────────────────────────
+// —— Campanita: badge simple —— //
 function getCounterEl() { return document.getElementById('notif-counter'); }
 export function bumpBellCounter(delta = 1) {
   const el = getCounterEl(); if (!el) return;
@@ -91,21 +97,14 @@ export function resetBellCounter() {
   el.textContent = ''; el.style.display = 'none';
 }
 
-// ──────────────────────────────────────────────────────────────
-// Token único
-// ──────────────────────────────────────────────────────────────
+// —— Token único (dedupe) —— //
 async function saveSingleTokenForUser(token) {
   const u = auth.currentUser;
   if (!u || !token) return;
-  const qs = await db.collection('clientes')
-    .where('authUID', '==', u.uid)
-    .limit(1).get();
+  const qs = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
   if (qs.empty) return;
-
-  const ref = qs.docs[0].ref;
-  await ref.set({ fcmTokens: [token] }, { merge: true });
+  await qs.docs[0].ref.set({ fcmTokens: [token] }, { merge: true });
   localStorage.setItem(TOKEN_LS_KEY, token);
-  // console.debug('✅ Token FCM guardado como único:', token);
 }
 
 export async function handleSignOutCleanup() {
@@ -138,14 +137,11 @@ export async function ensureSingleToken() {
     const u = auth.currentUser; if (!u) return;
     const qs = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
     if (qs.empty) return;
-
     const doc = qs.docs[0];
     const data = doc.data() || {};
     const tokens = Array.isArray(data.fcmTokens) ? data.fcmTokens : [];
-
     if (tokens.length <= 1) return;
     const preferred = localStorage.getItem(TOKEN_LS_KEY) || tokens[0];
-
     await doc.ref.set({ fcmTokens: [preferred] }, { merge: true });
     localStorage.setItem(TOKEN_LS_KEY, preferred);
     console.log(`🧽 Dedupe de fcmTokens: ${tokens.length} → 1`);
@@ -154,60 +150,47 @@ export async function ensureSingleToken() {
   }
 }
 
-// ──────────────────────────────────────────────────────────────
-// Permisos + token
-// ──────────────────────────────────────────────────────────────
+// —— Permisos + token (UI coherente) —— //
 export async function gestionarPermisoNotificaciones() {
   if (!isMessagingSupported || !auth.currentUser || !messaging) return;
 
-  // ⇩ NUEVO: si es contexto efímero, avisamos y no intentamos token persistente
-  if (await isEphemeralContext()) {
-    showIncognitoWarningIfAny();
-    // Mostramos igual el switch-card para dejar intento manual, pero sin forzar token
-    const promptCard = document.getElementById('notif-prompt-card');
-    const switchCard = document.getElementById('notif-card');
-    if (promptCard) promptCard.style.display = 'none';
-    if (switchCard) switchCard.style.display = 'block';
-    const sw = document.getElementById('notif-switch');
-    if (sw) sw.checked = false;
-    return; // salimos: no pedimos ni guardamos token automáticamente
-  }
-
-  const promptCard = document.getElementById('notif-prompt-card');
-  const switchCard = document.getElementById('notif-card');
-  const blockedWarning = document.getElementById('notif-blocked-warning');
+  const ephemeral = await isEphemeralContext(); // sólo avisamos; no forzamos UI equivocada
+  const perm = Notification?.permission || 'default';
   const popUpYaGestionado = localStorage.getItem(`notifGestionado_${auth.currentUser.uid}`);
 
-  if (promptCard) promptCard.style.display = 'none';
-  if (switchCard) switchCard.style.display = 'none';
-  if (blockedWarning) blockedWarning.style.display = 'none';
+  // Aviso de incógnito/invitado (si existe el elemento)
+  setNotifUI({ incognito: ephemeral });
 
-  if (Notification.permission === 'granted') {
+  if (perm === 'granted') {
+    // Permiso OK → ocultar todas las tarjetas y asegurar token
+    setNotifUI({ prompt:false, card:false, blocked:false, switchChecked:true });
     obtenerYGuardarToken().then(() => ensureSingleToken());
     return;
   }
-  if (Notification.permission === 'denied') {
-    if (blockedWarning) blockedWarning.style.display = 'block';
+
+  if (perm === 'denied') {
+    // Bloqueado a nivel navegador → mostrar aviso
+    setNotifUI({ prompt:false, card:false, blocked:true, switchChecked:false });
     return;
   }
+
+  // perm === 'default' (prompt)
   if (!popUpYaGestionado) {
-    if (promptCard) promptCard.style.display = 'block';
+    // Mostrar la tarjeta de “¿Activar notificaciones?”
+    setNotifUI({ prompt:true, card:false, blocked:false, switchChecked:false });
   } else {
-    if (switchCard) switchCard.style.display = 'block';
-    const sw = document.getElementById('notif-switch');
-    if (sw) sw.checked = false;
+    // Ya gestionado → mostrar switch para reintentar manualmente
+    setNotifUI({ prompt:false, card:true, blocked:false, switchChecked:false });
   }
 }
 
-
 async function obtenerYGuardarToken() {
   if (!isMessagingSupported || !auth.currentUser || !messaging) return null;
-
-  // Evita llamadas paralelas
   if (NOTIFS.inFlight) return NOTIFS.inFlight;
 
   NOTIFS.inFlight = (async () => {
     try {
+      // Asegura un SW válido para getToken
       const registration =
         (await navigator.serviceWorker.getRegistration('/')) ||
         (await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/', updateViaCache: 'none' })) ||
@@ -225,10 +208,10 @@ async function obtenerYGuardarToken() {
         return null;
       }
 
-      // Dedupe fuerte: si es el mismo, no re-guardar ni loguear
+      // Dedupe fuerte
       if ((NOTIFS.lastToken && NOTIFS.lastToken === currentToken) ||
-          (localStorage.getItem('fcmToken') === currentToken)) {
-        return currentToken; // silencio si no cambió
+          (localStorage.getItem(TOKEN_LS_KEY) === currentToken)) {
+        return currentToken;
       }
 
       await saveSingleTokenForUser(currentToken);
@@ -238,9 +221,10 @@ async function obtenerYGuardarToken() {
 
     } catch (err) {
       console.error('obtenerYGuardarToken error:', err);
-      if (err.code === 'messaging/permission-blocked' || err.code === 'messaging/permission-default') {
-        const warn = document.getElementById('notif-blocked-warning');
-        if (warn) warn.style.display = 'block';
+      // Si el navegador bloquea, mostramos warning (si existe)
+      const warn = document.getElementById('notif-blocked-warning');
+      if (warn && (err?.code === 'messaging/permission-blocked' || err?.code === 'messaging/permission-default')) {
+        warn.style.display = 'block';
       }
       return null;
     } finally {
@@ -251,58 +235,55 @@ async function obtenerYGuardarToken() {
   return NOTIFS.inFlight;
 }
 
-// --- Pedir permiso / descartar / switch ---
+// — Pedir permiso desde la tarjeta —
 export function handlePermissionRequest() {
   localStorage.setItem(`notifGestionado_${auth.currentUser?.uid}`, 'true');
-  const card = document.getElementById('notif-prompt-card');
-  if (card) card.style.display = 'none';
+  setNotifUI({ prompt:false }); // ocultar prompt mientras se pide
 
   Notification.requestPermission().then(async (p) => {
     if (p === 'granted') {
       UI.showToast('¡Notificaciones activadas!', 'success');
+      setNotifUI({ card:false, blocked:false, switchChecked:true });
       await obtenerYGuardarToken();
       await ensureSingleToken();
+    } else if (p === 'denied') {
+      setNotifUI({ prompt:false, card:false, blocked:true, switchChecked:false });
     } else {
-      const sc = document.getElementById('notif-card');
-      const sw = document.getElementById('notif-switch');
-      if (sc) sc.style.display = 'block';
-      if (sw) sw.checked = false;
+      // default otra vez → mostrar switch para reintentar manual
+      setNotifUI({ prompt:false, card:true, blocked:false, switchChecked:false });
     }
   });
 }
 
 export function dismissPermissionRequest() {
   localStorage.setItem(`notifGestionado_${auth.currentUser?.uid}`, 'true');
-  const pc = document.getElementById('notif-prompt-card');
-  const sc = document.getElementById('notif-card');
-  if (pc) pc.style.display = 'none';
-  if (sc) sc.style.display = 'block';
-  const sw = document.getElementById('notif-switch');
-  if (sw) sw.checked = false;
+  setNotifUI({ prompt:false, card:true, blocked:false, switchChecked:false });
 }
 
 export function handlePermissionSwitch(e) {
+  if (!e?.target) return;
   if (e.target.checked) {
     Notification.requestPermission().then(async (p) => {
       if (p === 'granted') {
         UI.showToast('¡Notificaciones activadas!', 'success');
-        const sc = document.getElementById('notif-card');
-        if (sc) sc.style.display = 'none';
+        setNotifUI({ card:false, blocked:false, switchChecked:true });
         await obtenerYGuardarToken();
         await ensureSingleToken();
+      } else if (p === 'denied') {
+        e.target.checked = false;
+        setNotifUI({ card:false, blocked:true, switchChecked:false });
       } else {
         e.target.checked = false;
+        setNotifUI({ card:true, blocked:false, switchChecked:false });
       }
     });
   }
 }
 
-// ──────────────────────────────────────────────────────────────
-// Canal FG (app visible)
-// ──────────────────────────────────────────────────────────────
+// —— Foreground (app visible) —— //
 export function listenForInAppMessages() {
   if (!messaging) return;
-  if (NOTIFS.onMsg) return;    // evita enganchar 2+ veces
+  if (NOTIFS.onMsg) return;
   NOTIFS.onMsg = true;
 
   messaging.onMessage(async (payload) => {
@@ -315,9 +296,7 @@ export function listenForInAppMessages() {
   });
 }
 
-// ──────────────────────────────────────────────────────────────
-// Canal BG → SW postMessage
-// ──────────────────────────────────────────────────────────────
+// —— Canal BG (SW→APP) —— //
 function swMessageHandler(event) {
   const msg = event?.data || {};
   if (!msg || !msg.type) return;
@@ -338,23 +317,18 @@ function swMessageHandler(event) {
 
 export function initNotificationChannel() {
   if (!('serviceWorker' in navigator)) return;
-  if (NOTIFS.swChan) return;   // no duplicar
+  if (NOTIFS.swChan) return;
   navigator.serviceWorker.addEventListener('message', swMessageHandler);
   NOTIFS.swChan = true;
   console.log('[INIT] SW message channel listo');
 }
 
-// ──────────────────────────────────────────────────────────────
-// Campanita + Inbox
-// ──────────────────────────────────────────────────────────────
+// —— Inbox helpers —— //
 export async function markAllDeliveredAsRead() {
-  if (!auth.currentUser) return;
   const ref = await getClienteDocRef();
   if (!ref) return;
   try {
-    const q = await ref.collection('inbox')
-      .where('status', 'in', ['sent', 'delivered'])
-      .get();
+    const q = await ref.collection('inbox').where('status', 'in', ['sent', 'delivered']).get();
     const batch = db.batch();
     q.forEach(doc => {
       batch.set(doc.ref, {
@@ -370,42 +344,24 @@ export async function markAllDeliveredAsRead() {
   }
 }
 
-export async function handleBellClick() { await showInboxModal(); }
-
-// ========== INBOX ==========
-function formatDate(ts) {
-  try {
-    if (!ts) return '';
-    const d = ts.toDate ? ts.toDate() : (typeof ts === 'string' ? new Date(ts) : ts);
-    return d.toLocaleString();
-  } catch { return ''; }
-}
-
 async function getClienteDocRefSafe() {
   try {
     if (!auth.currentUser) return null;
     const q = await db.collection('clientes').where('authUID', '==', auth.currentUser.uid).limit(1).get();
     if (q.empty) return null;
     return q.docs[0].ref;
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
 async function fetchInboxDocs(limit = 50) {
   const ref = await getClienteDocRefSafe();
   if (!ref) return [];
-  const snap = await ref.collection('inbox')
-    .orderBy('sentAt', 'desc')
-    .limit(limit)
-    .get();
-
+  const snap = await ref.collection('inbox').orderBy('sentAt', 'desc').limit(limit).get();
   const now = Date.now();
   const items = [];
   snap.forEach(doc => {
     const d = doc.data() || {};
-    const notExpired =
-      !d.expireAt ||
+    const notExpired = !d.expireAt ||
       (d.expireAt.toDate ? d.expireAt.toDate().getTime() > now : new Date(d.expireAt).getTime() > now);
     if (notExpired) items.push({ id: doc.id, ...d });
   });
@@ -433,7 +389,12 @@ function renderInboxList(items = []) {
 
   const html = items.map(it => {
     const status = it.status || 'sent';
-    const sentAt = formatDate(it.sentAt);
+    const sentAt = (() => {
+      try {
+        const d = it.sentAt?.toDate ? it.sentAt.toDate() : (typeof it.sentAt === 'string' ? new Date(it.sentAt) : it.sentAt);
+        return d ? d.toLocaleString() : '';
+      } catch { return ''; }
+    })();
     const url = it.url || it.click_action || '';
     const tag = it.tag ? `<span style="font-size:12px;color:#777;"> • ${it.tag}</span>` : '';
     const pill =
@@ -441,9 +402,7 @@ function renderInboxList(items = []) {
       status === 'delivered' ? '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#fff3cd;color:#b58100;">nuevo</span>' :
       '<span style="font-size:12px;padding:2px 8px;border-radius:999px;background:#ffe8e8;color:#b00020;">pendiente</span>';
 
-    const link = url
-      ? `<a href="#" class="inbox-item-link" data-url="${encodeURIComponent(url)}" style="text-decoration:underline;">Ver</a>`
-      : '';
+    const link = url ? `<a href="#" class="inbox-item-link" data-url="${encodeURIComponent(url)}" style="text-decoration:underline;">Ver</a>` : '';
 
     return `
       <div class="inbox-item" style="padding:12px 0;border-bottom:1px solid var(--border-color);">
@@ -467,13 +426,12 @@ function renderInboxList(items = []) {
       ev.preventDefault();
       const raw = a.getAttribute('data-url') || '';
       const url = decodeURIComponent(raw);
-
-      closeInboxModal();
+      const modal = document.getElementById('inbox-modal');
+      if (modal) modal.style.display = 'none';
       if (!url || url === '/notificaciones') return;
-
       const target = url.startsWith('/') ? `/${url.replace(/^\//,'')}` : `/${url}`;
       window.location.href = `/?open=${encodeURIComponent(target)}`;
-    }, { once:false });
+    });
   });
 }
 
@@ -529,20 +487,15 @@ export async function showInboxModal() {
   });
 }
 
-// ──────────────────────────────────────────────────────────────
-// Inicialización una sola vez por usuario/sesión
-// ──────────────────────────────────────────────────────────────
+// —— Init una sola vez por usuario —— //
 export async function initNotificationsOnce() {
   const u = auth.currentUser;
   if (!u || !isMessagingSupported || !messaging) return;
+  if (NOTIFS.initUid === u.uid) return;
 
-  if (NOTIFS.initUid === u.uid) return; // guard centralizado
   NOTIFS.initUid = u.uid;
-
   initNotificationChannel();
   listenForInAppMessages();
-
-  await gestionarPermisoNotificaciones(); // pide permiso y obtiene token si aplica
-  await ensureSingleToken();              // dedupe en Firestore si hubiera más de uno
+  await gestionarPermisoNotificaciones(); // UI + token si aplica
+  await ensureSingleToken();              // dedupe post-init
 }
-
