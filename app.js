@@ -16,6 +16,21 @@ import {
   handleSignOutCleanup           // logout: limpieza token en Firestore/LS
 } from './modules/notifications.js';
 
+// === DEBUG / OBS ===
+window.__RAMPET_DEBUG = true;
+window.__BUILD_ID = 'pwa-2025-09-06-1';
+function d(tag, ...args){ if (window.__RAMPET_DEBUG) console.log(`[DBG][${window.__BUILD_ID}] ${tag}`, ...args); }
+
+window.__reportState = async (where='')=>{
+  const notifPerm = (window.Notification?.permission)||'n/a';
+  let swReady = false;
+  try { swReady = !!(await navigator.serviceWorker?.getRegistration?.('/')); } catch {}
+  const fcm = localStorage.getItem('fcmToken') ? 'present' : 'missing';
+  let geo = 'n/a';
+  try { if (navigator.permissions?.query) geo = (await navigator.permissions.query({name:'geolocation'})).state; } catch {}
+  d(`STATE@${where}`, { notifPerm, swReady, fcm, geo });
+};
+
 // ──────────────────────────────────────────────────────────────
 // LÓGICA DE INSTALACIÓN PWA
 // ──────────────────────────────────────────────────────────────
@@ -745,8 +760,6 @@ async function openInboxModal() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// CARRUSEL
-// ──────────────────────────────────────────────────────────────
 function carruselSlides(root){
   return root ? Array.from(root.querySelectorAll('.banner-item, .banner-item-texto')) : [];
 }
@@ -912,9 +925,8 @@ function setupAuthScreenListeners() {
   on('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
   on('show-login-link', 'click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
 
- on('login-btn', 'click', Auth.login);
+  on('login-btn', 'click', Auth.login);
   on('register-btn', 'click', Auth.registerNewAccount);
-
 
   on('show-terms-link', 'click', (e) => { e.preventDefault(); openTermsModal(); });
   on('forgot-password-link', 'click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
@@ -1025,6 +1037,7 @@ async function main() {
       if (messagingSupported) {
         await initNotificationsOnce();
         console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
+        window.__reportState?.('post-init-notifs'); // ← ping de estado
       }
 
       showInstallPromptIfAvailable();
@@ -1048,6 +1061,3 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
-
-
