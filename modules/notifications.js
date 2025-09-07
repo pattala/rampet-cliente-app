@@ -3,6 +3,19 @@
 
 import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
 import * as UI from './ui.js';
+// Heurística: en Incógnito/Invitado la cuota suele ser muy baja (≈50–120MB).
+async function isEphemeralContext() {
+  try {
+    if (!navigator.storage?.estimate) return false;
+    const { quota } = await navigator.storage.estimate();
+    return !!quota && quota < 160 * 1024 * 1024; // ~160MB umbral
+  } catch { return false; }
+}
+
+function showIncognitoWarningIfAny() {
+  const el = document.getElementById('notif-incognito-warning');
+  if (el) el.style.display = 'block'; // si no existe, no pasa nada
+}
 
 // ──────────────────────────────────────────────────────────────
 // Estado único para evitar re-declaraciones y duplicados
@@ -144,8 +157,21 @@ export async function ensureSingleToken() {
 // ──────────────────────────────────────────────────────────────
 // Permisos + token
 // ──────────────────────────────────────────────────────────────
-export function gestionarPermisoNotificaciones() {
+export async function gestionarPermisoNotificaciones() {
   if (!isMessagingSupported || !auth.currentUser || !messaging) return;
+
+  // ⇩ NUEVO: si es contexto efímero, avisamos y no intentamos token persistente
+  if (await isEphemeralContext()) {
+    showIncognitoWarningIfAny();
+    // Mostramos igual el switch-card para dejar intento manual, pero sin forzar token
+    const promptCard = document.getElementById('notif-prompt-card');
+    const switchCard = document.getElementById('notif-card');
+    if (promptCard) promptCard.style.display = 'none';
+    if (switchCard) switchCard.style.display = 'block';
+    const sw = document.getElementById('notif-switch');
+    if (sw) sw.checked = false;
+    return; // salimos: no pedimos ni guardamos token automáticamente
+  }
 
   const promptCard = document.getElementById('notif-prompt-card');
   const switchCard = document.getElementById('notif-card');
@@ -172,6 +198,7 @@ export function gestionarPermisoNotificaciones() {
     if (sw) sw.checked = false;
   }
 }
+
 
 async function obtenerYGuardarToken() {
   if (!isMessagingSupported || !auth.currentUser || !messaging) return null;
@@ -518,3 +545,4 @@ export async function initNotificationsOnce() {
   await gestionarPermisoNotificaciones(); // pide permiso y obtiene token si aplica
   await ensureSingleToken();              // dedupe en Firestore si hubiera más de uno
 }
+
