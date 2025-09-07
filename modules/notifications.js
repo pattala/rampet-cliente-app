@@ -270,13 +270,6 @@ export function handlePermissionSwitch(e) {
   }
 }
 
-
-
-
-
-
-
-
 // ──────────────────────────────────────────────────────────────
 // Canal FG (app visible)
 // ──────────────────────────────────────────────────────────────
@@ -525,4 +518,3 @@ export async function initNotificationsOnce() {
   await gestionarPermisoNotificaciones(); // pide permiso y obtiene token si aplica
   await ensureSingleToken();              // dedupe en Firestore si hubiera más de uno
 }
-
