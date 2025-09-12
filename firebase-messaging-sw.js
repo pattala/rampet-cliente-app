@@ -1,4 +1,4 @@
-/* public/firebase-messaging-sw.js — CLÁSICO (sin exports) */
+/* public/firebase-messaging-sw.js — COMPAT (sin exports) */
 'use strict';
 
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
@@ -19,32 +19,43 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const messaging = firebase.messaging();
 
-// Normaliza payload data-only y conserva el id
+// Normaliza payloads data-only y garantiza tag si renotify
 function normalizeData(raw = {}) {
   const d = raw.data || {};
+  const id  = d.id ? String(d.id) : String(Date.now());
+  const tag = (d.tag && String(d.tag).trim()) || id;   // <- default tag = id
+
   return {
-    id:   d.id ? String(d.id) : undefined,
-    title:String(d.title || d.titulo || 'RAMPET'),
-    body: String(d.body  || d.cuerpo || ''),
-    icon: String(d.icon  || 'https://rampet.vercel.app/images/mi_logo.png'),
-    url:  String(d.url   || d.click_action || '/notificaciones'),
-    tag:  d.tag ? String(d.tag) : undefined
+    id,
+    title: String(d.title || d.titulo || 'RAMPET'),
+    body:  String(d.body  || d.cuerpo || ''),
+    icon:  String(d.icon  || 'https://rampet.vercel.app/images/mi_logo_192.png'),
+    badge: String(d.badge || ''), // opcional
+    url:   String(d.url   || d.click_action || '/notificaciones'),
+    tag
   };
 }
 
 // Llega en background → notificación + postMessage a pestañas
 messaging.onBackgroundMessage((payload) => {
   const d = normalizeData(payload);
+
+  // avisamos a todas las pestañas que llegó el push
   self.clients.matchAll({ includeUncontrolled: true, type: "window" })
     .then(list => list.forEach(c => c.postMessage({ type: "PUSH_DELIVERED", data: d })));
 
-  return self.registration.showNotification(d.title, {
+  // Sólo activar renotify si tenemos un tag no vacío
+  const opts = {
     body: d.body,
     icon: d.icon,
     tag: d.tag,
-    renotify: true,
     data: { id: d.id, url: d.url }
-  });
+  };
+  if (d.badge) opts.badge = d.badge;
+  // renotify genera excepción si no hay tag → lo activamos condicionalmente
+  if (d.tag) opts.renotify = true;
+
+  return self.registration.showNotification(d.title, opts);
 });
 
 // Click → enfocamos/abrimos la PWA y avisamos “read”
@@ -55,11 +66,15 @@ self.addEventListener("notificationclick", (event) => {
 
   event.waitUntil((async () => {
     const clientsList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+
+    // avisamos a las pestañas que el usuario "leyó"
     clientsList.forEach(c => c.postMessage({ type: "PUSH_READ", data: { id: d.id } }));
 
     const absolute = new URL(targetUrl, self.location.origin).href;
+    // si ya hay una pestaña con esa URL exacta, enfocarla
     const existing = clientsList.find(c => c.url === absolute);
     if (existing) return existing.focus();
+    // si no, abrir una nueva
     return clients.openWindow(absolute);
   })());
 });
