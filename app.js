@@ -1,4 +1,4 @@
-// app.js — PWA del Cliente (instalación, notifs foreground + badge, INBOX con leer/borrar)
+// app.js — PWA del Cliente (instalación, notifs foreground + badge, INBOX con toggle/borrar)
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
@@ -16,7 +16,7 @@ import {
 
 // === DEBUG / OBS ===
 window.__RAMPET_DEBUG = true;
-window.__BUILD_ID = 'pwa-2025-09-06-3'; // bump
+window.__BUILD_ID = 'pwa-2025-09-06-4'; // bump
 function d(tag, ...args){ if (window.__RAMPET_DEBUG) console.log(`[DBG][${window.__BUILD_ID}] ${tag}`, ...args); }
 
 window.__reportState = async (where='')=>{
@@ -72,7 +72,7 @@ async function guardarTokenEnMiDoc(token) {
   console.log('✅ Token FCM guardado en', ref.path);
 }
 
-/** Foreground: mostrar noti del sistema (aunque la PWA esté abierta) */
+/** Foreground: notificación del sistema aunque la PWA esté abierta */
 async function showForegroundNotification(data) {
   try {
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
@@ -82,7 +82,7 @@ async function showForegroundNotification(data) {
     const opts = {
       body: data.body || '',
       icon: data.icon || 'https://rampet.vercel.app/images/mi_logo_192.png',
-      data: { id: data.id, url: data.url || '/notificaciones' }
+      data: { id: data.id, url: data.url || '/?inbox=1' }
     };
     if (data.tag) { opts.tag = data.tag; opts.renotify = true; }
     if (data.badge) opts.badge = data.badge;
@@ -115,7 +115,7 @@ function setBadgeCount(n){
   if (n > 0) {
     badge.textContent = String(n);
     badge.style.display = 'inline-block';
-    bell.classList.add('blink'); // parpadeo
+    bell.classList.add('blink');
   } else {
     badge.style.display = 'none';
     bell.classList.remove('blink');
@@ -140,18 +140,14 @@ async function registerForegroundFCMHandlers() {
         body:  String(dd.body  || dd.cuerpo || ''),
         icon:  String(dd.icon  || 'https://rampet.vercel.app/images/mi_logo_192.png'),
         badge: dd.badge ? String(dd.badge) : undefined,
-        url:   String(dd.url   || dd.click_action || '/notificaciones'),
+        url:   String(dd.url   || dd.click_action || '/?inbox=1'),
         tag
       };
     })();
 
-    // Noti visible aunque la PWA esté abierta
     await showForegroundNotification(d);
-
-    // Badge/parpadeo
     bumpBadge();
 
-    // Refrescar inbox si está abierto
     try {
       const modal = document.getElementById('inbox-modal');
       if (modal && modal.style.display === 'flex') {
@@ -160,7 +156,7 @@ async function registerForegroundFCMHandlers() {
     } catch {}
   });
 
-  // Canal SW → APP (click de noti = leído / delivered = sumar badge)
+  // Canal SW → APP
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', async (ev) => {
       const t = ev?.data?.type;
@@ -171,6 +167,8 @@ async function registerForegroundFCMHandlers() {
         try { await fetchInboxBatchUnified?.(); } catch {}
       } else if (t === 'PUSH_DELIVERED') {
         bumpBadge();
+      } else if (t === 'OPEN_INBOX') {
+        await openInboxModal();
       }
     });
   }
@@ -325,11 +323,12 @@ function on(id, event, handler) {
 }
 
 // ──────────────────────────────────────────────────────────────
-// INBOX (leer/borrar, filtros, auto-read al abrir)
+// INBOX (toggle leído/no leído, borrar, filtros, auto-read al abrir)
 // ──────────────────────────────────────────────────────────────
 let inboxFilter = 'all';
 let inboxLastSnapshot = [];
 let inboxPagination = { clienteRefPath:null };
+let inboxUnsub = null; // listener realtime opcional
 
 function normalizeCategory(v){
   if (!v) return '';
@@ -368,7 +367,7 @@ function renderInboxList(items){
   list.innerHTML = data.map(it=>{
     const sentAt = it.sentAt ? (it.sentAt.toDate ? it.sentAt.toDate() : new Date(it.sentAt)) : null;
     const dateTxt = sentAt ? sentAt.toLocaleString() : '';
-    const url = it.url || '/notificaciones';
+    const url = it.url || '/?inbox=1';
     const isUnread = (it.status !== 'read');
     return `
       <div class="card" data-id="${it.id}" style="margin:8px 0; ${isUnread?'box-shadow:0 0 0 2px rgba(0,123,255,.25);':''}">
@@ -378,7 +377,10 @@ function renderInboxList(items){
             <div style="color:#555; margin-top:6px;">${it.body || ''}</div>
             <div style="color:#999; font-size:12px; margin-top:8px;">${dateTxt}</div>
           </div>
-          <button class="secondary-btn inbox-delete" title="Borrar" style="flex:0 0 auto;">🗑️</button>
+          <div style="display:flex; gap:6px;">
+            <button class="secondary-btn inbox-toggle" title="${isUnread?'Marcar como leído':'Marcar como no leído'}">${isUnread?'✔️':'✉️'}</button>
+            <button class="secondary-btn inbox-delete" title="Borrar">🗑️</button>
+          </div>
         </div>
       </div>
     `;
@@ -387,8 +389,32 @@ function renderInboxList(items){
   // Click para abrir URL
   list.querySelectorAll('[data-url]').forEach(el=>{
     el.addEventListener('click', ()=>{
-      const goto = el.getAttribute('data-url') || '/notificaciones';
+      const goto = el.getAttribute('data-url') || '/?inbox=1';
       window.location.href = goto;
+    });
+  });
+
+  // Toggle leído/no leído
+  list.querySelectorAll('.inbox-toggle').forEach(btn=>{
+    btn.addEventListener('click', async (e)=>{
+      e.stopPropagation();
+      const card = btn.closest('.card');
+      const id = card?.getAttribute('data-id');
+      if (!id) return;
+      try {
+        const clienteRef = await resolveClienteRef();
+        const cur = inboxLastSnapshot.find(x => x.id === id);
+        const toRead = !(cur && cur.status === 'read');
+        await clienteRef.collection('inbox').doc(id).set(
+          toRead
+            ? { status:'read', readAt:new Date().toISOString() }
+            : { status:'unread', readAt:null },
+          { merge:true }
+        );
+      } catch (err) {
+        console.warn('[INBOX] toggle read error:', err?.message || err);
+      }
+      await fetchInboxBatchUnified();
     });
   });
 
@@ -423,11 +449,31 @@ async function fetchInboxBatchUnified() {
     const items = snap.docs.map(d=>({ id:d.id, ...d.data() }));
     inboxLastSnapshot = items;
     renderInboxList(items);
+
+    // badge local
+    const unread = items.filter(x => x.status !== 'read').length;
+    setBadgeCount(unread);
   } catch (e) {
     console.warn('[INBOX] fetch error:', e?.message || e);
     inboxLastSnapshot = [];
     renderInboxList([]);
   }
+}
+
+// Listener tiempo real (opcional). Si no querés realtime, no lo llames.
+async function listenInboxRealtime() {
+  const clienteRef = await resolveClienteRef();
+  if (!clienteRef) return () => {};
+  const q = clienteRef.collection('inbox').orderBy('sentAt','desc').limit(50);
+  return q.onSnapshot((snap)=>{
+    const items = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+    inboxLastSnapshot = items;
+    renderInboxList(items);
+    const unread = items.filter(x => x.status !== 'read').length;
+    setBadgeCount(unread);
+  }, (err)=> {
+    console.warn('[INBOX] onSnapshot error:', err?.message || err);
+  });
 }
 
 async function markVisibleAsRead() {
@@ -480,29 +526,15 @@ function wireInboxModal(){
   on('inbox-close-btn','click', ()=> modal.style.display='none');
   modal.addEventListener('click',(e)=>{ if(e.target===modal) modal.style.display='none'; });
 
-  on('inbox-mark-read','click', async ()=>{
-    const clienteRef = await resolveClienteRef();
-    if (!clienteRef || !inboxLastSnapshot.length) return;
-    const batch = db.batch();
-    inboxLastSnapshot
-      .filter(itemMatchesFilter)
-      .forEach(it=>{
-        const ref = clienteRef.collection('inbox').doc(it.id);
-        batch.set(ref, { status:'read', readAt:new Date().toISOString() }, { merge:true });
-      });
-    try{ await batch.commit(); await fetchInboxBatchUnified(); }
-    catch(e){ console.warn('[INBOX] marcar leído error:', e?.message || e); }
-  });
-
-  document.addEventListener('keydown',(e)=>{ if(e.key==='Escape' && modal.style.display==='flex'){ modal.style.display='none'; }});
+  // Nota: se eliminó el botón global "inbox-mark-read" de la UI.
 }
 
 async function openInboxModal() {
   wireInboxModal();
   inboxFilter = 'all';
   await fetchInboxBatchUnified();
-  await markVisibleAsRead(); // ← auto-read al abrir
-  resetBadge();              // ← limpiamos badge al abrir
+  await markVisibleAsRead(); // auto-read al abrir
+  resetBadge();              // limpiamos badge al abrir
   const modal = document.getElementById('inbox-modal');
   if (modal) modal.style.display = 'flex';
 }
@@ -510,19 +542,13 @@ async function openInboxModal() {
 // ──────────────────────────────────────────────────────────────
 // Carrusel (igual que antes)
 // ──────────────────────────────────────────────────────────────
-function carruselSlides(root){
-  return root ? Array.from(root.querySelectorAll('.banner-item, .banner-item-texto')) : [];
-}
+function carruselSlides(root){ return root ? Array.from(root.querySelectorAll('.banner-item, .banner-item-texto')) : []; }
 function carruselIdxCercano(root){
   const slides = carruselSlides(root);
   if (!slides.length) return 0;
   const mid = root.scrollLeft + root.clientWidth/2;
   let best = 0, dmin = Infinity;
-  slides.forEach((s,i)=>{
-    const c = s.offsetLeft + s.offsetWidth/2;
-    const d = Math.abs(c - mid);
-    if (d < dmin){ dmin = d; best = i; }
-  });
+  slides.forEach((s,i)=>{ const c = s.offsetLeft + s.offsetWidth/2; const d = Math.abs(c - mid); if (d < dmin){ dmin = d; best = i; }});
   return best;
 }
 function carruselScrollTo(root, idx, smooth=true){
@@ -548,7 +574,6 @@ function carruselWireDots(root, dotsRoot, pause, resumeSoon){
     dot.onkeydown = (e)=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); dot.click(); } };
   });
 }
-
 function initCarouselBasic(){
   const root = document.getElementById('carrusel-campanas');
   const dotsRoot = document.getElementById('carrusel-indicadores');
@@ -586,30 +611,9 @@ function initCarouselBasic(){
   function pauseAutoplay(){ clearAutoplay(); }
   function resumeAutoplaySoon(delay = AUTOPLAY){ clearAutoplay(); autoplayTimer = setTimeout(()=> scheduleAutoplay(), delay); }
 
-  const onDown = (e)=>{
-    isDown = true;
-    startX = e.clientX;
-    startScroll = root.scrollLeft;
-    root.classList.add('arrastrando');
-    try{ root.setPointerCapture(e.pointerId);}catch{}
-    setScrollBehaviorSmooth(false);
-    pauseAutoplay();
-  };
-  const onMove = (e)=>{
-    if(!isDown) return;
-    root.scrollLeft = startScroll - (e.clientX - startX);
-    if (e.cancelable) e.preventDefault();
-  };
-  const finishDrag = (e)=>{
-    if(!isDown) return;
-    isDown = false;
-    root.classList.remove('arrastrando');
-    try{ if(e?.pointerId!=null) root.releasePointerCapture(e.pointerId);}catch{}
-    const idx = carruselIdxCercano(root);
-    setScrollBehaviorSmooth(true);
-    carruselScrollTo(root, idx, true);
-    resumeAutoplaySoon(RESUME_DELAY);
-  };
+  const onDown = (e)=>{ isDown = true; startX = e.clientX; startScroll = root.scrollLeft; root.classList.add('arrastrando'); try{ root.setPointerCapture(e.pointerId);}catch{} setScrollBehaviorSmooth(false); pauseAutoplay(); };
+  const onMove = (e)=>{ if(!isDown) return; root.scrollLeft = startScroll - (e.clientX - startX); if (e.cancelable) e.preventDefault(); };
+  const finishDrag = (e)=>{ if(!isDown) return; isDown = false; root.classList.remove('arrastrando'); try{ if(e?.pointerId!=null) root.releasePointerCapture(e.pointerId);}catch{} const idx = carruselIdxCercano(root); setScrollBehaviorSmooth(true); carruselScrollTo(root, idx, true); resumeAutoplaySoon(RESUME_DELAY); };
 
   root.addEventListener('pointerdown', onDown);
   root.addEventListener('pointermove', onMove, { passive:true });
@@ -620,34 +624,17 @@ function initCarouselBasic(){
   root.addEventListener('mouseenter', pauseAutoplay, { passive:true });
   root.addEventListener('mouseleave', ()=> resumeAutoplaySoon(RESUME_DELAY), { passive:true });
 
-  const onScroll = ()=>{
-    if (raf) return;
-    raf = requestAnimationFrame(()=>{
-      carruselUpdateDots(root, dotsRoot);
-      raf = null;
-    });
-    pauseAutoplay();
-    resumeAutoplaySoon(RESUME_DELAY);
-  };
+  const onScroll = ()=>{ if (raf) return; raf = requestAnimationFrame(()=>{ carruselUpdateDots(root, dotsRoot); raf = null; }); pauseAutoplay(); resumeAutoplaySoon(RESUME_DELAY); };
   root.addEventListener('scroll', onScroll, { passive:true });
 
   root.addEventListener('click', () => resumeAutoplaySoon(RESUME_DELAY), true);
 
   carruselWireDots(root, dotsRoot, pauseAutoplay, resumeAutoplaySoon);
   carruselUpdateDots(root, dotsRoot);
-  if (dotsRoot){
-    dotsRoot.addEventListener('click', () => resumeAutoplaySoon(RESUME_DELAY));
-  }
+  if (dotsRoot){ dotsRoot.addEventListener('click', () => resumeAutoplaySoon(RESUME_DELAY)); }
 
   let snapT = null;
-  function snapSoon(delay=90){
-    clearTimeout(snapT);
-    snapT = setTimeout(()=>{
-      const idx = carruselIdxCercano(root);
-      setScrollBehaviorSmooth(true);
-      carruselScrollTo(root, idx, true);
-    }, delay);
-  }
+  function snapSoon(delay=90){ clearTimeout(snapT); snapT = setTimeout(()=>{ const idx = carruselIdxCercano(root); setScrollBehaviorSmooth(true); carruselScrollTo(root, idx, true); }, delay); }
   window.addEventListener('resize', ()=> snapSoon(150));
 
   setScrollBehaviorSmooth(false);
@@ -655,15 +642,9 @@ function initCarouselBasic(){
   setScrollBehaviorSmooth(true);
   scheduleAutoplay(AUTOPLAY);
 
-  document.addEventListener('visibilitychange', ()=>{
-    if (document.hidden) pauseAutoplay();
-    else resumeAutoplaySoon(AUTOPLAY);
-  });
+  document.addEventListener('visibilitychange', ()=>{ if (document.hidden) pauseAutoplay(); else resumeAutoplaySoon(AUTOPLAY); });
 
-  const mo = new MutationObserver(()=>{
-    root.querySelectorAll('img').forEach(img => img.setAttribute('draggable','false'));
-    carruselUpdateDots(root, dotsRoot);
-  });
+  const mo = new MutationObserver(()=>{ root.querySelectorAll('img').forEach(img => img.setAttribute('draggable','false')); carruselUpdateDots(root, dotsRoot); });
   mo.observe(root, { childList:true });
   root._rampetObs = mo;
 }
@@ -698,6 +679,8 @@ function wireTermsModalBehavior(){
 }
 
 // ──────────────────────────────────────────────────────────────
+// LISTENERS de app principal
+// ──────────────────────────────────────────────────────────────
 function setupAuthScreenListeners() {
   on('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
   on('show-login-link', 'click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
@@ -708,13 +691,11 @@ function setupAuthScreenListeners() {
   on('close-terms-modal', 'click', closeTermsModal);
 }
 
-// ──────────────────────────────────────────────────────────────
-// LISTENERS de app principal (FALTABA ESTA FUNCIÓN)
-// ──────────────────────────────────────────────────────────────
 function setupMainAppScreenListeners() {
   // Logout
   on('logout-btn', 'click', async () => {
     try { await handleSignOutCleanup(); } catch {}
+    if (inboxUnsub) { try { inboxUnsub(); } catch {} inboxUnsub = null; }
     const c = document.getElementById('carrusel-campanas');
     if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
     try { window.cleanupUiObservers?.(); } catch {}
@@ -762,6 +743,16 @@ function setupMainAppScreenListeners() {
   on('notif-switch', 'change', handlePermissionSwitch);
 }
 
+// Abrir INBOX si viene ?inbox=1 (deep link seguro del SW)
+function openInboxIfQuery() {
+  try {
+    const url = new URL(location.href);
+    if (url.searchParams.get('inbox') === '1') {
+      openInboxModal();
+    }
+  } catch {}
+}
+
 // ──────────────────────────────────────────────────────────────
 // Main
 // ──────────────────────────────────────────────────────────────
@@ -797,8 +788,8 @@ async function main() {
 
       // Notifs
       if (messagingSupported) {
-        await initFCMForRampet();       // asegura token y registra onMessage foreground
-        await initNotificationsOnce?.(); // inicializador original
+        await initFCMForRampet();        // asegura token y registra onMessage foreground
+        await initNotificationsOnce?.();  // inicializador original
         console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
         window.__reportState?.('post-init-notifs');
       }
@@ -812,6 +803,18 @@ async function main() {
       if (installBtn) installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
 
       initCarouselBasic();
+
+      // Deep link a INBOX si viene desde el click de la notificación
+      openInboxIfQuery();
+
+      // (Opcional) activar tiempo real en INBOX
+      try {
+        if (inboxUnsub) { try { inboxUnsub(); } catch {} }
+        inboxUnsub = await listenInboxRealtime();
+      } catch (e) {
+        // si falla, quedamos con fetch manual
+        console.warn('[INBOX] realtime no iniciado:', e?.message || e);
+      }
     } else {
       if (bell) bell.style.display = 'none';
       if (badge) badge.style.display = 'none';
@@ -820,6 +823,11 @@ async function main() {
 
       const c = document.getElementById('carrusel-campanas');
       if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
+
+      if (inboxUnsub) { try { inboxUnsub(); } catch {} inboxUnsub = null; }
+      inboxPagination.clienteRefPath = null;
+      inboxLastSnapshot = [];
+      resetBadge();
     }
   });
 }
