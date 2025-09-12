@@ -276,3 +276,15 @@ input:checked + .slider:before{ transform:translateX(26px); }
   cursor: pointer;
 }
 
+/* Campanita: parpadeo cuando hay notificaciones nuevas */
+@keyframes bellBlink {
+  0%   { transform: rotate(0deg);    filter: brightness(1);   }
+  25%  { transform: rotate(-15deg);  filter: brightness(1.1); }
+  50%  { transform: rotate(0deg);    filter: brightness(1);   }
+  75%  { transform: rotate(15deg);   filter: brightness(1.1); }
+  100% { transform: rotate(0deg);    filter: brightness(1);   }
+}
+#btn-notifs.blink {
+  animation: bellBlink 1.2s ease-in-out 6; /* 6 ciclos por llegada; ajustable */
+}
+
