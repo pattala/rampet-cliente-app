@@ -32,6 +32,92 @@ window.__reportState = async (where='')=>{
 };
 
 // ──────────────────────────────────────────────────────────────
+// ✨ PARCHE FCM (VAPID) — asegura token válido guardado en clientes/{docPorAuthUID}
+// ──────────────────────────────────────────────────────────────
+const VAPID_PUBLIC = (window.__RAMPET__ && window.__RAMPET__.VAPID_PUBLIC) || '';
+
+async function ensureMessagingCompatLoaded() {
+  if (typeof firebase?.messaging === 'function') return;
+  await new Promise((ok, err) => {
+    const s = document.createElement('script');
+    s.src = 'https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js';
+    s.onload = ok; s.onerror = err;
+    document.head.appendChild(s);
+  });
+}
+
+async function registerFcmSW() {
+  if (!('serviceWorker' in navigator)) return false;
+  try {
+    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    console.log('✅ SW FCM registrado:', reg.scope || location.origin + '/');
+    return true;
+  } catch (e) {
+    console.warn('[FCM] No se pudo registrar SW:', e?.message || e);
+    return false;
+  }
+}
+
+async function resolveClienteRefByAuthUID() {
+  const u = auth.currentUser;
+  if (!u) return null;
+  const qs = await db.collection('clientes').where('authUID','==', u.uid).limit(1).get();
+  if (qs.empty) return null;
+  return qs.docs[0].ref;
+}
+
+async function guardarTokenEnMiDoc(token) {
+  const ref = await resolveClienteRefByAuthUID();
+  if (!ref) throw new Error('No encontré tu doc en clientes (authUID).');
+  await ref.set({ fcmTokens: [token] }, { merge: true }); // ← reemplazo total
+  localStorage.setItem('fcmToken', token);
+  console.log('✅ Token FCM guardado en', ref.path);
+}
+
+/**
+ * Intenta garantizar que, si el permiso está "granted" y hay VAPID,
+ * exista un token actual y esté guardado en Firestore.
+ * No fuerza el prompt: deja esa UX a tu módulo notifications.js y/o a los botones UI.
+ */
+async function initFCMForRampet() {
+  if (!VAPID_PUBLIC) {
+    console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
+    return;
+  }
+  await registerFcmSW();
+  await ensureMessagingCompatLoaded();
+
+  const perm = Notification?.permission || 'default';
+  if (perm !== 'granted') {
+    // No forzamos permiso aquí; tu UI (handlePermissionRequest) lo gestiona.
+    d('FCM@skip', 'perm ≠ granted (no se solicita aquí)');
+    return;
+  }
+
+  try {
+    // Limpia token previo (si existiera) para evitar invalid/legacy
+    try { await firebase.messaging().deleteToken(); } catch {}
+    const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
+    if (tok) {
+      await guardarTokenEnMiDoc(tok);
+      console.log('[FCM] token actual:', tok);
+    } else {
+      console.warn('[FCM] getToken devolvió vacío.');
+    }
+  } catch (e) {
+    console.warn('[FCM] init error:', e?.message || e);
+  }
+
+  // Canal de mensajes del SW (opcional)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (ev) => {
+      // ev.data = { type: 'PUSH_DELIVERED' | 'PUSH_READ', data: {...} }
+      // acá podés enganchar UI si querés
+    });
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
 // LÓGICA DE INSTALACIÓN PWA
 // ──────────────────────────────────────────────────────────────
 let deferredInstallPrompt = null;
@@ -506,9 +592,6 @@ async function ensureGeoOnStartup() {
     return;
   }
 
-  
-  
-  
   const clienteRef = await resolveClienteRef();
   if (!clienteRef) return;
 
@@ -1086,7 +1169,12 @@ async function main() {
       setupMainLimitsObservers();
 
       if (messagingSupported) {
-        await initNotificationsOnce();
+        // 🔴 Aseguramos token con VAPID y guardado en clientes/{docPorAuthUID}
+        await initFCMForRampet();
+
+        // 🟡 Dejamos tu inicializador original (no debería romper; si en tu entorno duplica trabajo, se puede quitar)
+        await initNotificationsOnce?.();
+
         console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
         window.__reportState?.('post-init-notifs'); // ← ping de estado
       }
@@ -1112,6 +1200,3 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
-
-
