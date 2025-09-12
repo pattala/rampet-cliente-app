@@ -65,6 +65,33 @@ async function resolveClienteRefByAuthUID() {
   if (qs.empty) return null;
   return qs.docs[0].ref;
 }
+// ==== MARCAR "READ" AUTOMÁTICO cuando se hace click en la notificación ====
+async function markInboxReadById(notifId) {
+  if (!notifId) return;
+  try {
+    const clienteRef = await resolveClienteRef(); // ya existe en tu app.js
+    if (!clienteRef) return;
+    await clienteRef.collection('inbox').doc(String(notifId))
+      .set({ status: 'read', readAt: new Date().toISOString() }, { merge: true });
+  } catch (e) {
+    console.warn('[INBOX] marcar leído error:', e?.message || e);
+  }
+}
+
+// Conectar canal SW → APP
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', async (ev) => {
+    const t = ev?.data?.type;
+    const d = ev?.data?.data || {};
+    if (t === 'PUSH_READ') {
+      await markInboxReadById(d.id);
+      try { await fetchInboxBatchUnified?.(); } catch {}
+    }
+    if (t === 'PUSH_DELIVERED') {
+      // opcional: actualizar badge, UI, etc.
+    }
+  });
+}
 
 async function guardarTokenEnMiDoc(token) {
   const ref = await resolveClienteRefByAuthUID();
@@ -1200,3 +1227,4 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
