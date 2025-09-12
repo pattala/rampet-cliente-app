@@ -1,20 +1,14 @@
-// PWA /modules/notifications.js — FCM con VAPID + guardado de token (compat con app.js)
+// /modules/notifications.js — FCM + VAPID + token + foreground banner
 'use strict';
 
-// Requisitos:
-// - firebase app/auth/firestore ya cargados por la PWA.
-// - SW en /firebase-messaging-sw.js (compat).
-// - VAPID pública definida en window.__RAMPET__.VAPID_PUBLIC (index.html).
+// Requisitos: firebase app/auth/firestore ya cargados.
+// SW: /firebase-messaging-sw.js
+// VAPID pública: window.__RAMPET__.VAPID_PUBLIC
 
 const VAPID_PUBLIC = (window.__RAMPET__ && window.__RAMPET__.VAPID_PUBLIC) || '';
+if (!VAPID_PUBLIC) console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
 
-if (!VAPID_PUBLIC) {
-  console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
-}
-
-// ──────────────────────────────────────────────────────────────
-// Helpers internos
-// ──────────────────────────────────────────────────────────────
+// ───────────────── helpers ─────────────────
 async function ensureMessagingCompatLoaded() {
   if (typeof firebase?.messaging === 'function') return;
   await new Promise((ok, err) => {
@@ -28,6 +22,12 @@ async function ensureMessagingCompatLoaded() {
 async function registerSW() {
   if (!('serviceWorker' in navigator)) return false;
   try {
+    // evita doble registro si ya existe
+    const existing = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
+    if (existing) {
+      console.log('✅ SW FCM ya registrado:', existing.scope);
+      return true;
+    }
     const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
     console.log('✅ SW FCM registrado:', reg.scope || (location.origin + '/'));
     return true;
@@ -43,18 +43,15 @@ async function getClienteDocIdPorUID(uid) {
     .where('authUID', '==', uid)
     .limit(1)
     .get();
-  if (snap.empty) return null;
-  return snap.docs[0].id;
+  return snap.empty ? null : snap.docs[0].id;
 }
 
 async function guardarTokenEnMiDoc(token) {
   const uid = firebase.auth().currentUser?.uid;
   if (!uid) throw new Error('No hay usuario logueado.');
-
   const clienteId = await getClienteDocIdPorUID(uid);
   if (!clienteId) throw new Error('No encontré tu doc en clientes (authUID).');
 
-  // Reemplazo total para evitar tokens viejos
   await firebase.firestore().collection('clientes')
     .doc(clienteId)
     .set({ fcmTokens: [token] }, { merge: true });
@@ -64,31 +61,21 @@ async function guardarTokenEnMiDoc(token) {
 }
 
 async function pedirPermisoYGestionarToken() {
-  // pidir permiso (idealmente por gesto del usuario)
   const status = await Notification.requestPermission();
-  if (status !== 'granted') {
-    throw new Error('Permiso de notificaciones NO concedido.');
-  }
+  if (status !== 'granted') throw new Error('Permiso de notificaciones NO concedido.');
 
-  // asegurar SDK compat
   await ensureMessagingCompatLoaded();
-
-  // eliminar token previo para evitar tokens huérfanos
+  // Limpieza suave: si existe y el browser lo permite
   try { await firebase.messaging().deleteToken(); } catch {}
 
-  // obtener token con VAPID (OBLIGATORIO en web)
   const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
   if (!tok) throw new Error('No se pudo obtener token (vacío).');
   console.log('[FCM] token actual:', tok);
-
-  // guardarlo en mi doc
   await guardarTokenEnMiDoc(tok);
-
   return tok;
 }
 
 function pintarBotonPermiso() {
-  // Botón flotante para disparar el flujo por gesto de usuario
   const id = '__activar_push_btn__';
   if (document.getElementById(id)) return;
 
@@ -102,71 +89,87 @@ function pintarBotonPermiso() {
     fontSize: '14px', background: '#2e7d32', color: 'white'
   });
   btn.onclick = async () => {
-    btn.disabled = true;
-    btn.textContent = 'Activando…';
+    btn.disabled = true; btn.textContent = 'Activando…';
     try {
       await pedirPermisoYGestionarToken();
       alert('✅ Notificaciones activadas. Ya podés recibir push.');
       btn.remove();
     } catch (e) {
       alert('No se pudo activar: ' + (e?.message || e));
-      btn.disabled = false;
-      btn.textContent = '🔔 Activar notificaciones';
+      btn.disabled = false; btn.textContent = '🔔 Activar notificaciones';
     }
   };
   document.body.appendChild(btn);
 }
 
-// ──────────────────────────────────────────────────────────────
-// Inicialización principal de notificaciones (para usar desde app.js)
-// ──────────────────────────────────────────────────────────────
+// ───────────── init principal (llamado desde app.js) ─────────────
 export async function initFCM() {
-  // 1) Registrar SW
   await registerSW();
 
-  // 2) Canal mensajes SW→PWA (opcional: UI en foreground)
+  // Canal SW→PWA (si querés enganchar UI adicional, hacelo en app.js)
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', (ev) => {
       // { type: "PUSH_DELIVERED" | "PUSH_READ", data: {...} }
-      // console.log('[SW→PWA]', ev.data);
     });
   }
 
-  // 3) Estado de permiso y token
   if (!('Notification' in window)) return;
   const perm = Notification.permission;
 
   if (perm === 'granted') {
     try {
       await ensureMessagingCompatLoaded();
+
+      // Foreground: mostrar banner también cuando la app está visible
+      try {
+        const messaging = firebase.messaging();
+        messaging.onMessage(async (payload) => {
+          const d = payload?.data || {};
+          try {
+            const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js')
+                      || await navigator.serviceWorker.getRegistration();
+            if (reg?.showNotification) {
+              await reg.showNotification(d.title || 'RAMPET', {
+                body: d.body || '',
+                icon: d.icon || 'https://rampet.vercel.app/images/mi_logo_192.png',
+                tag: d.tag || d.id || 'rampet-fg',
+                renotify: false,
+                data: { id: d.id || null, url: d.url || d.click_action || '/notificaciones', via: 'page' }
+              });
+            }
+          } catch (e) {
+            console.warn('[onMessage] showNotification error', e?.message || e);
+          }
+          // Simular evento para la UI (campana/badge)
+          try { window.postMessage({ type: 'PUSH_DELIVERED', data: d }, '*'); } catch {}
+        });
+      } catch (e) {
+        console.warn('[notifications] onMessage hook error', e?.message || e);
+      }
+
+      // Asegurar/actualizar token
       const cur = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
       if (cur) {
-        await guardarTokenEnMiDoc(cur); // asegura actualizado
+        await guardarTokenEnMiDoc(cur);
         console.log('🔁 Token verificado/actualizado (permiso ya concedido).');
       } else {
-        // si no devuelve token, corremos el flujo completo
         await pedirPermisoYGestionarToken();
       }
     } catch (e) {
       console.warn('No se pudo verificar/actualizar token:', e?.message || e);
     }
   } else if (perm === 'default') {
-    pintarBotonPermiso(); // muestra CTA para que el usuario lo active
+    pintarBotonPermiso();
   } else {
     console.log('🔕 El usuario bloqueó las notificaciones en el navegador.');
   }
 }
 
-// Tu app.js importa initNotificationsOnce, así que lo exponemos como alias:
-export async function initNotificationsOnce() {
-  return initFCM();
-}
+// Alias para tu import original
+export async function initNotificationsOnce() { return initFCM(); }
 
-// ──────────────────────────────────────────────────────────────
-// Exports esperados por app.js (shims seguros)
-// ──────────────────────────────────────────────────────────────
+// ───────────── shims usados por la UI ─────────────
 export async function handlePermissionRequest() {
-  // Sólo solicita el permiso (sin token). Útil para tu tarjeta de “activar notifs”.
   try {
     if (!('Notification' in window)) return;
     const res = await Notification.requestPermission();
@@ -175,9 +178,7 @@ export async function handlePermissionRequest() {
     console.warn('[notifications.js] handlePermissionRequest error:', e?.message || e);
   }
 }
-
 export function dismissPermissionRequest() {
-  // Oculta la tarjeta de “activar notificaciones” y marca dismiss
   try { localStorage.setItem('notifPermDismissed', 'true'); } catch {}
   const el =
     document.getElementById('notif-permission-card') ||
@@ -185,37 +186,18 @@ export function dismissPermissionRequest() {
     document.querySelector('[data-role="notif-permission-card"]');
   if (el) el.style.display = 'none';
 }
-
 export function handlePermissionSwitch(e) {
-  // En este shim sólo reflejamos el estado (ON/OFF) en consola.
-  // Si querés, podés enganchar acá lógica adicional de UI.
   console.debug('[notifications.js] handlePermissionSwitch →', e?.target?.checked);
 }
-
 export function handleBellClick() {
-  // No-op seguro: tu app ya abre el modal INBOX desde app.js
   console.debug('[notifications.js] handleBellClick() shim');
   return Promise.resolve();
 }
-
 export async function handleSignOutCleanup() {
-  // Limpieza local en logout (si querés, acá también podrías eliminar el token FCM del dispositivo)
   try { localStorage.removeItem('fcmToken'); } catch {}
   console.debug('[notifications.js] handleSignOutCleanup() shim → fcmToken limpiado del localStorage');
 }
-// ──────────────────────────────────────────────────────────────
-// SHIM para compatibilidad con data.js
-// data.js llama a Notifications.gestionarPermisoNotificaciones(...)
-// Lo mantenemos como alias de la solicitud de permiso actual.
-// ──────────────────────────────────────────────────────────────
-export async function gestionarPermisoNotificaciones(/* ...args */) {
-  try {
-    // En tu implementación actual, pedir sólo el permiso
-    // (si querés que también regenere token y lo guarde,
-    //  cambiá por: await pedirPermisoYGestionarToken();)
-    await handlePermissionRequest();
-  } catch (e) {
-    console.warn('[notifications.js] gestionarPermisoNotificaciones error:', e?.message || e);
-  }
+export async function gestionarPermisoNotificaciones() {
+  try { await handlePermissionRequest(); }
+  catch (e) { console.warn('[notifications.js] gestionarPermisoNotificaciones error:', e?.message || e); }
 }
-
