@@ -1,4 +1,4 @@
-/* public/firebase-messaging-sw.js — COMPAT */
+/* public/firebase-messaging-sw.js — COMPAT + deep-link seguro */
 'use strict';
 
 importScripts('https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js');
@@ -18,10 +18,15 @@ firebase.initializeApp({
 
 const messaging = firebase.messaging();
 
+/** Rutas permitidas (si no matchea → fallback a /?inbox=1) */
+const ALLOWED_PATHS = new Set([
+  '/', '/notificaciones', '/beneficios', '/premios', '/historial', '/puntos'
+]);
+
 // Normaliza payload "data-only"
 function normPayload(payload = {}) {
   const d = payload?.data || {};
-  const url = d.url || d.click_action || '/notificaciones';
+  const rawUrl = d.url || d.click_action || '/?inbox=1';
   const id  = d.id ? String(d.id) : undefined;
   const tag = (d.tag && String(d.tag)) || (id ? `push-${id}` : 'rampet');
   return {
@@ -30,12 +35,12 @@ function normPayload(payload = {}) {
     body:  d.body  || d.cuerpo || '',
     icon:  d.icon  || 'https://rampet.vercel.app/images/mi_logo_192.png',
     badge: d.badge || undefined,
-    url,
+    url:   rawUrl,
     tag
   };
 }
 
-// Background: mostrar SIEMPRE la notificación y avisar a pestañas
+// Background: notificación + avisar a las pestañas
 messaging.onBackgroundMessage(async (payload) => {
   const d = normPayload(payload);
 
@@ -51,21 +56,21 @@ messaging.onBackgroundMessage(async (payload) => {
     data: { id: d.id, url: d.url, via: 'sw' }
   };
   if (d.badge) opts.badge = d.badge;
-  if (d.tag)   opts.renotify = false; // no “vibra” si llega otra con el mismo tag
+  // renotify sólo si realmente querés “vibrar” al repetir tag. Lo dejamos en false.
+  opts.renotify = false;
 
   try {
     await self.registration.showNotification(d.title, opts);
   } catch (e) {
-    // Evita rechazos no capturados en algunos navegadores
     console.warn('[SW] showNotification error:', e?.message || e);
   }
 });
 
-// Click → enfocamos/abrimos y avisamos “read”
+// Click → enfocamos/abrimos y avisamos “read”; si la URL no es válida, fallback a /?inbox=1
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
   const data = event.notification?.data || {};
-  const targetUrl = data.url || '/notificaciones';
+  const raw = data.url || '/?inbox=1';
 
   event.waitUntil((async () => {
     const clientsList = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
@@ -73,8 +78,12 @@ self.addEventListener('notificationclick', (event) => {
     // avisar a todas las pestañas que se “leyó”
     clientsList.forEach(c => c.postMessage({ type: 'PUSH_READ', data: { id: data.id } }));
 
+    // normalizar destino
+    const u = new URL(raw, self.location.origin);
+    const safePath = ALLOWED_PATHS.has(u.pathname) ? (u.pathname + u.search) : '/?inbox=1';
+    const absolute = new URL(safePath, self.location.origin).href;
+
     // enfocar si ya existe, o abrir
-    const absolute = new URL(targetUrl, self.location.origin).href;
     const existing = clientsList.find(c => c.url === absolute);
     if (existing) return existing.focus();
     return self.clients.openWindow(absolute);
