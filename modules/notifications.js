@@ -152,3 +152,14 @@ export async function initFCM() {
     console.log('🔕 El usuario bloqueó las notificaciones en el navegador.');
   }
 }
+
+// Oculta la tarjeta/prompt de “activar notificaciones” y marca el dismiss
+export function dismissPermissionRequest() {
+  try { localStorage.setItem('notifPermDismissed', 'true'); } catch {}
+  // Ajustá el selector si tu HTML usa otro id/clase para el card del prompt
+  const el = document.getElementById('notif-permission-card') 
+          || document.querySelector('.notif-permission-card')
+          || document.querySelector('[data-role="notif-permission-card"]');
+  if (el) el.style.display = 'none';
+}
+
