@@ -1,19 +1,22 @@
-// PWA /notifications.js — Reemplazo completo (FCM con VAPID + guardado de token)
+// PWA /modules/notifications.js — FCM con VAPID + guardado de token (compat con app.js)
 'use strict';
 
-// Espera que el proyecto ya tenga firebase app/auth/firestore cargados en la PWA
-// y que el SW esté en /firebase-messaging-sw.js (compat).
-// Requiere window.__RAMPET__.VAPID_PUBLIC
+// Requisitos:
+// - firebase app/auth/firestore ya cargados por la PWA.
+// - SW en /firebase-messaging-sw.js (compat).
+// - VAPID pública definida en window.__RAMPET__.VAPID_PUBLIC (index.html).
 
-const VAPID_PUBLIC =
-  (window.__RAMPET__ && window.__RAMPET__.VAPID_PUBLIC) || '';
+const VAPID_PUBLIC = (window.__RAMPET__ && window.__RAMPET__.VAPID_PUBLIC) || '';
 
 if (!VAPID_PUBLIC) {
   console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
 }
 
+// ──────────────────────────────────────────────────────────────
+// Helpers internos
+// ──────────────────────────────────────────────────────────────
 async function ensureMessagingCompatLoaded() {
-  if (typeof firebase.messaging === 'function') return;
+  if (typeof firebase?.messaging === 'function') return;
   await new Promise((ok, err) => {
     const s = document.createElement('script');
     s.src = 'https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js';
@@ -26,7 +29,7 @@ async function registerSW() {
   if (!('serviceWorker' in navigator)) return false;
   try {
     const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-    console.log('✅ SW FCM registrado:', reg.scope || location.origin + '/');
+    console.log('✅ SW FCM registrado:', reg.scope || (location.origin + '/'));
     return true;
   } catch (e) {
     console.warn('No se pudo registrar el SW FCM:', e?.message || e);
@@ -51,40 +54,41 @@ async function guardarTokenEnMiDoc(token) {
   const clienteId = await getClienteDocIdPorUID(uid);
   if (!clienteId) throw new Error('No encontré tu doc en clientes (authUID).');
 
-  // Reemplazo total para evitar basura de tokens viejos
+  // Reemplazo total para evitar tokens viejos
   await firebase.firestore().collection('clientes')
     .doc(clienteId)
     .set({ fcmTokens: [token] }, { merge: true });
 
+  try { localStorage.setItem('fcmToken', token); } catch {}
   console.log('✅ Token FCM guardado en clientes/' + clienteId);
 }
 
 async function pedirPermisoYGestionarToken() {
-  // 1) pedir permiso (debe ejecutarse por gesto del usuario idealmente)
+  // pidir permiso (idealmente por gesto del usuario)
   const status = await Notification.requestPermission();
   if (status !== 'granted') {
     throw new Error('Permiso de notificaciones NO concedido.');
   }
 
-  // 2) asegurar SDK compat
+  // asegurar SDK compat
   await ensureMessagingCompatLoaded();
 
-  // 3) eliminar token previo (si existiera) para evitar invalid
-  try { await firebase.messaging().deleteToken(); } catch (e) { /* no-op */ }
+  // eliminar token previo para evitar tokens huérfanos
+  try { await firebase.messaging().deleteToken(); } catch {}
 
-  // 4) obtener token con VAPID (OBLIGATORIO)
+  // obtener token con VAPID (OBLIGATORIO en web)
   const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
   if (!tok) throw new Error('No se pudo obtener token (vacío).');
   console.log('[FCM] token actual:', tok);
 
-  // 5) guardar en mi doc
+  // guardarlo en mi doc
   await guardarTokenEnMiDoc(tok);
 
   return tok;
 }
 
 function pintarBotonPermiso() {
-  // Botón flotante para cuando el permiso está en "default"
+  // Botón flotante para disparar el flujo por gesto de usuario
   const id = '__activar_push_btn__';
   if (document.getElementById(id)) return;
 
@@ -113,99 +117,89 @@ function pintarBotonPermiso() {
   document.body.appendChild(btn);
 }
 
+// ──────────────────────────────────────────────────────────────
+// Inicialización principal de notificaciones (para usar desde app.js)
+// ──────────────────────────────────────────────────────────────
 export async function initFCM() {
-  // 1) SW
+  // 1) Registrar SW
   await registerSW();
 
-  // 2) Canal de mensajes desde el SW (opcional, por si querés UI en foreground)
+  // 2) Canal mensajes SW→PWA (opcional: UI en foreground)
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', (ev) => {
-      // ev.data = { type: "PUSH_DELIVERED" | "PUSH_READ", data: {...} }
-      // Podés hookear UI acá si querés
+      // { type: "PUSH_DELIVERED" | "PUSH_READ", data: {...} }
       // console.log('[SW→PWA]', ev.data);
     });
   }
 
-  // 3) Estado de permiso
+  // 3) Estado de permiso y token
   if (!('Notification' in window)) return;
   const perm = Notification.permission;
 
   if (perm === 'granted') {
-    // Si ya tiene permiso, aseguramos SDK y token guardado
     try {
       await ensureMessagingCompatLoaded();
       const cur = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
       if (cur) {
-        await guardarTokenEnMiDoc(cur);
+        await guardarTokenEnMiDoc(cur); // asegura actualizado
         console.log('🔁 Token verificado/actualizado (permiso ya concedido).');
       } else {
-        // Si por algún motivo no hay token, pedimos flujo completo
+        // si no devuelve token, corremos el flujo completo
         await pedirPermisoYGestionarToken();
       }
     } catch (e) {
       console.warn('No se pudo verificar/actualizar token:', e?.message || e);
     }
   } else if (perm === 'default') {
-    // Mostrar botón para disparar el flujo por gesto del usuario
-    pintarBotonPermiso();
+    pintarBotonPermiso(); // muestra CTA para que el usuario lo active
   } else {
     console.log('🔕 El usuario bloqueó las notificaciones en el navegador.');
   }
 }
 
-// Oculta la tarjeta/prompt de “activar notificaciones” y marca el dismiss
-export function dismissPermissionRequest() {
-  try { localStorage.setItem('notifPermDismissed', 'true'); } catch {}
-  // Ajustá el selector si tu HTML usa otro id/clase para el card del prompt
-  const el = document.getElementById('notif-permission-card') 
-          || document.querySelector('.notif-permission-card')
-          || document.querySelector('[data-role="notif-permission-card"]');
-  if (el) el.style.display = 'none';
-}
-// ====== COMPAT SHIMS (exports mínimos para que app.js no rompa) ======
-// Objetivo: evitar "does not provide an export named ..." sin cambiar tu flujo actual.
-// Si más adelante tienes implementaciones reales, podemos reemplazar estos shims.
-
-export function handleBellClick() {
-  // No-op seguro: app.js ya abre el modal de inbox por su cuenta.
-  try { console.debug('[notifications.js] handleBellClick() shim'); } catch {}
-  return Promise.resolve();
+// Tu app.js importa initNotificationsOnce, así que lo exponemos como alias:
+export async function initNotificationsOnce() {
+  return initFCM();
 }
 
+// ──────────────────────────────────────────────────────────────
+// Exports esperados por app.js (shims seguros)
+// ──────────────────────────────────────────────────────────────
 export async function handlePermissionRequest() {
-  // Pide permiso de notificaciones. No genera token aquí a propósito.
+  // Sólo solicita el permiso (sin token). Útil para tu tarjeta de “activar notifs”.
   try {
-    console.debug('[notifications.js] handlePermissionRequest() shim → requesting permission');
     if (!('Notification' in window)) return;
     const res = await Notification.requestPermission();
     console.debug('[notifications.js] permission result:', res);
   } catch (e) {
-    console.warn('[notifications.js] handlePermissionRequest shim error:', e);
+    console.warn('[notifications.js] handlePermissionRequest error:', e?.message || e);
   }
 }
 
 export function dismissPermissionRequest() {
-  // Oculta la tarjeta de “activar notificaciones”
+  // Oculta la tarjeta de “activar notificaciones” y marca dismiss
   try { localStorage.setItem('notifPermDismissed', 'true'); } catch {}
   const el =
     document.getElementById('notif-permission-card') ||
     document.querySelector('.notif-permission-card') ||
     document.querySelector('[data-role="notif-permission-card"]');
   if (el) el.style.display = 'none';
-  try { console.debug('[notifications.js] dismissPermissionRequest() shim'); } catch {}
 }
 
 export function handlePermissionSwitch(e) {
-  // Switch ON/OFF (sólo UI en este shim)
-  try { console.debug('[notifications.js] handlePermissionSwitch() shim →', e?.target?.checked); } catch {}
+  // En este shim sólo reflejamos el estado (ON/OFF) en consola.
+  // Si querés, podés enganchar acá lógica adicional de UI.
+  console.debug('[notifications.js] handlePermissionSwitch →', e?.target?.checked);
+}
+
+export function handleBellClick() {
+  // No-op seguro: tu app ya abre el modal INBOX desde app.js
+  console.debug('[notifications.js] handleBellClick() shim');
+  return Promise.resolve();
 }
 
 export async function handleSignOutCleanup() {
-  // Limpieza mínima local en logout (no toca Firestore en este shim)
-  try {
-    localStorage.removeItem('fcmToken');
-    console.debug('[notifications.js] handleSignOutCleanup() shim → fcmToken limpiado del localStorage');
-  } catch {}
+  // Limpieza local en logout (si querés, acá también podrías eliminar el token FCM del dispositivo)
+  try { localStorage.removeItem('fcmToken'); } catch {}
+  console.debug('[notifications.js] handleSignOutCleanup() shim → fcmToken limpiado del localStorage');
 }
-
-
