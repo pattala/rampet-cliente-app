@@ -162,4 +162,50 @@ export function dismissPermissionRequest() {
           || document.querySelector('[data-role="notif-permission-card"]');
   if (el) el.style.display = 'none';
 }
+// ====== COMPAT SHIMS (exports mínimos para que app.js no rompa) ======
+// Objetivo: evitar "does not provide an export named ..." sin cambiar tu flujo actual.
+// Si más adelante tienes implementaciones reales, podemos reemplazar estos shims.
+
+export function handleBellClick() {
+  // No-op seguro: app.js ya abre el modal de inbox por su cuenta.
+  try { console.debug('[notifications.js] handleBellClick() shim'); } catch {}
+  return Promise.resolve();
+}
+
+export async function handlePermissionRequest() {
+  // Pide permiso de notificaciones. No genera token aquí a propósito.
+  try {
+    console.debug('[notifications.js] handlePermissionRequest() shim → requesting permission');
+    if (!('Notification' in window)) return;
+    const res = await Notification.requestPermission();
+    console.debug('[notifications.js] permission result:', res);
+  } catch (e) {
+    console.warn('[notifications.js] handlePermissionRequest shim error:', e);
+  }
+}
+
+export function dismissPermissionRequest() {
+  // Oculta la tarjeta de “activar notificaciones”
+  try { localStorage.setItem('notifPermDismissed', 'true'); } catch {}
+  const el =
+    document.getElementById('notif-permission-card') ||
+    document.querySelector('.notif-permission-card') ||
+    document.querySelector('[data-role="notif-permission-card"]');
+  if (el) el.style.display = 'none';
+  try { console.debug('[notifications.js] dismissPermissionRequest() shim'); } catch {}
+}
+
+export function handlePermissionSwitch(e) {
+  // Switch ON/OFF (sólo UI en este shim)
+  try { console.debug('[notifications.js] handlePermissionSwitch() shim →', e?.target?.checked); } catch {}
+}
+
+export async function handleSignOutCleanup() {
+  // Limpieza mínima local en logout (no toca Firestore en este shim)
+  try {
+    localStorage.removeItem('fcmToken');
+    console.debug('[notifications.js] handleSignOutCleanup() shim → fcmToken limpiado del localStorage');
+  } catch {}
+}
+
 
