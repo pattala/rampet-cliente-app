@@ -1,342 +1,154 @@
-// pwa/modules/notifications.js
-// Notificaciones: permiso + token + dedupe + canal SW→APP + onMessage + campanita + inbox helpers
+// PWA /notifications.js — Reemplazo completo (FCM con VAPID + guardado de token)
+'use strict';
 
-import { auth, db, messaging, firebase, isMessagingSupported } from './firebase.js';
-import * as UI from './ui.js';
+// Espera que el proyecto ya tenga firebase app/auth/firestore cargados en la PWA
+// y que el SW esté en /firebase-messaging-sw.js (compat).
+// Requiere window.__RAMPET__.VAPID_PUBLIC
 
-// —— Detección de contexto efímero (Incógnito/Invitado) ——
-async function isEphemeralContext() {
-  try {
-    if (!navigator.storage?.estimate) return false;
-    const { quota } = await navigator.storage.estimate();
-    return !!quota && quota < 160 * 1024 * 1024; // ~160MB umbral (modo efímero)
-  } catch { return false; }
-}
-function showIncognitoWarningIfAny() {
-  const el = document.getElementById('notif-incognito-warning');
-  if (el) el.style.display = 'block';
+const VAPID_PUBLIC =
+  (window.__RAMPET__ && window.__RAMPET__.VAPID_PUBLIC) || '';
+
+if (!VAPID_PUBLIC) {
+  console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
 }
 
-// —— Estado interno (guards para evitar duplicados) ——
-const NOTIFS = (window.__RAMPET_NOTIFS ||= {
-  onMsg: false,              // hook foreground onMessage
-  swChan: false,             // canal SW→APP
-  initUid: null,             // usuario ya inicializado
-  inFlight: null,            // promesa getToken en curso
-  lastToken: localStorage.getItem('fcmToken') || null,
-});
-const TOKEN_LS_KEY = 'fcmToken';
-
-// —— Campanita (badge) ——
-function getCounterEl() { return document.getElementById('notif-counter'); }
-export function bumpBellCounter(delta = 1) {
-  const el = getCounterEl(); if (!el) return;
-  const curr = Number(el.textContent || '0') || 0;
-  const next = Math.max(0, curr + delta);
-  if (next > 0) { el.textContent = String(next); el.style.display = 'inline-block'; }
-  else { el.textContent = ''; el.style.display = 'none'; }
-}
-export function resetBellCounter() {
-  const el = getCounterEl(); if (!el) return;
-  el.textContent = ''; el.style.display = 'none';
-}
-
-// —— Firestore helpers (cliente ↔ inbox) ——
-async function getClienteDocRef() {
-  try {
-    if (!auth.currentUser) return null;
-    const q = await db.collection('clientes')
-      .where('authUID', '==', auth.currentUser.uid)
-      .limit(1).get();
-    if (q.empty) return null;
-    return q.docs[0].ref;
-  } catch { return null; }
-}
-
-async function markDeliveredInInbox(notifId) {
-  if (!notifId) return;
-  const ref = await getClienteDocRef();
-  if (!ref) return;
-  try {
-    await ref.collection('inbox').doc(notifId).set({
-      status: 'delivered',
-      deliveredAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-    bumpBellCounter(1);
-  } catch (e) {
-    console.warn('markDeliveredInInbox error:', e);
-  }
-}
-
-async function markReadInInbox(notifId) {
-  if (!notifId) return;
-  const ref = await getClienteDocRef();
-  if (!ref) return;
-  try {
-    await ref.collection('inbox').doc(notifId).set({
-      status: 'read',
-      readAt: firebase.firestore.FieldValue.serverTimestamp()
-    }, { merge: true });
-  } catch (e) {
-    console.warn('markReadInInbox error:', e);
-  }
-}
-
-// —— Token único (dedupe) ——
-async function saveSingleTokenForUser(token) {
-  const u = auth.currentUser;
-  if (!u || !token) return;
-
-  const qs = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
-  if (qs.empty) return;
-
-  await qs.docs[0].ref.set({ fcmTokens: [token] }, { merge: true });
-  localStorage.setItem(TOKEN_LS_KEY, token);
-}
-
-export async function ensureSingleToken() {
-  try {
-    const u = auth.currentUser; if (!u) return;
-    const qs = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
-    if (qs.empty) return;
-
-    const doc = qs.docs[0];
-    const data = doc.data() || {};
-    const tokens = Array.isArray(data.fcmTokens) ? data.fcmTokens : [];
-    if (tokens.length <= 1) return;
-
-    const preferred = localStorage.getItem(TOKEN_LS_KEY) || tokens[0];
-    await doc.ref.set({ fcmTokens: [preferred] }, { merge: true });
-    localStorage.setItem(TOKEN_LS_KEY, preferred);
-    console.log(`🧽 Dedupe de fcmTokens: ${tokens.length} → 1`);
-  } catch (e) {
-    console.warn('ensureSingleToken error:', e);
-  }
-}
-
-export async function handleSignOutCleanup() {
-  try {
-    const token = localStorage.getItem(TOKEN_LS_KEY);
-    const u = auth.currentUser;
-
-    if (u && token) {
-      const qs = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
-      if (!qs.empty) {
-        await qs.docs[0].ref.update({
-          fcmTokens: firebase.firestore.FieldValue.arrayRemove(token),
-        });
-        console.log('🧹 Token removido de Firestore en logout.');
-      }
-    }
-
-    if (typeof messaging?.deleteToken === 'function' && token) {
-      try { await messaging.deleteToken(token); } catch {}
-    }
-    localStorage.removeItem(TOKEN_LS_KEY);
-  } catch (e) {
-    console.warn('handleSignOutCleanup error:', e);
-  }
-}
-
-// —— Permisos + token ——
-export async function gestionarPermisoNotificaciones() {
-  if (!isMessagingSupported || !auth.currentUser || !messaging) return;
-
-  // Incógnito/invitado → no intentar token persistente
-  if (await isEphemeralContext()) {
-    showIncognitoWarningIfAny();
-    const promptCard = document.getElementById('notif-prompt-card');
-    const switchCard = document.getElementById('notif-card');
-    if (promptCard) promptCard.style.display = 'none';
-    if (switchCard) switchCard.style.display = 'block';
-    const sw = document.getElementById('notif-switch'); if (sw) sw.checked = false;
-    return;
-  }
-
-  const promptCard = document.getElementById('notif-prompt-card');
-  const switchCard = document.getElementById('notif-card');
-  const blockedWarning = document.getElementById('notif-blocked-warning');
-  const u = auth.currentUser;
-  const already = localStorage.getItem(`notifGestionado_${u.uid}`);
-
-  if (promptCard) promptCard.style.display = 'none';
-  if (switchCard) switchCard.style.display = 'none';
-  if (blockedWarning) blockedWarning.style.display = 'none';
-
-  if (Notification.permission === 'granted') {
-    await obtenerYGuardarToken();
-    await ensureSingleToken();
-    return;
-  }
-  if (Notification.permission === 'denied') {
-    if (blockedWarning) blockedWarning.style.display = 'block';
-    return;
-  }
-  // default
-  if (!already) {
-    if (promptCard) promptCard.style.display = 'block';
-  } else {
-    if (switchCard) switchCard.style.display = 'block';
-    const sw = document.getElementById('notif-switch'); if (sw) sw.checked = false;
-  }
-}
-
-async function obtenerYGuardarToken() {
-  if (!isMessagingSupported || !auth.currentUser || !messaging) return null;
-
-  if (NOTIFS.inFlight) return NOTIFS.inFlight; // evita paralelos
-
-  NOTIFS.inFlight = (async () => {
-    try {
-      const registration =
-        (await navigator.serviceWorker.getRegistration('/')) ||
-        (await navigator.serviceWorker.register('/firebase-messaging-sw.js', { scope: '/', updateViaCache: 'none' })) ||
-        (await navigator.serviceWorker.ready);
-
-      const vapidKey = "BN12Kv7QI7PpxwGfpanJUQ55Uci7KXZmEscTwlE7MIbhI0TzvoXTUOaSSesxFTUbxWsYZUubK00xnLePMm_rtOA";
-
-      const currentToken = await messaging.getToken({
-        vapidKey,
-        serviceWorkerRegistration: registration
-      });
-
-      if (!currentToken) {
-        console.warn('⚠️ No se pudo obtener token');
-        return null;
-      }
-
-      // Dedupe fuerte
-      if ((NOTIFS.lastToken && NOTIFS.lastToken === currentToken) ||
-          (localStorage.getItem(TOKEN_LS_KEY) === currentToken)) {
-        return currentToken;
-      }
-
-      await saveSingleTokenForUser(currentToken);
-      NOTIFS.lastToken = currentToken;
-      console.log('✅ Token FCM (nuevo) guardado:', currentToken);
-      return currentToken;
-
-    } catch (err) {
-      console.error('obtenerYGuardarToken error:', err);
-      if (err?.code === 'messaging/permission-blocked' || err?.code === 'messaging/permission-default') {
-        const warn = document.getElementById('notif-blocked-warning');
-        if (warn) warn.style.display = 'block';
-      }
-      return null;
-    } finally {
-      NOTIFS.inFlight = null;
-    }
-  })();
-
-  return NOTIFS.inFlight;
-}
-
-// —— Botones UI (prompt/switch) ——
-export function handlePermissionRequest() {
-  localStorage.setItem(`notifGestionado_${auth.currentUser?.uid}`, 'true');
-  const card = document.getElementById('notif-prompt-card');
-  if (card) card.style.display = 'none';
-
-  Notification.requestPermission().then(async (p) => {
-    if (p === 'granted') {
-      UI.showToast('¡Notificaciones activadas!', 'success');
-      const sc = document.getElementById('notif-card');
-      if (sc) sc.style.display = 'none';            // <-- oculta el switch
-      await obtenerYGuardarToken();
-      await ensureSingleToken();
-      await gestionarPermisoNotificaciones();        // <-- refresca UI por si quedó algo visible
-    } else {
-      const sc = document.getElementById('notif-card');
-      const sw = document.getElementById('notif-switch');
-      if (sc) sc.style.display = 'block';
-      if (sw) sw.checked = false;
-    }
+async function ensureMessagingCompatLoaded() {
+  if (typeof firebase.messaging === 'function') return;
+  await new Promise((ok, err) => {
+    const s = document.createElement('script');
+    s.src = 'https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js';
+    s.onload = ok; s.onerror = err;
+    document.head.appendChild(s);
   });
 }
 
-
-export function dismissPermissionRequest() {
-  localStorage.setItem(`notifGestionado_${auth.currentUser?.uid}`, 'true');
-  const pc = document.getElementById('notif-prompt-card');
-  const sc = document.getElementById('notif-card');
-  if (pc) pc.style.display = 'none';
-  if (sc) sc.style.display = 'block';
-  const sw = document.getElementById('notif-switch'); if (sw) sw.checked = false;
+async function registerSW() {
+  if (!('serviceWorker' in navigator)) return false;
+  try {
+    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    console.log('✅ SW FCM registrado:', reg.scope || location.origin + '/');
+    return true;
+  } catch (e) {
+    console.warn('No se pudo registrar el SW FCM:', e?.message || e);
+    return false;
+  }
 }
 
-export function handlePermissionSwitch(e) {
-  if (e.target.checked) {
-    Notification.requestPermission().then(async (p) => {
-      if (p === 'granted') {
-        UI.showToast('¡Notificaciones activadas!', 'success');
-        const sc = document.getElementById('notif-card'); if (sc) sc.style.display = 'none';
-        await obtenerYGuardarToken();
-        await ensureSingleToken();
-      } else {
-        e.target.checked = false;
-      }
+async function getClienteDocIdPorUID(uid) {
+  const snap = await firebase.firestore()
+    .collection('clientes')
+    .where('authUID', '==', uid)
+    .limit(1)
+    .get();
+  if (snap.empty) return null;
+  return snap.docs[0].id;
+}
+
+async function guardarTokenEnMiDoc(token) {
+  const uid = firebase.auth().currentUser?.uid;
+  if (!uid) throw new Error('No hay usuario logueado.');
+
+  const clienteId = await getClienteDocIdPorUID(uid);
+  if (!clienteId) throw new Error('No encontré tu doc en clientes (authUID).');
+
+  // Reemplazo total para evitar basura de tokens viejos
+  await firebase.firestore().collection('clientes')
+    .doc(clienteId)
+    .set({ fcmTokens: [token] }, { merge: true });
+
+  console.log('✅ Token FCM guardado en clientes/' + clienteId);
+}
+
+async function pedirPermisoYGestionarToken() {
+  // 1) pedir permiso (debe ejecutarse por gesto del usuario idealmente)
+  const status = await Notification.requestPermission();
+  if (status !== 'granted') {
+    throw new Error('Permiso de notificaciones NO concedido.');
+  }
+
+  // 2) asegurar SDK compat
+  await ensureMessagingCompatLoaded();
+
+  // 3) eliminar token previo (si existiera) para evitar invalid
+  try { await firebase.messaging().deleteToken(); } catch (e) { /* no-op */ }
+
+  // 4) obtener token con VAPID (OBLIGATORIO)
+  const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
+  if (!tok) throw new Error('No se pudo obtener token (vacío).');
+  console.log('[FCM] token actual:', tok);
+
+  // 5) guardar en mi doc
+  await guardarTokenEnMiDoc(tok);
+
+  return tok;
+}
+
+function pintarBotonPermiso() {
+  // Botón flotante para cuando el permiso está en "default"
+  const id = '__activar_push_btn__';
+  if (document.getElementById(id)) return;
+
+  const btn = document.createElement('button');
+  btn.id = id;
+  btn.textContent = '🔔 Activar notificaciones';
+  Object.assign(btn.style, {
+    position: 'fixed', zIndex: 999999, right: '16px', bottom: '16px',
+    padding: '12px 16px', borderRadius: '10px', border: 'none',
+    boxShadow: '0 2px 8px rgba(0,0,0,.2)', cursor: 'pointer',
+    fontSize: '14px', background: '#2e7d32', color: 'white'
+  });
+  btn.onclick = async () => {
+    btn.disabled = true;
+    btn.textContent = 'Activando…';
+    try {
+      await pedirPermisoYGestionarToken();
+      alert('✅ Notificaciones activadas. Ya podés recibir push.');
+      btn.remove();
+    } catch (e) {
+      alert('No se pudo activar: ' + (e?.message || e));
+      btn.disabled = false;
+      btn.textContent = '🔔 Activar notificaciones';
+    }
+  };
+  document.body.appendChild(btn);
+}
+
+export async function initFCM() {
+  // 1) SW
+  await registerSW();
+
+  // 2) Canal de mensajes desde el SW (opcional, por si querés UI en foreground)
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('message', (ev) => {
+      // ev.data = { type: "PUSH_DELIVERED" | "PUSH_READ", data: {...} }
+      // Podés hookear UI acá si querés
+      // console.log('[SW→PWA]', ev.data);
     });
   }
-}
 
-// —— Foreground onMessage (único) ——
-export function listenForInAppMessages() {
-  if (!messaging) return;
-  if (NOTIFS.onMsg) return;
-  NOTIFS.onMsg = true;
+  // 3) Estado de permiso
+  if (!('Notification' in window)) return;
+  const perm = Notification.permission;
 
-  messaging.onMessage(async (payload) => {
-    const data = payload?.data || {};
-    if (data.id) await markDeliveredInInbox(data.id);
-    const title = data.title || 'Mensaje';
-    const body  = data.body  || '';
-    UI.showToast(`📢 ${title}: ${body}`, 'info', 10000);
-  });
-}
-
-// —— Canal SW → APP ——
-function swMessageHandler(event) {
-  const msg = event?.data || {};
-  if (!msg || !msg.type) return;
-
-  if (msg.type === 'PUSH_DELIVERED') {
-    const d = msg.data || {};
-    if (d.id) markDeliveredInInbox(d.id);
-    else bumpBellCounter(1);
-  }
-  if (msg.type === 'PUSH_READ') {
-    const d = msg.data || {};
-    if (d.id) markReadInInbox(d.id);
-    resetBellCounter();
+  if (perm === 'granted') {
+    // Si ya tiene permiso, aseguramos SDK y token guardado
+    try {
+      await ensureMessagingCompatLoaded();
+      const cur = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
+      if (cur) {
+        await guardarTokenEnMiDoc(cur);
+        console.log('🔁 Token verificado/actualizado (permiso ya concedido).');
+      } else {
+        // Si por algún motivo no hay token, pedimos flujo completo
+        await pedirPermisoYGestionarToken();
+      }
+    } catch (e) {
+      console.warn('No se pudo verificar/actualizar token:', e?.message || e);
+    }
+  } else if (perm === 'default') {
+    // Mostrar botón para disparar el flujo por gesto del usuario
+    pintarBotonPermiso();
+  } else {
+    console.log('🔕 El usuario bloqueó las notificaciones en el navegador.');
   }
 }
-export function initNotificationChannel() {
-  if (!('serviceWorker' in navigator)) return;
-  if (NOTIFS.swChan) return;
-  navigator.serviceWorker.addEventListener('message', swMessageHandler);
-  NOTIFS.swChan = true;
-  console.log('[INIT] SW message channel listo');
-}
-
-// —— “Campanita” (no abrimos modal acá; app.js ya lo abre) ——
-export async function handleBellClick() {
-  // No abrimos el modal desde acá para evitar duplicar lógicas con app.js.
-  // Este hook existe por compatibilidad con tu app.
-  return;
-}
-
-// —— Inicialización de notifs (1 sola vez por usuario) ——
-export async function initNotificationsOnce() {
-  const u = auth.currentUser;
-  if (!u || !isMessagingSupported || !messaging) return;
-
-  if (NOTIFS.initUid === u.uid) return;
-  NOTIFS.initUid = u.uid;
-
-  initNotificationChannel();
-  listenForInAppMessages();
-
-  await gestionarPermisoNotificaciones();
-  await ensureSingleToken();
-}
-
