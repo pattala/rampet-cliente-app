@@ -16,7 +16,7 @@ import {
 
 // === DEBUG / OBS ===
 window.__RAMPET_DEBUG = true;
-window.__BUILD_ID = 'pwa-2025-09-06-2'; // bump
+window.__BUILD_ID = 'pwa-2025-09-06-3'; // bump
 function d(tag, ...args){ if (window.__RAMPET_DEBUG) console.log(`[DBG][${window.__BUILD_ID}] ${tag}`, ...args); }
 
 window.__reportState = async (where='')=>{
@@ -94,8 +94,20 @@ async function showForegroundNotification(data) {
 }
 
 /** Badge campanita */
+function ensureBellBlinkStyle(){
+  if (document.getElementById('__bell_blink_css__')) return;
+  const css = `
+    @keyframes rampet-blink { 0%,100%{opacity:1} 50%{opacity:.3} }
+    #btn-notifs.blink { animation: rampet-blink 1s linear infinite; }
+  `;
+  const style = document.createElement('style');
+  style.id = '__bell_blink_css__';
+  style.textContent = css;
+  document.head.appendChild(style);
+}
 function getBadgeCount(){ const n = Number(localStorage.getItem('notifBadgeCount')||'0'); return Number.isFinite(n)? n : 0; }
 function setBadgeCount(n){
+  ensureBellBlinkStyle();
   try { localStorage.setItem('notifBadgeCount', String(Math.max(0, n|0))); } catch {}
   const badge = document.getElementById('notif-counter');
   const bell  = document.getElementById('btn-notifs');
@@ -103,19 +115,14 @@ function setBadgeCount(n){
   if (n > 0) {
     badge.textContent = String(n);
     badge.style.display = 'inline-block';
-    bell.classList.add('blink'); // CSS anima la campana
+    bell.classList.add('blink'); // parpadeo
   } else {
     badge.style.display = 'none';
     bell.classList.remove('blink');
   }
 }
-function bumpBadge(){
-  const n = getBadgeCount() + 1;
-  setBadgeCount(n);
-}
-function resetBadge(){
-  setBadgeCount(0);
-}
+function bumpBadge(){ setBadgeCount(getBadgeCount() + 1); }
+function resetBadge(){ setBadgeCount(0); }
 
 /** onMessage foreground → notificación + badge + (opcional) refrescar inbox */
 async function registerForegroundFCMHandlers() {
@@ -144,7 +151,7 @@ async function registerForegroundFCMHandlers() {
     // Badge/parpadeo
     bumpBadge();
 
-    // Opcional: si el modal está abierto, refrescar inbox
+    // Refrescar inbox si está abierto
     try {
       const modal = document.getElementById('inbox-modal');
       if (modal && modal.style.display === 'flex') {
@@ -153,7 +160,7 @@ async function registerForegroundFCMHandlers() {
     } catch {}
   });
 
-  // Canal SW → APP (click de noti = leído)
+  // Canal SW → APP (click de noti = leído / delivered = sumar badge)
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', async (ev) => {
       const t = ev?.data?.type;
@@ -660,15 +667,12 @@ function initCarouselBasic(){
   mo.observe(root, { childList:true });
   root._rampetObs = mo;
 }
+
 // ──────────────────────────────────────────────────────────────
 // TÉRMINOS & CONDICIONES (modal existente en HTML) — helpers
 // ──────────────────────────────────────────────────────────────
-function termsModal() {
-  return document.getElementById('terms-modal');
-}
-function termsTextEl() {
-  return document.getElementById('terms-text');
-}
+function termsModal() { return document.getElementById('terms-modal'); }
+function termsTextEl() { return document.getElementById('terms-text'); }
 function loadTermsContent() {
   const el = termsTextEl();
   if (!el) return;
@@ -681,28 +685,18 @@ function loadTermsContent() {
     <p><strong>6. Modificaciones del Programa:</strong> RAMPET se reserva el derecho de modificar los términos y condiciones, la tasa de conversión, el catálogo de premios o cualquier otro aspecto del programa de fidelización, inclusive su finalización, en cualquier momento y sin previo aviso.</p>
   `;
 }
-function openTermsModal() {
-  const m = termsModal(); if (!m) return;
-  loadTermsContent(); m.style.display = 'flex';
-}
-function closeTermsModal() {
-  const m = termsModal(); if (!m) return;
-  m.style.display = 'none';
-}
-function wireTermsModalBehavior() {
-  const m = termsModal(); if (!m || m._wired) return; m._wired = true;
+function openTermsModal(){ const m=termsModal(); if(!m) return; loadTermsContent(); m.style.display='flex'; }
+function closeTermsModal(){ const m=termsModal(); if(!m) return; m.style.display='none'; }
+function wireTermsModalBehavior(){
+  const m=termsModal(); if (!m || m._wired) return; m._wired=true;
   const closeBtn = document.getElementById('close-terms-modal');
   const acceptBtn = document.getElementById('accept-terms-btn-modal');
   if (closeBtn) closeBtn.addEventListener('click', closeTermsModal);
   if (acceptBtn) acceptBtn.addEventListener('click', closeTermsModal);
-  m.addEventListener('click', (e) => { if (e.target === m) closeTermsModal(); });
-  document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && m.style.display === 'flex') closeTermsModal();
-  });
+  m.addEventListener('click',(e)=>{ if(e.target===m) closeTermsModal(); });
+  document.addEventListener('keydown',(e)=>{ if(e.key==='Escape' && m.style.display==='flex') closeTermsModal(); });
 }
 
-// ──────────────────────────────────────────────────────────────
-// Listeners de pantallas + GEO (igual que antes, con helpers)
 // ──────────────────────────────────────────────────────────────
 function setupAuthScreenListeners() {
   on('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
@@ -714,11 +708,59 @@ function setupAuthScreenListeners() {
   on('close-terms-modal', 'click', closeTermsModal);
 }
 
-// ====== (GEO: copy de tus helpers originales; no se tocan aquí) ======
-// Para mantener el tamaño, asumo que tus funciones GEO (ensureGeoOnStartup,
-// maybeRefreshIfStale, saveLastLocationToFirestore, etc.) están en este archivo
-// tal como me las pasaste y no requieren cambios. Si querés, te los vuelvo a
-// pegar completos, pero no hace falta para resolver lo de notificaciones y modal.
+// ──────────────────────────────────────────────────────────────
+// LISTENERS de app principal (FALTABA ESTA FUNCIÓN)
+// ──────────────────────────────────────────────────────────────
+function setupMainAppScreenListeners() {
+  // Logout
+  on('logout-btn', 'click', async () => {
+    try { await handleSignOutCleanup(); } catch {}
+    const c = document.getElementById('carrusel-campanas');
+    if (c && c._rampetObs) { try { c._rampetObs.disconnect(); } catch {} }
+    try { window.cleanupUiObservers?.(); } catch {}
+    Auth.logout();
+  });
+
+  // Cambio de password
+  on('change-password-btn', 'click', UI.openChangePasswordModal);
+  on('save-new-password-btn', 'click', Auth.changePassword);
+  on('close-password-modal', 'click', UI.closeChangePasswordModal);
+
+  // T&C
+  on('show-terms-link-banner', 'click', (e) => { e.preventDefault(); openTermsModal(); });
+  on('footer-terms-link', 'click',       (e) => { e.preventDefault(); openTermsModal(); });
+  on('accept-terms-btn-modal', 'click',  Data.acceptTerms);
+
+  // Instalación
+  on('btn-install-pwa', 'click', handleInstallPrompt);
+  on('btn-dismiss-install', 'click', handleDismissInstall);
+
+  // Notificaciones → abre INBOX y deja a notifications.js su parte
+  on('btn-notifs', 'click', async () => {
+    try { await openInboxModal(); } catch {}
+    try { await handleBellClick(); } catch {}
+  });
+
+  // Entrada alternativa a instalación
+  on('install-entrypoint', 'click', async () => {
+    if (deferredInstallPrompt) {
+      try { await handleInstallPrompt(); return; } catch (e) { console.warn('Error prompt nativo:', e); }
+    }
+    const modal = document.getElementById('install-help-modal');
+    const instructions = document.getElementById('install-instructions');
+    if (instructions) instructions.innerHTML = getInstallInstructions();
+    if (modal) modal.style.display = 'block';
+  });
+  on('close-install-help', 'click', () => {
+    const modal = document.getElementById('install-help-modal');
+    if (modal) modal.style.display = 'none';
+  });
+
+  // Permisos de notificaciones (tarjeta)
+  on('btn-activar-notif-prompt', 'click', handlePermissionRequest);
+  on('btn-rechazar-notif-prompt', 'click', dismissPermissionRequest);
+  on('notif-switch', 'change', handlePermissionSwitch);
+}
 
 // ──────────────────────────────────────────────────────────────
 // Main
@@ -741,23 +783,22 @@ async function main() {
 
       Data.listenToClientData(user);
 
-      // GEO inicio (tus funciones existentes)
-      try { await ensureGeoOnStartup?.(); } catch {}
+      // GEO inicio (si existen en este bundle)
+      try { await window.ensureGeoOnStartup?.(); } catch {}
 
       document.addEventListener('visibilitychange', async () => {
         if (document.visibilityState === 'visible') {
-          try { await maybeRefreshIfStale?.(); } catch {}
+          try { await window.maybeRefreshIfStale?.(); } catch {}
         }
       });
 
-      // Carrusel y límites de UI (tus funciones existentes)
-      try { setupMainLimitsObservers?.(); } catch {}
+      // Carrusel y límites de UI (si existen)
+      try { window.setupMainLimitsObservers?.(); } catch {}
 
       // Notifs
       if (messagingSupported) {
         await initFCMForRampet();       // asegura token y registra onMessage foreground
-        await initNotificationsOnce?.(); // tu inicializador original
-
+        await initNotificationsOnce?.(); // inicializador original
         console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
         window.__reportState?.('post-init-notifs');
       }
@@ -784,4 +825,3 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
