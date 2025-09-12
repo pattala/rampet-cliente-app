@@ -203,3 +203,19 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   console.debug('[notifications.js] handleSignOutCleanup() shim → fcmToken limpiado del localStorage');
 }
+// ──────────────────────────────────────────────────────────────
+// SHIM para compatibilidad con data.js
+// data.js llama a Notifications.gestionarPermisoNotificaciones(...)
+// Lo mantenemos como alias de la solicitud de permiso actual.
+// ──────────────────────────────────────────────────────────────
+export async function gestionarPermisoNotificaciones(/* ...args */) {
+  try {
+    // En tu implementación actual, pedir sólo el permiso
+    // (si querés que también regenere token y lo guarde,
+    //  cambiá por: await pedirPermisoYGestionarToken();)
+    await handlePermissionRequest();
+  } catch (e) {
+    console.warn('[notifications.js] gestionarPermisoNotificaciones error:', e?.message || e);
+  }
+}
+
