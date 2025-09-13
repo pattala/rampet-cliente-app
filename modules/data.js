@@ -1,11 +1,11 @@
-// modules/data.js (PWA - LISTENERS + vencimiento + SALDO + render unificado)
+// modules/data.js (PWA - datos del cliente, vencimientos, saldo, consentimientos persistentes)
 
 // ─────────────────────────────────────────────────────────────
 // ANCLA SUPERIOR (imports)
 import { db } from './firebase.js';
 import * as UI from './ui.js';
 import * as Auth from './auth.js';
-import * as Notifications from './notifications.js';
+// Nota: Notifications puede despachar eventos; este módulo escucha/actualiza Firestore
 // ─────────────────────────────────────────────────────────────
 
 let clienteData = null;
@@ -26,7 +26,6 @@ export function cleanupListener() {
 }
 
 // -------------------- Helpers locales --------------------
-// Parsear Timestamp (Firestore), ISO string o Date nativo
 function parseDateLike(d) {
   if (!d) return null;
   if (typeof d?.toDate === 'function') return d.toDate(); // Firestore Timestamp
@@ -43,11 +42,8 @@ function startOfTodayMs() {
   return d.getTime();
 }
 
-// Agrupa próximas caducidades por día y devuelve una lista ordenada ascendente.
-// Fuente prioritaria: (1) directos, (2) vencimientos[], (3) historialPuntos[].
-// Agrupa próximas caducidades por día en orden ascendente.
-// PRIORIDAD (para permitir listado): (1) vencimientos[], (2) historialPuntos[], (3) directos.
-// windowDays: null = sin tope; número = límite en días desde hoy.
+// Agrupa próximas caducidades por día (asc) con prioridad:
+// (1) vencimientos[], (2) historialPuntos[], (3) campos directos
 function computeUpcomingExpirations(cliente = {}, windowDays = null) {
   const todayStart = startOfTodayMs();
   const untilMs = windowDays ? (todayStart + windowDays * 24 * 60 * 60 * 1000) : null;
@@ -100,7 +96,7 @@ function computeUpcomingExpirations(cliente = {}, windowDays = null) {
   const listH = Object.keys(byDayH).map(k => ({ ts: Number(k), puntos: byDayH[k] })).sort((a,b)=>a.ts-b.ts);
   if (listH.length) return listH;
 
-  // (3) Directos (fallback)
+  // (3) directos (fallback)
   const directPts = Number(cliente?.puntosProximosAVencer ?? 0);
   const directTs  = parseTs(cliente?.fechaProximoVencimiento);
   if (directPts > 0 && directTs && inWindow(directTs)) {
@@ -126,7 +122,7 @@ function updateSaldoCard(cliente = {}) {
       card.style.display = 'block';
     } else {
       saldoEl.textContent = '$ 0.00';
-      // Requerimiento actual: saldo se oculta si es 0
+      // Se oculta si no hay saldo
       card.style.display = 'none';
     }
   } catch (e) {
@@ -134,15 +130,13 @@ function updateSaldoCard(cliente = {}) {
   }
 }
 
-// === Fallbacks exportados (útiles para otros módulos) ===
+// === Fallbacks exportados (por compatibilidad con otros módulos) ===
 export function getFechaProximoVencimiento(cliente = {}) {
-  // (1) Campo directo
   if (cliente?.fechaProximoVencimiento) {
     const dt = parseDateLike(cliente.fechaProximoVencimiento);
     if (dt) return dt;
   }
 
-  // (2) Desde historialPuntos
   const hist = Array.isArray(cliente?.historialPuntos) ? cliente.historialPuntos : [];
   const ahora = new Date();
 
@@ -156,19 +150,17 @@ export function getFechaProximoVencimiento(cliente = {}) {
       return vence;
     })
     .filter(Boolean)
-    .filter(vence => vence >= new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate())) // incluye hoy
+    .filter(vence => vence >= new Date(ahora.getFullYear(), ahora.getMonth(), ahora.getDate()))
     .sort((a, b) => a - b);
 
   return candidatos.length ? candidatos[0] : null;
 }
 
 export function getPuntosEnProximoVencimiento(cliente = {}) {
-  // (1) Campo directo
   if (typeof cliente?.puntosProximosAVencer === 'number' && cliente.puntosProximosAVencer > 0) {
     return cliente.puntosProximosAVencer;
   }
 
-  // (2) Desde historialPuntos
   const hist = Array.isArray(cliente?.historialPuntos) ? cliente.historialPuntos : [];
   const hoy0 = new Date();
   hoy0.setHours(0, 0, 0, 0);
@@ -186,7 +178,6 @@ export function getPuntosEnProximoVencimiento(cliente = {}) {
 
     const vence = new Date(base.getTime());
     vence.setDate(vence.getDate() + dias);
-    // incluir “vence hoy”
     if (vence < hoy0) continue;
 
     bloques.push({ vence, puntos: disp });
@@ -205,35 +196,32 @@ export function getPuntosEnProximoVencimiento(cliente = {}) {
     .reduce((acc, b) => acc + b.puntos, 0);
 }
 
-// === Puntos por vencer (tarjeta de Home) — Opción C (lista de próximas tandas)
+// === Puntos por vencer (tarjeta Home) ===
 export function updateVencimientoCard(cliente = {}) {
   try {
     const card    = document.getElementById('vencimiento-card');
-    const ptsEl   = document.getElementById('cliente-puntos-vencimiento');  // muestra la PRIMERA tanda
-    const fechaEl = document.getElementById('cliente-fecha-vencimiento');   // muestra fecha de la PRIMERA tanda
+    const ptsEl   = document.getElementById('cliente-puntos-vencimiento');
+    const fechaEl = document.getElementById('cliente-fecha-vencimiento');
     if (!card || !ptsEl || !fechaEl) {
-      console.warn('[PWA] Tarjeta de vencimiento no encontrada. IDs requeridos: vencimiento-card, cliente-puntos-vencimiento, cliente-fecha-vencimiento');
+      console.warn('[PWA] Tarjeta de vencimiento no encontrada (IDs requeridos).');
       return;
     }
 
-   // Contenedor para las tandas siguientes (si no existe, lo creamos)
-// ⚠️ Importante: SIEMPRE colgar del card, no del <p> de la fecha.
-let listEl = card.querySelector('#vencimiento-list');
-if (!listEl) {
-  listEl = document.createElement('ul');
-  listEl.id = 'vencimiento-list';
-  listEl.className = 'venc-list';
-  listEl.style.margin = '6px 0 0';
-  listEl.style.paddingLeft = '18px';
-  card.appendChild(listEl); // <- ya no usamos "after", va directo al card
-}
+    // Contenedor lista (crear si falta, colgar del card)
+    let listEl = card.querySelector('#vencimiento-list');
+    if (!listEl) {
+      listEl = document.createElement('ul');
+      listEl.id = 'vencimiento-list';
+      listEl.className = 'venc-list';
+      listEl.style.margin = '6px 0 0';
+      listEl.style.paddingLeft = '18px';
+      card.appendChild(listEl);
+    }
 
     const data = computeUpcomingExpirations(cliente); // [{ts, puntos}] ordenado
-    console.log('[PWA] Vencimientos (agrupados):', data);
     const fmt = (ms) => new Date(ms).toLocaleDateString('es-AR');
 
     if (data.length === 0) {
-      // Sin vencimientos → mostrar 0 y limpiar lista
       ptsEl.textContent = '0';
       fechaEl.textContent = '—';
       listEl.innerHTML = '';
@@ -241,21 +229,19 @@ if (!listEl) {
       return;
     }
 
-    // Primera tanda (la más próxima)
+    // Primera tanda
     ptsEl.textContent = String(data[0].puntos);
     fechaEl.textContent = fmt(data[0].ts);
 
-    // Siguientes 2–3 tandas
-    const siguientes = data.slice(1, 3); // hasta 2 adicionales
-if (siguientes.length) {
-  listEl.innerHTML = siguientes
-    .map(v => `<li><span style="font-weight:600;">${v.puntos}</span> el ${fmt(v.ts)}</li>`)
-    .join('');
-} else {
- listEl.innerHTML = '<li class="venc-empty">No hay más vencimientos programados</li>';
-
-}
-
+    // Siguientes (hasta 2)
+    const siguientes = data.slice(1, 3);
+    if (siguientes.length) {
+      listEl.innerHTML = siguientes
+        .map(v => `<li><span style="font-weight:600;">${v.puntos}</span> el ${fmt(v.ts)}</li>`)
+        .join('');
+    } else {
+      listEl.innerHTML = '<li class="venc-empty">No hay más vencimientos programados</li>';
+    }
 
     card.style.display = 'block';
   } catch (e) {
@@ -283,12 +269,85 @@ function renderizarPantallaPrincipal() {
     return true;
   });
 
-  // Render principal (nombre, puntos, carrusel, historial, premios)
   UI.renderMainScreen(clienteData, premiosData, campanasVisibles);
 
   // Extras visibles en home
-  updateVencimientoCard(clienteData); // siempre visible (0/— si no hay)
-  updateSaldoCard(clienteData);       // visible solo si saldo > 0
+  updateVencimientoCard(clienteData);
+  updateSaldoCard(clienteData);
+
+  // Disparar evento para que otras capas ajusten banners/prompts
+  try {
+    document.dispatchEvent(new CustomEvent('rampet:config-updated', {
+      detail: {
+        cliente: clienteData,
+        config: clienteData?.config || {}
+      }
+    }));
+  } catch {}
+}
+
+// ====== CONSENTIMIENTOS / CONFIG (Opt-in persistente) ======
+export function getClienteRef() {
+  return clienteRef;
+}
+
+async function mergeCliente(data) {
+  if (!clienteRef) return;
+  await clienteRef.set(data, { merge: true });
+}
+
+export async function updateConfig(partial = {}) {
+  // Guarda bajo clientes/{id}.config.*
+  if (!clienteRef) return;
+  const patch = {};
+  Object.keys(partial).forEach(k => {
+    patch[`config.${k}`] = partial[k];
+  });
+  await clienteRef.set(patch, { merge: true });
+}
+
+export async function saveNotifConsent(allowed, extra = {}) {
+  const now = new Date().toISOString();
+  await updateConfig({
+    notifEnabled: !!allowed,
+    notifUpdatedAt: now,
+    ...extra
+  });
+}
+
+export async function saveNotifDismiss() {
+  await updateConfig({ notifPromptDismissedAt: new Date().toISOString() });
+}
+
+export async function saveGeoConsent(allowed, extra = {}) {
+  const now = new Date().toISOString();
+  await updateConfig({
+    geoEnabled: !!allowed,
+    geoUpdatedAt: now,
+    ...extra
+  });
+}
+
+// Escuchar eventos globales (emiten notifications.js / geoloc.js / app.js)
+function wireConsentEventBridges() {
+  // Notificaciones
+  document.addEventListener('rampet:consent:notif-opt-in', async (e) => {
+    await saveNotifConsent(true, { notifOptInSource: e?.detail?.source || 'prompt' });
+  });
+  document.addEventListener('rampet:consent:notif-opt-out', async (e) => {
+    await saveNotifConsent(false, { notifOptOutSource: e?.detail?.source || 'user' });
+  });
+  document.addEventListener('rampet:consent:notif-dismissed', async () => {
+    await saveNotifDismiss();
+  });
+
+  // Geolocalización
+  document.addEventListener('rampet:geo:enabled', async (e) => {
+    await saveGeoConsent(true, { geoMethod: e?.detail?.method || 'prompt' });
+  });
+  document.addEventListener('rampet:geo:disabled', async (e) => {
+    await saveGeoConsent(false, { geoMethod: e?.detail?.method || 'toggle' });
+  });
 }
 
 // === Listeners / flujo principal ===
@@ -297,6 +356,9 @@ export async function listenToClientData(user) {
 
   if (unsubscribeCliente) unsubscribeCliente();
   if (unsubscribeCampanas) unsubscribeCampanas();
+
+  // Enlazar una vez los bridges de consentimientos
+  try { wireConsentEventBridges(); } catch {}
 
   // Premios (carga inicial, una sola vez)
   if (premiosData.length === 0) {
@@ -313,7 +375,6 @@ export async function listenToClientData(user) {
     const campanasQuery = db.collection('campanas').where('estaActiva', '==', true);
     unsubscribeCampanas = campanasQuery.onSnapshot(snapshot => {
       campanasData = snapshot.docs.map(doc => doc.data());
-      console.log("[PWA] Campañas actualizadas:", campanasData.length);
       renderizarPantallaPrincipal();
     }, error => {
       console.error("[PWA] Error escuchando campañas:", error);
@@ -335,29 +396,12 @@ export async function listenToClientData(user) {
       clienteData = snapshot.docs[0].data();
       clienteRef = snapshot.docs[0].ref;
 
-document.dispatchEvent(new CustomEvent('rampet:cliente-updated', { detail: { cliente: clienteData } }));
-console.log("[PWA] Datos del cliente actualizados.");
-renderizarPantallaPrincipal();
-Notifications.gestionarPermisoNotificaciones(clienteData);
-    
-      // DEBUG: exponer datos en consola (más seguro)
-//   - Usamos un namespace propio para evitar colisiones con propiedades de solo-lectura.
-if (typeof window !== 'undefined') {
-  try {
-    window.__rampet = window.__rampet || {};
-    window.__rampet.clienteData = clienteData;
-    window.__rampet.clienteRef  = clienteRef;
-  } catch (e) {
-    console.debug('[PWA] No pude exponer debug en window.__rampet', e);
-  }
-}
+      // Exponer evento para integraciones (UI, notifications.js)
+      try {
+        document.dispatchEvent(new CustomEvent('rampet:cliente-updated', { detail: { cliente: clienteData } }));
+      } catch {}
 
-      console.log("[PWA] Datos del cliente actualizados.");
       renderizarPantallaPrincipal();
-
-      // Notificaciones (permiso/token)
-      Notifications.gestionarPermisoNotificaciones(clienteData);
-
     }, (error) => {
       console.error("[PWA] Error en listener de cliente:", error);
       Auth.logout();
@@ -367,30 +411,17 @@ if (typeof window !== 'undefined') {
     Auth.logout();
   }
 }
-// ───────── DEBUG CONSOLE HELPERS (solo para QA, podés quitarlo en prod) ─────────
+
+// ───────── DEBUG CONSOLE HELPERS (opcional QA) ─────────
 if (typeof window !== 'undefined') {
-  // helpers de inspección
   window.computeUpcomingExpirations = computeUpcomingExpirations;
   window.updateVencimientoCard = updateVencimientoCard;
-
-  // accesos rápidos a datos actuales
   Object.defineProperty(window, 'clienteData', { get: () => clienteData });
   Object.defineProperty(window, 'clienteRef',  { get: () => clienteRef  });
 }
 
-// Stubs (si algún módulo los importa, no rompen)
-export async function acceptTerms() { /* ... */ }
+// Stubs
+export async function acceptTerms() { /* futuro: guardar aceptación */ }
 
-// ─────────────────────────────────────────────────────────────
-export { /* ancla de export adicionales si luego agregás más */ };
-// ─────────────────────────────────────────────────────────────
-// ANCLA INFERIOR: fin del archivo
-// ─────────────────────────────────────────────────────────────
-
-
-
-
-
-
-
-
+// Exports adicionales si luego agregás más
+export { };
