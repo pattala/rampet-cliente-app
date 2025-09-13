@@ -13,13 +13,13 @@
   <link rel="stylesheet" href="styles.css">
 
   <script>
-    /* Exponer VAPID para FCM web (lo usa app.js / notifications.js) */
+    /* Exponer VAPID para FCM web */
     window.__RAMPET__ = {
       VAPID_PUBLIC: 'BF-KoL99dP_eOzjYisObou-0jHHayo4QNKAcqRWDAPLYSspsNWvCSyY3H4gJd2hF3g8TRDchT0JrxM-4RGf7Lv4'
     };
   </script>
 
-  <!-- Firebase compat (coincide con la versión usada en el SW y app.js) -->
+  <!-- Firebase compat -->
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-analytics-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
@@ -40,7 +40,7 @@
         <span id="notif-counter" aria-live="polite"></span>
       </button>
 
-      <!-- 📲 Instalar PWA (se muestra si no está instalada) -->
+      <!-- 📲 Instalar PWA -->
       <button id="install-entrypoint" class="secondary-btn" style="display:none;">Instalar app</button>
     </header>
 
@@ -118,7 +118,7 @@
         <ul id="vencimiento-list" class="venc-list"></ul>
       </div>
 
-      <!-- Saldo a favor (compacto y centrado) -->
+      <!-- Saldo a favor -->
       <div class="card" id="saldo-card">
         <h3>Saldo a favor</h3>
         <div id="cliente-saldo">$ 5.00</div>
@@ -234,6 +234,8 @@
         <span id="close-inbox-modal" class="modal-close-btn">×</span>
         <h2>Notificaciones e historial</h2>
 
+        <div class="info-message" style="margin-bottom:8px;">Tocá un mensaje para <strong>destacarlo</strong> o volverlo normal.</div>
+
         <div style="display:flex;gap:8px;margin:10px 0 14px;">
           <button id="inbox-tab-todos"  class="primary-btn">Todos</button>
           <button id="inbox-tab-promos" class="secondary-btn">Promos</button>
@@ -245,14 +247,14 @@
         <div id="inbox-list" class="terms-text-container"></div>
 
         <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
-          <button id="inbox-mark-read" class="secondary-btn">Marcar todo como leído</button>
+          <!-- Se eliminó el botón “Marcar todo como leído” -->
           <button id="inbox-close-btn" class="primary-btn">Cerrar</button>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- Registro del Service Worker (suave: no recarga si ya hay controlador) -->
+  <!-- Registro del Service Worker -->
   <script>
     (function () {
       if (!('serviceWorker' in navigator)) return;
@@ -261,7 +263,6 @@
           const existing = await navigator.serviceWorker.getRegistration('/');
           const reg = existing || await navigator.serviceWorker.register('/firebase-messaging-sw.js');
           console.log('✅ SW FCM registrado:', reg.scope);
-          // Evitar reload loop: solo si aún no hay controller
           if (!navigator.serviceWorker.controller) {
             navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
           }
@@ -275,7 +276,7 @@
   <!-- App -->
   <script src="app.js" type="module"></script>
 
-  <!-- Deep-link del INBOX: si venimos de una notificación, abrir modal automáticamente -->
+  <!-- Deep-link del INBOX: abrir modal automáticamente si venimos de una notificación -->
   <script>
     (function () {
       const u = new URL(location.href);
@@ -285,17 +286,14 @@
 
       if (!wantsInbox) return;
 
-      // Poll muy simple hasta que la campana esté visible y con handler
       function tryOpen() {
         const btn = document.getElementById('btn-notifs');
-        // visible y con display ≠ none (app ya logueada y listeners colocados)
         if (btn && getComputedStyle(btn).display !== 'none') {
           try { btn.click(); } catch {}
           return;
         }
         setTimeout(tryOpen, 250);
       }
-      // Arranca cuando el DOM está listo (app.js ya está en carga como módulo)
       if (document.readyState === 'complete' || document.readyState === 'interactive') {
         tryOpen();
       } else {
