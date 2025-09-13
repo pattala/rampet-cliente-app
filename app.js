@@ -1,4 +1,4 @@
-// app.js — PWA del Cliente (instalación, notifs foreground + badge, INBOX con toggle/borrar)
+// app.js — PWA del Cliente (instalación, notifs foreground + badge, INBOX con destacar/borrar)
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
@@ -16,7 +16,7 @@ import {
 
 // === DEBUG / OBS ===
 window.__RAMPET_DEBUG = true;
-window.__BUILD_ID = 'pwa-2025-09-06-4'; // bump
+window.__BUILD_ID = 'pwa-2025-09-07-1'; // bump
 function d(tag, ...args){ if (window.__RAMPET_DEBUG) console.log(`[DBG][${window.__BUILD_ID}] ${tag}`, ...args); }
 
 window.__reportState = async (where='')=>{
@@ -93,7 +93,7 @@ async function showForegroundNotification(data) {
   }
 }
 
-/** Badge campanita */
+/** Badge campanita — solo local (suma al llegar, se limpia al abrir INBOX) */
 function ensureBellBlinkStyle(){
   if (document.getElementById('__bell_blink_css__')) return;
   const css = `
@@ -124,7 +124,7 @@ function setBadgeCount(n){
 function bumpBadge(){ setBadgeCount(getBadgeCount() + 1); }
 function resetBadge(){ setBadgeCount(0); }
 
-/** onMessage foreground → notificación + badge + (opcional) refrescar inbox */
+/** onMessage foreground → notificación + badge + refrescar inbox si visible */
 async function registerForegroundFCMHandlers() {
   await ensureMessagingCompatLoaded();
   const messaging = firebase.messaging();
@@ -160,12 +160,7 @@ async function registerForegroundFCMHandlers() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.addEventListener('message', async (ev) => {
       const t = ev?.data?.type;
-      const data = ev?.data?.data || {};
-      if (t === 'PUSH_READ') {
-        await markInboxReadById(data.id);
-        resetBadge();
-        try { await fetchInboxBatchUnified?.(); } catch {}
-      } else if (t === 'PUSH_DELIVERED') {
+      if (t === 'PUSH_DELIVERED') {
         bumpBadge();
       } else if (t === 'OPEN_INBOX') {
         await openInboxModal();
@@ -323,7 +318,7 @@ function on(id, event, handler) {
 }
 
 // ──────────────────────────────────────────────────────────────
-// INBOX (toggle leído/no leído, borrar, filtros, auto-read al abrir)
+// INBOX (click = destacar/normal, borrar, filtros)
 // ──────────────────────────────────────────────────────────────
 let inboxFilter = 'all';
 let inboxLastSnapshot = [];
@@ -367,54 +362,50 @@ function renderInboxList(items){
   list.innerHTML = data.map(it=>{
     const sentAt = it.sentAt ? (it.sentAt.toDate ? it.sentAt.toDate() : new Date(it.sentAt)) : null;
     const dateTxt = sentAt ? sentAt.toLocaleString() : '';
-    const url = it.url || '/?inbox=1';
-    const isUnread = (it.status !== 'read');
+    const destacado = !!it.destacado;
     return `
-      <div class="card" data-id="${it.id}" style="margin:8px 0; ${isUnread?'box-shadow:0 0 0 2px rgba(0,123,255,.25);':''}">
-        <div style="display:flex; justify-content:space-between; align-items:start; gap:10px;">
-          <div style="flex:1 1 auto; cursor:pointer;" data-url="${url}">
-            <div style="font-weight:700;">${it.title || 'Mensaje'}</div>
-            <div style="color:#555; margin-top:6px;">${it.body || ''}</div>
-            <div style="color:#999; font-size:12px; margin-top:8px;">${dateTxt}</div>
+      <div class="card inbox-item ${destacado ? 'destacado' : ''}" data-id="${it.id}" tabindex="0" role="button" aria-pressed="${destacado}">
+        <div class="inbox-item-row">
+          <div class="inbox-main">
+            <div class="inbox-title">
+              ${it.title || 'Mensaje'}
+              ${destacado ? '<span class="chip-destacado" aria-label="Destacado">Destacado</span>' : ''}
+            </div>
+            <div class="inbox-body">${it.body || ''}</div>
+            <div class="inbox-date">${dateTxt}</div>
           </div>
-          <div style="display:flex; gap:6px;">
-            <button class="secondary-btn inbox-toggle" title="${isUnread?'Marcar como leído':'Marcar como no leído'}">${isUnread?'✔️':'✉️'}</button>
-            <button class="secondary-btn inbox-delete" title="Borrar">🗑️</button>
+          <div class="inbox-actions">
+            <button class="secondary-btn inbox-delete" title="Borrar" aria-label="Borrar este mensaje">🗑️</button>
           </div>
         </div>
       </div>
     `;
   }).join('');
 
-  // Click para abrir URL
-  list.querySelectorAll('[data-url]').forEach(el=>{
-    el.addEventListener('click', ()=>{
-      const goto = el.getAttribute('data-url') || '/?inbox=1';
-      window.location.href = goto;
-    });
-  });
-
-  // Toggle leído/no leído
-  list.querySelectorAll('.inbox-toggle').forEach(btn=>{
-    btn.addEventListener('click', async (e)=>{
-      e.stopPropagation();
-      const card = btn.closest('.card');
-      const id = card?.getAttribute('data-id');
-      if (!id) return;
+  // Click / Enter → toggle destacado
+  list.querySelectorAll('.inbox-item').forEach(card=>{
+    const id = card.getAttribute('data-id');
+    const toggle = async ()=>{
       try {
         const clienteRef = await resolveClienteRef();
         const cur = inboxLastSnapshot.find(x => x.id === id);
-        const toRead = !(cur && cur.status === 'read');
+        const next = !(cur && cur.destacado === true);
         await clienteRef.collection('inbox').doc(id).set(
-          toRead
-            ? { status:'read', readAt:new Date().toISOString() }
-            : { status:'unread', readAt:null },
+          next ? { destacado:true, destacadoAt:new Date().toISOString() } : { destacado:false },
           { merge:true }
         );
+        await fetchInboxBatchUnified();
       } catch (err) {
-        console.warn('[INBOX] toggle read error:', err?.message || err);
+        console.warn('[INBOX] toggle destacado error:', err?.message || err);
       }
-      await fetchInboxBatchUnified();
+    };
+    card.addEventListener('click', async (e)=>{
+      // Evitar que el click en el botón borrar lo dispare
+      if ((e.target instanceof HTMLElement) && e.target.closest('.inbox-actions')) return;
+      await toggle();
+    });
+    card.addEventListener('keydown', async (e)=>{
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); await toggle(); }
     });
   });
 
@@ -422,7 +413,7 @@ function renderInboxList(items){
   list.querySelectorAll('.inbox-delete').forEach(btn=>{
     btn.addEventListener('click', async (e)=>{
       e.stopPropagation();
-      const card = btn.closest('.card');
+      const card = btn.closest('.inbox-item');
       const id = card?.getAttribute('data-id');
       if (!id) return;
       try {
@@ -449,10 +440,7 @@ async function fetchInboxBatchUnified() {
     const items = snap.docs.map(d=>({ id:d.id, ...d.data() }));
     inboxLastSnapshot = items;
     renderInboxList(items);
-
-    // badge local
-    const unread = items.filter(x => x.status !== 'read').length;
-    setBadgeCount(unread);
+    // ⚠️ badge NO depende de "read/unread": se maneja solo localmente
   } catch (e) {
     console.warn('[INBOX] fetch error:', e?.message || e);
     inboxLastSnapshot = [];
@@ -460,7 +448,7 @@ async function fetchInboxBatchUnified() {
   }
 }
 
-// Listener tiempo real (opcional). Si no querés realtime, no lo llames.
+// Listener tiempo real (opcional)
 async function listenInboxRealtime() {
   const clienteRef = await resolveClienteRef();
   if (!clienteRef) return () => {};
@@ -469,37 +457,10 @@ async function listenInboxRealtime() {
     const items = snap.docs.map(d=>({ id:d.id, ...d.data() }));
     inboxLastSnapshot = items;
     renderInboxList(items);
-    const unread = items.filter(x => x.status !== 'read').length;
-    setBadgeCount(unread);
+    // ⚠️ badge NO se recalcula acá
   }, (err)=> {
     console.warn('[INBOX] onSnapshot error:', err?.message || err);
   });
-}
-
-async function markVisibleAsRead() {
-  const clienteRef = await resolveClienteRef();
-  if (!clienteRef) return;
-  const toRead = inboxLastSnapshot.filter(itemMatchesFilter).filter(it => it.status !== 'read');
-  if (!toRead.length) return;
-  const batch = db.batch();
-  toRead.forEach(it=>{
-    const ref = clienteRef.collection('inbox').doc(it.id);
-    batch.set(ref, { status:'read', readAt:new Date().toISOString() }, { merge:true });
-  });
-  try { await batch.commit(); } catch (e) { console.warn('[INBOX] auto-read error:', e?.message || e); }
-}
-
-// auto-leído por click en noti (SW)
-async function markInboxReadById(notifId) {
-  if (!notifId) return;
-  try {
-    const clienteRef = await resolveClienteRef();
-    if (!clienteRef) return;
-    await clienteRef.collection('inbox').doc(String(notifId))
-      .set({ status: 'read', readAt: new Date().toISOString() }, { merge: true });
-  } catch (e) {
-    console.warn('[INBOX] marcar leído error:', e?.message || e);
-  }
 }
 
 function wireInboxModal(){
@@ -517,24 +478,21 @@ function wireInboxModal(){
     });
   };
 
-  on('inbox-tab-todos','click', async ()=>{ inboxFilter='all';   setActive('inbox-tab-todos');  renderInboxList(inboxLastSnapshot); await markVisibleAsRead(); });
-  on('inbox-tab-promos','click',async ()=>{ inboxFilter='promos'; setActive('inbox-tab-promos'); renderInboxList(inboxLastSnapshot); await markVisibleAsRead(); });
-  on('inbox-tab-puntos','click',async ()=>{ inboxFilter='puntos'; setActive('inbox-tab-puntos'); renderInboxList(inboxLastSnapshot); await markVisibleAsRead(); });
-  on('inbox-tab-otros','click', async ()=>{ inboxFilter='otros';  setActive('inbox-tab-otros');  renderInboxList(inboxLastSnapshot); await markVisibleAsRead(); });
+  on('inbox-tab-todos','click', async ()=>{ inboxFilter='all';   setActive('inbox-tab-todos');  renderInboxList(inboxLastSnapshot); });
+  on('inbox-tab-promos','click',async ()=>{ inboxFilter='promos'; setActive('inbox-tab-promos'); renderInboxList(inboxLastSnapshot); });
+  on('inbox-tab-puntos','click',async ()=>{ inboxFilter='puntos'; setActive('inbox-tab-puntos'); renderInboxList(inboxLastSnapshot); });
+  on('inbox-tab-otros','click', async ()=>{ inboxFilter='otros';  setActive('inbox-tab-otros');  renderInboxList(inboxLastSnapshot); });
 
   on('close-inbox-modal','click', ()=> modal.style.display='none');
   on('inbox-close-btn','click', ()=> modal.style.display='none');
   modal.addEventListener('click',(e)=>{ if(e.target===modal) modal.style.display='none'; });
-
-  // Nota: se eliminó el botón global "inbox-mark-read" de la UI.
 }
 
 async function openInboxModal() {
   wireInboxModal();
   inboxFilter = 'all';
   await fetchInboxBatchUnified();
-  await markVisibleAsRead(); // auto-read al abrir
-  resetBadge();              // limpiamos badge al abrir
+  resetBadge(); // limpiamos badge al abrir
   const modal = document.getElementById('inbox-modal');
   if (modal) modal.style.display = 'flex';
 }
@@ -747,7 +705,7 @@ function setupMainAppScreenListeners() {
 function openInboxIfQuery() {
   try {
     const url = new URL(location.href);
-    if (url.searchParams.get('inbox') === '1') {
+    if (url.searchParams.get('inbox') === '1' || url.pathname.replace(/\/+$/,'') === '/notificaciones') {
       openInboxModal();
     }
   } catch {}
