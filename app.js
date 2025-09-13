@@ -1,4 +1,4 @@
-// app.js — PWA del Cliente (instalación, notifs foreground + badge, INBOX con destacar/borrar)
+// app.js — PWA del Cliente (instalación, notifs foreground + badge local, INBOX destacar/borrar + opt-in persistente)
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
@@ -16,7 +16,7 @@ import {
 
 // === DEBUG / OBS ===
 window.__RAMPET_DEBUG = true;
-window.__BUILD_ID = 'pwa-2025-09-07-1'; // bump
+window.__BUILD_ID = 'pwa-2025-09-07-2'; // bump
 function d(tag, ...args){ if (window.__RAMPET_DEBUG) console.log(`[DBG][${window.__BUILD_ID}] ${tag}`, ...args); }
 
 window.__reportState = async (where='')=>{
@@ -130,7 +130,7 @@ async function registerForegroundFCMHandlers() {
   const messaging = firebase.messaging();
 
   messaging.onMessage(async (payload) => {
-    const d = (()=>{ // normaliza a lo del SW
+    const d = (()=>{
       const dd = payload?.data || {};
       const id  = dd.id ? String(dd.id) : undefined;
       const tag = dd.tag ? String(dd.tag) : (id ? `push-${id}` : undefined);
@@ -199,8 +199,6 @@ async function initFCMForRampet() {
   await registerForegroundFCMHandlers();
 }
 
-// ──────────────────────────────────────────────────────────────
-// Instalación PWA
 // ──────────────────────────────────────────────────────────────
 let deferredInstallPrompt = null;
 
@@ -365,16 +363,15 @@ function renderInboxList(items){
     const destacado = !!it.destacado;
     return `
       <div class="card inbox-item ${destacado ? 'destacado' : ''}" data-id="${it.id}" tabindex="0" role="button" aria-pressed="${destacado}">
-        <div class="inbox-item-row">
-          <div class="inbox-main">
-            <div class="inbox-title">
-              ${it.title || 'Mensaje'}
-              ${destacado ? '<span class="chip-destacado" aria-label="Destacado">Destacado</span>' : ''}
+        <div class="inbox-item-row" style="display:flex; justify-content:space-between; align-items:start; gap:10px;">
+          <div class="inbox-main" style="flex:1 1 auto;">
+            <div class="inbox-title" style="font-weight:700;">
+              ${it.title || 'Mensaje'} ${destacado ? '<span class="chip-destacado" aria-label="Destacado" style="margin-left:6px; font-size:12px; background:#fff3cd; color:#8a6d3b; padding:2px 6px; border-radius:999px; border:1px solid #f5e3a3;">Destacado</span>' : ''}
             </div>
-            <div class="inbox-body">${it.body || ''}</div>
-            <div class="inbox-date">${dateTxt}</div>
+            <div class="inbox-body" style="color:#555; margin-top:6px;">${it.body || ''}</div>
+            <div class="inbox-date" style="color:#999; font-size:12px; margin-top:8px;">${dateTxt}</div>
           </div>
-          <div class="inbox-actions">
+          <div class="inbox-actions" style="display:flex; gap:6px;">
             <button class="secondary-btn inbox-delete" title="Borrar" aria-label="Borrar este mensaje">🗑️</button>
           </div>
         </div>
@@ -382,7 +379,7 @@ function renderInboxList(items){
     `;
   }).join('');
 
-  // Click / Enter → toggle destacado
+  // Click/Enter/Espacio → toggle destacado
   list.querySelectorAll('.inbox-item').forEach(card=>{
     const id = card.getAttribute('data-id');
     const toggle = async ()=>{
@@ -400,7 +397,6 @@ function renderInboxList(items){
       }
     };
     card.addEventListener('click', async (e)=>{
-      // Evitar que el click en el botón borrar lo dispare
       if ((e.target instanceof HTMLElement) && e.target.closest('.inbox-actions')) return;
       await toggle();
     });
@@ -440,7 +436,7 @@ async function fetchInboxBatchUnified() {
     const items = snap.docs.map(d=>({ id:d.id, ...d.data() }));
     inboxLastSnapshot = items;
     renderInboxList(items);
-    // ⚠️ badge NO depende de "read/unread": se maneja solo localmente
+    // Badge local se maneja aparte (no depende de read/unread)
   } catch (e) {
     console.warn('[INBOX] fetch error:', e?.message || e);
     inboxLastSnapshot = [];
@@ -457,7 +453,6 @@ async function listenInboxRealtime() {
     const items = snap.docs.map(d=>({ id:d.id, ...d.data() }));
     inboxLastSnapshot = items;
     renderInboxList(items);
-    // ⚠️ badge NO se recalcula acá
   }, (err)=> {
     console.warn('[INBOX] onSnapshot error:', err?.message || err);
   });
@@ -696,12 +691,39 @@ function setupMainAppScreenListeners() {
   });
 
   // Permisos de notificaciones (tarjeta)
-  on('btn-activar-notif-prompt', 'click', handlePermissionRequest);
-  on('btn-rechazar-notif-prompt', 'click', dismissPermissionRequest);
-  on('notif-switch', 'change', handlePermissionSwitch);
+  on('btn-activar-notif-prompt', 'click', async () => {
+    // Delega en notifications.js
+    try { await handlePermissionRequest(); } catch {}
+  });
+  on('btn-rechazar-notif-prompt', 'click', async () => {
+    // Guardar dismiss para no insistir de inmediato
+    try { await Data.saveNotifDismiss(); } catch {}
+    try { await dismissPermissionRequest(); } catch {}
+  });
+  on('notif-switch', 'change', async (e) => {
+    // Delega UI de switch a notifications.js pero persiste opt-in/out en Data (vía eventos o directo)
+    try { await handlePermissionSwitch(e); } catch {}
+  });
+
+  // Puente de eventos de notifications.js → persistencia en Firestore
+  // (si notifications.js dispara estos eventos, acá los persistimos como respaldo)
+  document.addEventListener('rampet:consent:notif-opt-in', async (ev) => {
+    try { await Data.saveNotifConsent(true, { notifOptInSource: ev?.detail?.source || 'ui' }); } catch {}
+  });
+  document.addEventListener('rampet:consent:notif-opt-out', async (ev) => {
+    try { await Data.saveNotifConsent(false, { notifOptOutSource: ev?.detail?.source || 'ui' }); } catch {}
+  });
+
+  // Geolocalización (si la capa de geo dispara eventos, también persistimos)
+  document.addEventListener('rampet:geo:enabled', async (ev) => {
+    try { await Data.saveGeoConsent(true, { geoMethod: ev?.detail?.method || 'ui' }); } catch {}
+  });
+  document.addEventListener('rampet:geo:disabled', async (ev) => {
+    try { await Data.saveGeoConsent(false, { geoMethod: ev?.detail?.method || 'ui' }); } catch {}
+  });
 }
 
-// Abrir INBOX si viene ?inbox=1 (deep link seguro del SW)
+// Abrir INBOX si viene ?inbox=1 o /notificaciones (deep link del SW)
 function openInboxIfQuery() {
   try {
     const url = new URL(location.href);
@@ -732,7 +754,7 @@ async function main() {
 
       Data.listenToClientData(user);
 
-      // GEO inicio (si existen en este bundle)
+      // GEO inicio (si existe en este bundle)
       try { await window.ensureGeoOnStartup?.(); } catch {}
 
       document.addEventListener('visibilitychange', async () => {
@@ -746,8 +768,8 @@ async function main() {
 
       // Notifs
       if (messagingSupported) {
-        await initFCMForRampet();        // asegura token y registra onMessage foreground
-        await initNotificationsOnce?.();  // inicializador original
+        await initFCMForRampet();        // asegura token y onMessage
+        await initNotificationsOnce?.();  // inicializador original (prompts, switches, etc.)
         console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
         window.__reportState?.('post-init-notifs');
       }
@@ -770,7 +792,6 @@ async function main() {
         if (inboxUnsub) { try { inboxUnsub(); } catch {} }
         inboxUnsub = await listenInboxRealtime();
       } catch (e) {
-        // si falla, quedamos con fetch manual
         console.warn('[INBOX] realtime no iniciado:', e?.message || e);
       }
     } else {
