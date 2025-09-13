@@ -1,14 +1,16 @@
-// /modules/notifications.js — FCM + VAPID + token + foreground banner
+// /modules/notifications.js — FCM + VAPID + token + UX de opt-in persistente (cards de marketing)
 'use strict';
 
-// Requisitos: firebase app/auth/firestore ya cargados.
+// Requisitos: Firebase compat (app/auth/firestore/messaging) ya cargados.
 // SW: /firebase-messaging-sw.js
 // VAPID pública: window.__RAMPET__.VAPID_PUBLIC
 
 const VAPID_PUBLIC = (window.__RAMPET__ && window.__RAMPET__.VAPID_PUBLIC) || '';
 if (!VAPID_PUBLIC) console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
 
-// ───────────────── helpers ─────────────────
+// ───────────────── Helpers ─────────────────
+function $(id) { return document.getElementById(id); }
+
 async function ensureMessagingCompatLoaded() {
   if (typeof firebase?.messaging === 'function') return;
   await new Promise((ok, err) => {
@@ -22,17 +24,13 @@ async function ensureMessagingCompatLoaded() {
 async function registerSW() {
   if (!('serviceWorker' in navigator)) return false;
   try {
-    // evita doble registro si ya existe
     const existing = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
-    if (existing) {
-      console.log('✅ SW FCM ya registrado:', existing.scope);
-      return true;
-    }
+    if (existing) { console.log('✅ SW FCM ya registrado:', existing.scope); return true; }
     const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
     console.log('✅ SW FCM registrado:', reg.scope || (location.origin + '/'));
     return true;
   } catch (e) {
-    console.warn('No se pudo registrar el SW FCM:', e?.message || e);
+    console.warn('[FCM] No se pudo registrar SW:', e?.message || e);
     return false;
   }
 }
@@ -46,158 +44,211 @@ async function getClienteDocIdPorUID(uid) {
   return snap.empty ? null : snap.docs[0].id;
 }
 
-async function guardarTokenEnMiDoc(token) {
+async function setFcmTokensOnCliente(tokensArray) {
   const uid = firebase.auth().currentUser?.uid;
   if (!uid) throw new Error('No hay usuario logueado.');
   const clienteId = await getClienteDocIdPorUID(uid);
   if (!clienteId) throw new Error('No encontré tu doc en clientes (authUID).');
+  await firebase.firestore().collection('clientes').doc(clienteId)
+    .set({ fcmTokens: tokensArray }, { merge: true });
+  return clienteId;
+}
 
-  await firebase.firestore().collection('clientes')
-    .doc(clienteId)
-    .set({ fcmTokens: [token] }, { merge: true });
-
+async function guardarTokenEnMiDoc(token) {
+  const clienteId = await setFcmTokensOnCliente([token]); // reemplazo total
   try { localStorage.setItem('fcmToken', token); } catch {}
   console.log('✅ Token FCM guardado en clientes/' + clienteId);
 }
 
-async function pedirPermisoYGestionarToken() {
-  const status = await Notification.requestPermission();
-  if (status !== 'granted') throw new Error('Permiso de notificaciones NO concedido.');
+async function borrarTokenYOptOut() {
+  try {
+    await ensureMessagingCompatLoaded();
+    try { await firebase.messaging().deleteToken(); } catch {}
+    await setFcmTokensOnCliente([]); // deja vacío en Firestore
+    try { localStorage.removeItem('fcmToken'); } catch {}
+    console.log('🗑️ Token FCM eliminado y tokens vaciados en cliente.');
+  } catch (e) {
+    console.warn('[FCM] borrarTokenYOptOut error:', e?.message || e);
+  }
+}
 
+async function obtenerYGuardarToken() {
   await ensureMessagingCompatLoaded();
-  // Limpieza suave: si existe y el browser lo permite
+  // Limpieza suave
   try { await firebase.messaging().deleteToken(); } catch {}
-
   const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
-  if (!tok) throw new Error('No se pudo obtener token (vacío).');
-  console.log('[FCM] token actual:', tok);
+  if (!tok) throw new Error('getToken devolvió vacío.');
   await guardarTokenEnMiDoc(tok);
   return tok;
 }
 
-function pintarBotonPermiso() {
-  const id = '__activar_push_btn__';
-  if (document.getElementById(id)) return;
+// ───────────────── UI (cards y switch) ─────────────────
+function setDisplay(el, show) { if (el) el.style.display = show ? 'block' : 'none'; }
 
-  const btn = document.createElement('button');
-  btn.id = id;
-  btn.textContent = '🔔 Activar notificaciones';
-  Object.assign(btn.style, {
-    position: 'fixed', zIndex: 999999, right: '16px', bottom: '16px',
-    padding: '12px 16px', borderRadius: '10px', border: 'none',
-    boxShadow: '0 2px 8px rgba(0,0,0,.2)', cursor: 'pointer',
-    fontSize: '14px', background: '#2e7d32', color: 'white'
-  });
-  btn.onclick = async () => {
-    btn.disabled = true; btn.textContent = 'Activando…';
-    try {
-      await pedirPermisoYGestionarToken();
-      alert('✅ Notificaciones activadas. Ya podés recibir push.');
-      btn.remove();
-    } catch (e) {
-      alert('No se pudo activar: ' + (e?.message || e));
-      btn.disabled = false; btn.textContent = '🔔 Activar notificaciones';
-    }
-  };
-  document.body.appendChild(btn);
+function refreshNotifUIFromPermission() {
+  const perm = (window.Notification?.permission) || 'default';
+  const promptCard  = $('notif-prompt-card');         // marketing para pedir opt-in
+  const switchCard  = $('notif-card');                // tarjeta con switch
+  const blockedWarn = $('notif-blocked-warning');     // advertencia de bloqueado
+  const switchEl    = $('notif-switch');
+
+  // Mostrar/ocultar según permiso actual
+  if (perm === 'default') {
+    setDisplay(promptCard, !localStorage.getItem('notifPermDismissed'));
+    setDisplay(switchCard, false);
+    setDisplay(blockedWarn, false);
+  } else if (perm === 'granted') {
+    setDisplay(promptCard, false);
+    setDisplay(switchCard, true);
+    setDisplay(blockedWarn, false);
+    if (switchEl) switchEl.checked = true; // habilitado en el navegador
+  } else { // 'denied'
+    setDisplay(promptCard, false);
+    setDisplay(switchCard, false);
+    setDisplay(blockedWarn, true);
+    if (switchEl) switchEl.checked = false;
+  }
 }
 
-// ───────────── init principal (llamado desde app.js) ─────────────
-export async function initFCM() {
+// Lado marketing: cuando llega nueva info de cliente/config, podrías decidir mostrar/ocultar banners
+document.addEventListener('rampet:config-updated', () => {
+  // Por ahora, UI depende principalmente de Notification.permission + localStorage dismiss.
+  refreshNotifUIFromPermission();
+});
+
+// ───────────────── Eventos de consentimiento (para que data.js persista) ─────────────────
+function dispatchConsent(eventName, detail = {}) {
+  try { document.dispatchEvent(new CustomEvent(eventName, { detail })); } catch {}
+}
+
+// ───────────────── API pública (usada por app.js) ─────────────────
+export async function initNotificationsOnce() {
   await registerSW();
 
-  // Canal SW→PWA (si querés enganchar UI adicional, hacelo en app.js)
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.addEventListener('message', (ev) => {
-      // { type: "PUSH_DELIVERED" | "PUSH_READ", data: {...} }
-    });
-  }
+  // No registramos onMessage aquí para evitar duplicar handlers con app.js.
+  // app.js ya maneja onMessage (badge, refresh inbox, showNotification foreground si aplica).
 
-  if (!('Notification' in window)) return;
-  const perm = Notification.permission;
+  const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
 
   if (perm === 'granted') {
     try {
       await ensureMessagingCompatLoaded();
-
-      // Foreground: mostrar banner también cuando la app está visible
-      try {
-        const messaging = firebase.messaging();
-        messaging.onMessage(async (payload) => {
-          const d = payload?.data || {};
-          try {
-            const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js')
-                      || await navigator.serviceWorker.getRegistration();
-            if (reg?.showNotification) {
-              await reg.showNotification(d.title || 'RAMPET', {
-                body: d.body || '',
-                icon: d.icon || 'https://rampet.vercel.app/images/mi_logo_192.png',
-                tag: d.tag || d.id || 'rampet-fg',
-                renotify: false,
-                data: { id: d.id || null, url: d.url || d.click_action || '/notificaciones', via: 'page' }
-              });
-            }
-          } catch (e) {
-            console.warn('[onMessage] showNotification error', e?.message || e);
-          }
-          // Simular evento para la UI (campana/badge)
-          try { window.postMessage({ type: 'PUSH_DELIVERED', data: d }, '*'); } catch {}
-        });
-      } catch (e) {
-        console.warn('[notifications] onMessage hook error', e?.message || e);
-      }
-
-      // Asegurar/actualizar token
-      const cur = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
-      if (cur) {
-        await guardarTokenEnMiDoc(cur);
-        console.log('🔁 Token verificado/actualizado (permiso ya concedido).');
+      const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
+      if (tok) {
+        await guardarTokenEnMiDoc(tok);
+        dispatchConsent('rampet:consent:notif-opt-in', { source: 'init' });
       } else {
-        await pedirPermisoYGestionarToken();
+        // No había token a pesar de permiso concedido: intentar obtenerlo
+        const newTok = await obtenerYGuardarToken();
+        if (newTok) dispatchConsent('rampet:consent:notif-opt-in', { source: 'init-mint' });
       }
     } catch (e) {
-      console.warn('No se pudo verificar/actualizar token:', e?.message || e);
+      console.warn('[notifications] init/granted error:', e?.message || e);
     }
-  } else if (perm === 'default') {
-    pintarBotonPermiso();
-  } else {
-    console.log('🔕 El usuario bloqueó las notificaciones en el navegador.');
   }
+
+  refreshNotifUIFromPermission();
+  return true;
 }
 
-// Alias para tu import original
-export async function initNotificationsOnce() { return initFCM(); }
-
-// ───────────── shims usados por la UI ─────────────
 export async function handlePermissionRequest() {
   try {
     if (!('Notification' in window)) return;
-    const res = await Notification.requestPermission();
-    console.debug('[notifications.js] permission result:', res);
+
+    // Evitar re-preguntar si ya está concedido o denegado
+    const current = Notification.permission;
+    if (current === 'granted') {
+      // Asegurar token y UI
+      try {
+        await ensureMessagingCompatLoaded();
+        const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
+        if (tok) await guardarTokenEnMiDoc(tok);
+      } catch (e) { console.warn('[notifications] granted/getToken error:', e?.message || e); }
+      refreshNotifUIFromPermission();
+      dispatchConsent('rampet:consent:notif-opt-in', { source: 'already-granted' });
+      return;
+    }
+    if (current === 'denied') {
+      // No podemos abrir el prompt: mostrar aviso
+      refreshNotifUIFromPermission();
+      dispatchConsent('rampet:consent:notif-opt-out', { source: 'blocked' });
+      return;
+    }
+
+    // current === 'default' → pedir permiso
+    const status = await Notification.requestPermission();
+    if (status === 'granted') {
+      await obtenerYGuardarToken();
+      refreshNotifUIFromPermission();
+      dispatchConsent('rampet:consent:notif-opt-in', { source: 'prompt' });
+    } else if (status === 'denied') {
+      refreshNotifUIFromPermission();
+      dispatchConsent('rampet:consent:notif-opt-out', { source: 'prompt-denied' });
+    } else {
+      // 'default' → el usuario cerró el prompt sin respuesta
+      try { localStorage.setItem('notifPermDismissed', 'true'); } catch {}
+      refreshNotifUIFromPermission();
+      dispatchConsent('rampet:consent:notif-dismissed', { source: 'prompt-dismissed' });
+    }
   } catch (e) {
-    console.warn('[notifications.js] handlePermissionRequest error:', e?.message || e);
+    console.warn('[notifications] handlePermissionRequest error:', e?.message || e);
   }
 }
+
 export function dismissPermissionRequest() {
   try { localStorage.setItem('notifPermDismissed', 'true'); } catch {}
-  const el =
-    document.getElementById('notif-permission-card') ||
-    document.querySelector('.notif-permission-card') ||
-    document.querySelector('[data-role="notif-permission-card"]');
+  const el = $('notif-prompt-card');
   if (el) el.style.display = 'none';
+  dispatchConsent('rampet:consent:notif-dismissed', { source: 'ui-dismiss' });
 }
-export function handlePermissionSwitch(e) {
-  console.debug('[notifications.js] handlePermissionSwitch →', e?.target?.checked);
+
+export async function handlePermissionSwitch(e) {
+  const checked = !!e?.target?.checked;
+  const perm = (window.Notification?.permission) || 'default';
+  if (!('Notification' in window)) return;
+
+  if (checked) {
+    if (perm === 'granted') {
+      try {
+        await ensureMessagingCompatLoaded();
+        const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
+        if (tok) await guardarTokenEnMiDoc(tok);
+        dispatchConsent('rampet:consent:notif-opt-in', { source: 'switch-on' });
+      } catch (err) {
+        console.warn('[notifications] switch-on getToken error:', err?.message || err);
+      }
+    } else if (perm === 'default') {
+      // Intentar solicitar permiso
+      await handlePermissionRequest();
+      // El UI se refresca dentro de handlePermissionRequest
+    } else { // 'denied'
+      // No se puede activar desde la app; mostrar banner de bloqueado
+      refreshNotifUIFromPermission();
+      if ($('notif-switch')) $('notif-switch').checked = false;
+      dispatchConsent('rampet:consent:notif-opt-out', { source: 'blocked-switch' });
+    }
+  } else {
+    // Usuario desactiva desde el switch → borrar token y registrar opt-out app-level
+    await borrarTokenYOptOut();
+    refreshNotifUIFromPermission();
+    dispatchConsent('rampet:consent:notif-opt-out', { source: 'switch-off' });
+  }
 }
+
 export function handleBellClick() {
-  console.debug('[notifications.js] handleBellClick() shim');
+  // Hook para cuando abre el INBOX desde la campana; nada que hacer aquí por ahora.
   return Promise.resolve();
 }
+
 export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
-  console.debug('[notifications.js] handleSignOutCleanup() shim → fcmToken limpiado del localStorage');
+  // No borramos tokens en servidor aquí (depende de tu flujo de server).
+  console.debug('[notifications] handleSignOutCleanup → fcmToken (local) limpiado');
 }
+
+// Compat: llamado desde data.js tras obtener datos del cliente.
+// Dejamos que la UI se mantenga coherente (no fuerza prompts).
 export async function gestionarPermisoNotificaciones() {
-  try { await handlePermissionRequest(); }
-  catch (e) { console.warn('[notifications.js] gestionarPermisoNotificaciones error:', e?.message || e); }
+  try { refreshNotifUIFromPermission(); }
+  catch (e) { console.warn('[notifications] gestionarPermisoNotificaciones error:', e?.message || e); }
 }
