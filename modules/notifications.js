@@ -1,4 +1,5 @@
-// /modules/notifications.js — FCM + VAPID + Opt-In (card → switch próxima sesión) + “Beneficios cerca tuyo” (card → banner)
+// /modules/notifications.js — FCM + VAPID + Opt-In (card → switch en próxima sesión) + “Beneficios cerca tuyo” (card → banner)
+// Requiere: Firebase compat (app/auth/firestore/messaging) cargado y SW en /firebase-messaging-sw.js
 'use strict';
 
 // ─────────────────────────────────────────────────────────────
@@ -11,13 +12,9 @@ function $(id){ return document.getElementById(id); }
 function show(el, on){ if (el) el.style.display = on ? 'block' : 'none'; }
 function showInline(el, on){ if (el) el.style.display = on ? 'inline-block' : 'none'; }
 
-// Estado persistente (determinista)
+// Estados persistentes (deterministas)
 const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
-
-// Flags de sesión (para NO mostrar el switch/banner discretos hasta la próxima sesión)
-let SESSION_NOTIF_DEFERRED = false;
-let SESSION_GEO_DEFERRED = false;
 
 // ───────────────── Firebase compat helpers ─────────────────
 async function ensureMessagingCompatLoaded() {
@@ -33,8 +30,9 @@ async function ensureMessagingCompatLoaded() {
 async function registerSW() {
   if (!('serviceWorker' in navigator)) return false;
   try {
-    const existing = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
-    if (existing) { console.log('✅ SW FCM ya registrado:', existing.scope); return true; }
+    // Registrar siempre el SW de FCM si no está
+    const existingByPath = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
+    if (existingByPath) { console.log('✅ SW FCM ya registrado:', existingByPath.scope); return true; }
     const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
     console.log('✅ SW FCM registrado:', reg.scope || (location.origin + '/'));
     return true;
@@ -73,9 +71,9 @@ async function borrarTokenYOptOut() {
     try { await firebase.messaging().deleteToken(); } catch {}
     await setFcmTokensOnCliente([]); // vacío en Firestore
     try { localStorage.removeItem('fcmToken'); } catch {}
-    // no volvemos al card marketinero automáticamente
+    // Queda en "deferred" para que el usuario use el switch cuando quiera (no card marketing)
     try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
-    console.log('🔕 Opt-out FCM aplicado (token eliminado y Firestore en blanco).');
+    console.log('🔕 Opt-out FCM aplicado.');
   } catch (e) {
     console.warn('[FCM] borrarTokenYOptOut error:', e?.message || e);
   }
@@ -96,12 +94,12 @@ function refreshNotifUIFromPermission() {
   const hasNotif = ('Notification' in window);
   const perm = hasNotif ? Notification.permission : 'unsupported';
 
-  const cardMarketing = $('notif-prompt-card');     // ¡Activá tus beneficios!
-  const cardSwitch    = $('notif-card');            // deslizante (sólo próxima sesión si tocó “Luego”)
+  const cardMarketing = $('notif-prompt-card');     // “¡Activá tus beneficios exclusivos!”
+  const cardSwitch    = $('notif-card');            // deslizante
   const warnBlocked   = $('notif-blocked-warning'); // aviso bloqueado
   const switchEl      = $('notif-switch');
 
-  // reset base
+  // reset
   show(cardMarketing, false);
   show(cardSwitch, false);
   show(warnBlocked, false);
@@ -111,28 +109,24 @@ function refreshNotifUIFromPermission() {
   if (perm === 'granted') {
     if (switchEl) switchEl.checked = true;
     try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
-    return; // nada más que mostrar
+    return;
   }
 
   if (perm === 'denied') {
-    show(warnBlocked, true);
     if (switchEl) switchEl.checked = false;
+    show(warnBlocked, true);
     try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
     return;
   }
 
   // perm === 'default'
   const state = localStorage.getItem(LS_NOTIF_STATE); // null | 'deferred' | 'accepted' | 'blocked'
-
   if (state === 'deferred') {
-    // → mostrar switch SOLO en próxima sesión, no en la misma en la que tocó “Luego”
-    if (!SESSION_NOTIF_DEFERRED) {
-      show(cardSwitch, true);
-      if (switchEl) switchEl.checked = false;
-    }
-    // si SESSION_NOTIF_DEFERRED === true, no mostramos nada ahora
+    // Próxima sesión luego de “Luego” → SOLO el switch
+    show(cardSwitch, true);
+    if (switchEl) switchEl.checked = false;
   } else {
-    // Primera vez (o sin registro) → SOLO card marketinero
+    // Primera vez (o no marcado) → SOLO el card marketing
     show(cardMarketing, true);
     if (switchEl) switchEl.checked = false;
   }
@@ -140,9 +134,8 @@ function refreshNotifUIFromPermission() {
 
 export async function handlePermissionRequest() {
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
-
-  const current = Notification.permission;
   try {
+    const current = Notification.permission;
     if (current === 'granted') {
       await obtenerYGuardarToken();
       refreshNotifUIFromPermission();
@@ -153,7 +146,7 @@ export async function handlePermissionRequest() {
       return;
     }
 
-    // current === 'default' → pedir permiso
+    // current === 'default'
     const status = await Notification.requestPermission();
     if (status === 'granted') {
       await obtenerYGuardarToken();
@@ -162,9 +155,9 @@ export async function handlePermissionRequest() {
       try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
       refreshNotifUIFromPermission();
     } else {
-      // dismiss del prompt nativo → cuenta como “Luego”
+      // dismissed (cerró el prompt nativo) → cuenta como “Luego”
       try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
-      SESSION_NOTIF_DEFERRED = true; // ← no mostrar switch hasta próxima sesión
+      // No mostramos el switch en esta sesión
       refreshNotifUIFromPermission();
     }
   } catch (e) {
@@ -174,9 +167,8 @@ export async function handlePermissionRequest() {
 }
 
 export function dismissPermissionRequest() {
-  // “Quizás más tarde” en el card marketing
+  // “Quizás más tarde” → marcar deferred y ocultar card. Sin switch en esta sesión.
   try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
-  SESSION_NOTIF_DEFERRED = true; // ← evita que el switch salga en esta sesión
   const el = $('notif-prompt-card');
   if (el) el.style.display = 'none';
 }
@@ -184,7 +176,6 @@ export function dismissPermissionRequest() {
 export async function handlePermissionSwitch(e) {
   const checked = !!e?.target?.checked;
   const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
-
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
 
   if (checked) {
@@ -192,7 +183,7 @@ export async function handlePermissionSwitch(e) {
       try { await obtenerYGuardarToken(); } catch (err) { console.warn('[notifications] switch-on token error:', err?.message || err); }
       refreshNotifUIFromPermission();
     } else if (perm === 'default') {
-      await handlePermissionRequest(); // actualiza la UI coherentemente
+      await handlePermissionRequest(); // esto actualiza la UI coherentemente
     } else {
       if ($('notif-switch')) $('notif-switch').checked = false;
       refreshNotifUIFromPermission();
@@ -233,6 +224,8 @@ async function hookOnMessage() {
 }
 
 // ─────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────
 export async function initNotificationsOnce() {
   await registerSW();
 
@@ -245,11 +238,10 @@ export async function initNotificationsOnce() {
   return true;
 }
 
-// Compat: llamado desde data.js tras obtener datos del cliente.
+// Compat con data.js
 export async function gestionarPermisoNotificaciones() {
   refreshNotifUIFromPermission();
 }
-
 export function handleBellClick() { return Promise.resolve(); }
 export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
@@ -257,7 +249,7 @@ export async function handleSignOutCleanup() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// “BENEFICIOS CERCA TUYO” — Card marketing → (próx. sesión) banner discreto
+// “BENEFICIOS CERCA TUYO” — Card marketing → (próx. sesión) banner
 // ─────────────────────────────────────────────────────────────
 function geoEls(){
   return {
@@ -269,19 +261,19 @@ function geoEls(){
   };
 }
 
+// Card marketing (solo primera vez en sesión con permission = prompt y sin deferred)
 function setGeoMarketingUI(on) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
   show(banner, on);
   if (!on) return;
 
-  // Copy sin mencionar “ubicación”
-  if (txt) txt.textContent = '🎯 Activá esta opción para ver ofertas y beneficios cerca tuyo. No te pierdas oportunidades exclusivas en tu zona.';
+  if (txt) txt.textContent = 'Activá para ver ofertas y beneficios cerca tuyo.';
   showInline(btnOn,  true);
   showInline(btnOff, false);
   showInline(btnHelp,false);
 
-  // Botón "Luego" (solo en card marketing)
+  // Botón “Luego” (solo aquí). Lo recreamos idempotente por si reentramos.
   let later = document.getElementById('geo-later-btn');
   if (!later) {
     later = document.createElement('button');
@@ -291,53 +283,56 @@ function setGeoMarketingUI(on) {
     later.style.marginLeft = '8px';
     const actions = banner.querySelector('.prompt-actions') || banner;
     actions.appendChild(later);
-    later.addEventListener('click', () => {
-      try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
-      SESSION_GEO_DEFERRED = true; // ← no mostrar banner discreto en esta sesión
-      setGeoMarketingUI(false);
-    });
-  } else {
-    later.style.display = 'inline-block';
   }
+  // (Re)asignar handler de forma segura
+  later.onclick = () => {
+    try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
+    // Ocultamos el card de marketing y NO mostramos nada más en esta sesión
+    show(banner, false);
+  };
 }
 
+// Banner regular (sesiones siguientes o estados distintos de “marketing”)
 function setGeoRegularUI(state) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
 
-  // Mostrar banner discreto
   show(banner, true);
+
+  // Aseguramos que el botón “Luego” NO quede visible en el banner regular
+  const later = document.getElementById('geo-later-btn');
+  if (later) later.style.display = 'none';
 
   if (state === 'granted') {
     try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
-    // Mensaje informativo (sin decir “ubicación”)
-    if (txt) txt.textContent = '✔️ Beneficios cerca tuyo activados. Vas a recibir promos exclusivas cuando estés en la zona.';
+    if (txt) txt.textContent = 'Listo: ya podés recibir ofertas y beneficios cerca tuyo.';
     showInline(btnOn,  false);
-    showInline(btnOff, false);      // no ofrecemos “Desactivar”
+    // Si querés ocultar la opción de desactivar a nivel app, comentá la siguiente línea:
+    showInline(btnOff, true);
     showInline(btnHelp,false);
-    const later = document.getElementById('geo-later-btn');
-    if (later) later.style.display = 'none';
     return;
   }
 
   if (state === 'prompt') {
-    if (txt) txt.textContent = 'Activá esta opción para descubrir promos en tu zona.';
-    showInline(btnOn,  true);
-    showInline(btnOff, false);
-    showInline(btnHelp,false);
-    const later = document.getElementById('geo-later-btn');
-    if (later) later.style.display = 'none';
+    // Solo mostramos el banner regular si alguna vez pospuso (deferred)
+    if (localStorage.getItem(LS_GEO_STATE) === 'deferred') {
+      if (txt) txt.textContent = 'Activá para ver ofertas y beneficios cerca tuyo.';
+      showInline(btnOn,  true);
+      showInline(btnOff, false);
+      showInline(btnHelp,false);
+      return;
+    }
+    // Si no había deferred, el flujo marketing se encarga.
+    show(banner, false);
     return;
   }
 
   // denied / unknown
   try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
-  if (txt) txt.textContent = 'Para aprovechar beneficios en tu zona, habilitalo desde la configuración del navegador.';
+  if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
   showInline(btnOn,  false);
   showInline(btnOff, false);
   showInline(btnHelp,true);
-  const later = document.getElementById('geo-later-btn');
-  if (later) later.style.display = 'none';
 }
 
 async function detectGeoPermission() {
@@ -361,25 +356,12 @@ async function updateGeoUI() {
   }
 
   if (state === 'prompt' && ls !== 'deferred') {
-    // Primera vez en la sesión sin “deferred” → card marketing
+    // Primera vez en esta sesión → card marketing
     setGeoMarketingUI(true);
     return;
   }
 
-  // Si quedó “deferred”, sólo mostramos el banner discreto en PRÓXIMA sesión
-  if (state === 'prompt' && ls === 'deferred') {
-    if (SESSION_GEO_DEFERRED) {
-      // Esta sesión: no mostrar nada
-      setGeoMarketingUI(false);
-      show(geoEls().banner, false);
-      return;
-    }
-    setGeoMarketingUI(false);
-    setGeoRegularUI('prompt');
-    return;
-  }
-
-  // denied / unknown
+  // Sesiones siguientes / pospuesto → banner regular
   setGeoMarketingUI(false);
   setGeoRegularUI(state);
 }
@@ -395,12 +377,12 @@ async function handleGeoEnable() {
   updateGeoUI();
 }
 function handleGeoDisable() {
-  // desactivación “suave” (no revoca permisos del navegador)
+  // Desactivar “suave” a nivel app (no revoca permisos del navegador)
   try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
   updateGeoUI();
 }
 function handleGeoHelp() {
-  alert('Para habilitarlo: abrí la configuración del sitio en tu navegador, buscá Permisos y activalo. Luego recargá esta página.');
+  alert('Para activarlo:\n\n1) Abrí la configuración del sitio del navegador.\n2) Permisos → Ubicación → Permitir.\n3) Volvé a esta página y recargá.');
 }
 function wireGeoButtonsOnce() {
   const { banner, btnOn, btnOff, btnHelp } = geoEls();
