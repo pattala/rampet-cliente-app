@@ -618,8 +618,6 @@ function loadTermsContent() {
     <p><strong>5. Canje de Premios:</strong> El canje de premios se realiza exclusivamente en el local físico y será procesado por un administrador del sistema. La PWA sirve como un catálogo para consultar los premios disponibles y los puntos necesarios. Para realizar un canje, el cliente debe presentar una identificación válida.</p>
     <p><strong>6. Validez y Caducidad:</strong> Los puntos acumulados tienen una fecha de caducidad que se rige por las reglas definidas en el sistema. El cliente será notificado de los vencimientos próximos a través de los canales de comunicación aceptados para que pueda utilizarlos a tiempo.</p>
     <p><strong>7. Modificaciones del Programa:</strong> RAMPET se reserva el derecho de modificar los términos y condiciones, la tasa de conversión, el catálogo de premios o cualquier otro aspecto del programa de fidelización, inclusive su finalización, en cualquier momento y sin previo aviso.</p>
-    <p><strong>8. Beneficios cerca tuyo:</strong> Para mostrarte promociones disponibles en tu zona, la app puede usar la capacidad del dispositivo para detectar tu proximidad a nuestras tiendas. Esta función es opcional y sólo se activa si vos la habilitás desde la app. Podés desactivarla en cualquier momento desde la misma sección.</p>
-
   `;
 }
 function openTermsModal(){ const m=termsModal(); if(!m) return; loadTermsContent(); m.style.display='flex'; }
@@ -815,4 +813,5 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
