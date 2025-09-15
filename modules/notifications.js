@@ -110,7 +110,6 @@ function refreshNotifUIFromPermission() {
 
   if (perm === 'granted') {
     if (switchEl) switchEl.checked = true;
-    // al estar concedido, no se muestran ni card ni switch
     try { localStorage.removeItem(LS_NOTIF_DEFER); } catch {}
     try { sessionStorage.removeItem(SS_NOTIF_DEFER_THIS); } catch {}
     return;
@@ -127,20 +126,20 @@ function refreshNotifUIFromPermission() {
   const deferredThis = sessionStorage.getItem(SS_NOTIF_DEFER_THIS) === '1';
 
   if (!deferred) {
-    // NUNCA postergar → mostrar SOLO el card marketing
+    // primera sesión (sin defer) → SOLO card marketing
     showBlock(cardMarketing, true);
     if (switchEl) switchEl.checked = false;
     return;
   }
 
-  // El usuario ya tocaron “Quizás más tarde” en una sesión previa
-  // En la MISMA sesión no se muestra el switch (esperar próxima sesión)
+  // ya pospuesto alguna vez
   if (deferredThis) {
+    // en esta sesión ya eligió “luego” → no mostrar nada más
     if (switchEl) switchEl.checked = false;
-    return; // no mostramos nada esta sesión
+    return;
   }
 
-  // Próxima sesión → mostrar deslizante
+  // próxima sesión → mostrar deslizante
   showBlock(cardSwitch, true);
   if (switchEl) switchEl.checked = false;
 }
@@ -166,7 +165,6 @@ export async function handlePermissionRequest() {
     const status = await Notification.requestPermission();
     if (status === 'granted') {
       await obtenerYGuardarToken();
-      // ocultar marketing + switch
       try { localStorage.removeItem(LS_NOTIF_DEFER); } catch {}
       try { sessionStorage.removeItem(SS_NOTIF_DEFER_THIS); } catch {}
       refreshNotifUIFromPermission();
@@ -175,7 +173,7 @@ export async function handlePermissionRequest() {
       refreshNotifUIFromPermission();
       dispatchConsent('rampet:consent:notif-opt-out', { source: 'prompt-denied' });
     } else {
-      // cerró el prompt sin elegir → lo tratamos como “más tarde” de esta sesión
+      // dismissed → “luego” en esta sesión
       try { localStorage.setItem(LS_NOTIF_DEFER, '1'); } catch {}
       try { sessionStorage.setItem(SS_NOTIF_DEFER_THIS, '1'); } catch {}
       refreshNotifUIFromPermission();
@@ -222,7 +220,7 @@ export async function handlePermissionSwitch(e) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// NOTIFS: hook foreground (banner del SO) + init
+// FOREGROUND PUSH (una sola definición)
 // ─────────────────────────────────────────────────────────────
 async function hookOnMessage() {
   try {
@@ -250,17 +248,23 @@ async function hookOnMessage() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────
 export async function initNotificationsOnce() {
   await registerSW();
+
   if ('Notification' in window && Notification.permission === 'granted') {
     try { await obtenerYGuardarToken(); dispatchConsent('rampet:consent:notif-opt-in', { source: 'init' }); }
     catch (e) { console.warn('[FCM] init/granted token error:', e?.message || e); }
   }
+
   await hookOnMessage();
   refreshNotifUIFromPermission();
   return true;
 }
 
+// Compat: llamado desde data.js tras obtener datos del cliente.
 export async function gestionarPermisoNotificaciones() {
   refreshNotifUIFromPermission();
 }
@@ -298,10 +302,8 @@ function ensureGeoLaterButton() {
     later.addEventListener('click', () => {
       try { localStorage.setItem(LS_GEO_DEFER, '1'); } catch {}
       try { sessionStorage.setItem(SS_GEO_DEFER_THIS, '1'); } catch {}
-      // Ocultamos marketing esta sesión
-      showBlock(banner, false);
+      showBlock(banner, false); // ocultar marketing en esta sesión
     });
-    // Colgar en la zona de acciones del banner
     const actions = banner.querySelector('.prompt-actions') || banner;
     actions.appendChild(later);
   }
@@ -342,7 +344,6 @@ function setGeoRegularUI(state) {
     showInline(btnHelp,true);
   }
 
-  // En modo regular ocultamos el botón "Luego" si existe
   const later = document.getElementById('geo-later-btn');
   if (later) later.classList.add('hidden');
 }
@@ -375,7 +376,7 @@ async function updateGeoUI() {
     return;
   }
 
-  // Próximas sesiones (o distintos estados) → banner regular
+  // Próximas sesiones (o estados distintos) → banner regular
   setGeoMarketingUI(false);
   setGeoRegularUI(state);
 }
@@ -414,46 +415,3 @@ function wireGeoButtonsOnce() {
 export async function ensureGeoOnStartup(){ wireGeoButtonsOnce(); await updateGeoUI(); }
 export async function maybeRefreshIfStale(){ await updateGeoUI(); }
 try { window.ensureGeoOnStartup = ensureGeoOnStartup; window.maybeRefreshIfStale = maybeRefreshIfStale; } catch {}
-
-// ─────────────────────────────────────────────────────────────
-// FOREGROUND PUSH
-// ─────────────────────────────────────────────────────────────
-async function hookOnMessage() {
-  try {
-    await ensureMessagingCompatLoaded();
-    const messaging = firebase.messaging();
-    messaging.onMessage(async (payload) => {
-      const d = payload?.data || {};
-      try {
-        const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js')
-                 || await navigator.serviceWorker.getRegistration();
-        if (reg?.showNotification) {
-          await reg.showNotification(d.title || 'RAMPET', {
-            body: d.body || '',
-            icon: d.icon || 'https://rampet.vercel.app/images/mi_logo_192.png',
-            tag: d.tag || d.id || 'rampet-fg',
-            renotify: false,
-            data: { id: d.id || null, url: d.url || d.click_action || '/?inbox=1', via: 'page' }
-          });
-        }
-      } catch (e) { console.warn('[onMessage] showNotification error', e?.message || e); }
-      try { window.postMessage({ type: 'PUSH_DELIVERED', data: d }, '*'); } catch {}
-    });
-  } catch (e) { console.warn('[notifications] onMessage hook error', e?.message || e); }
-}
-
-// ─────────────────────────────────────────────────────────────
-// INIT
-// ─────────────────────────────────────────────────────────────
-export async function initNotificationsOnce() {
-  await registerSW();
-
-  if ('Notification' in window && Notification.permission === 'granted') {
-    try { await obtenerYGuardarToken(); dispatchConsent('rampet:consent:notif-opt-in', { source: 'init' }); }
-    catch (e) { console.warn('[FCM] init/granted token error:', e?.message || e); }
-  }
-
-  await hookOnMessage();
-  refreshNotifUIFromPermission();
-  return true;
-}
