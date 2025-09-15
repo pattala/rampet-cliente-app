@@ -134,18 +134,19 @@
 
       <!-- Notificaciones / prompts -->
       <div id="notif-prompt-card" class="card" style="display:none;">
-        <h3>¡Activa tus Beneficios Exclusivos! 🚀</h3>
-        <p>Al activar las notificaciones, te aseguras de no perderte nada importante.</p>
-        <ul style="text-align:left; padding-left:20px; margin:10px 0 15px;">
-          <li>💰 <strong>Puntos al Instante</strong></li>
-          <li>🔥 <strong>Ofertas Express</strong></li>
-          <li>🎁 <strong>Campañas y Recompensas</strong></li>
-        </ul>
-        <div class="prompt-actions">
-          <button id="btn-activar-notif-prompt" class="primary-btn">Sí, ¡Quiero los beneficios!</button>
-          <button id="btn-rechazar-notif-prompt" class="secondary-btn">Quizás más tarde</button>
-        </div>
-      </div>
+  <h3>🚀 ¡Activá tus beneficios exclusivos!</h3>
+  <p>Enterate al instante de promos y recompensas pensadas para vos. Activá las notificaciones y no te pierdas nada.</p>
+  <ul style="text-align:left; padding-left:20px; margin:10px 0 15px;">
+    <li>💰 <strong>Puntos al instante</strong></li>
+    <li>🔥 <strong>Ofertas flash</strong></li>
+    <li>🎁 <strong>Recompensas exclusivas</strong></li>
+  </ul>
+  <div class="prompt-actions">
+    <button id="btn-activar-notif-prompt" class="primary-btn">Sí, quiero recibir beneficios</button>
+    <button id="btn-rechazar-notif-prompt" class="secondary-btn">Luego</button>
+  </div>
+</div>
+
 
       <div id="install-prompt-card" class="card" style="display:none;">
         <h3>📲 ¡Lleva el Club Contigo!</h3>
@@ -169,16 +170,16 @@
 
       <!-- Banner de ubicación -->
       <div id="geo-banner" class="card" style="display:none;">
-        <h3>Ofertas cerca tuyo</h3>
-        <p id="geo-banner-text" style="margin:8px 0 12px;">
-          📍 Ubicación activada para recibir beneficios cercanos.
-        </p>
-        <div class="prompt-actions" style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="geo-disable-btn" class="secondary-btn">Desactivar ubicación</button>
-          <button id="geo-enable-btn" class="primary-btn" style="display:none;">Activar ubicación</button>
-          <button id="geo-help-btn" class="secondary-btn" style="display:none;">Cómo habilitar en el navegador</button>
-        </div>
-      </div>
+  <h3>Beneficios cerca tuyo</h3>
+  <p id="geo-banner-text" style="margin:8px 0 12px;"></p>
+  <div class="prompt-actions" style="display:flex; gap:8px; flex-wrap:wrap;">
+    <button id="geo-enable-btn" class="primary-btn" style="display:none;">Activar ahora</button>
+    <button id="geo-later-btn" class="secondary-btn" style="display:none;">Luego</button>
+    <button id="geo-disable-btn" class="secondary-btn" style="display:none;">Desactivar</button>
+    <button id="geo-help-btn" class="secondary-btn" style="display:none;">Cómo habilitarlo</button>
+  </div>
+</div>
+
 
       <div id="notif-blocked-warning" class="card warning-banner" style="display:none;">
         <p>⚠️ Has bloqueado las notificaciones. Habilítalas en la configuración de tu navegador.</p>
@@ -303,3 +304,4 @@
   </script>
 </body>
 </html>
+
