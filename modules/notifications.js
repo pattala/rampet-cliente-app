@@ -1,4 +1,4 @@
-// /modules/notifications.js — FCM + VAPID + Opt-In (card → switch en próxima sesión) + Geolocalización (card → banner)
+// /modules/notifications.js — FCM + VAPID + Opt-In (card → switch próxima sesión) + “Beneficios cerca tuyo” (card → banner)
 'use strict';
 
 // ─────────────────────────────────────────────────────────────
@@ -11,9 +11,13 @@ function $(id){ return document.getElementById(id); }
 function show(el, on){ if (el) el.style.display = on ? 'block' : 'none'; }
 function showInline(el, on){ if (el) el.style.display = on ? 'inline-block' : 'none'; }
 
-// Estado persistente (simple y determinista)
-const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | (null = desconocido)
-const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | (null = desconocido)
+// Estado persistente (determinista)
+const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
+const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
+
+// Flags de sesión (para NO mostrar el switch/banner discretos hasta la próxima sesión)
+let SESSION_NOTIF_DEFERRED = false;
+let SESSION_GEO_DEFERRED = false;
 
 // ───────────────── Firebase compat helpers ─────────────────
 async function ensureMessagingCompatLoaded() {
@@ -69,7 +73,7 @@ async function borrarTokenYOptOut() {
     try { await firebase.messaging().deleteToken(); } catch {}
     await setFcmTokensOnCliente([]); // vacío en Firestore
     try { localStorage.removeItem('fcmToken'); } catch {}
-    // No volvemos al card marketinero: queda como deferred para que el usuario use el switch cuando quiera
+    // no volvemos al card marketinero automáticamente
     try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
     console.log('🔕 Opt-out FCM aplicado (token eliminado y Firestore en blanco).');
   } catch (e) {
@@ -92,12 +96,12 @@ function refreshNotifUIFromPermission() {
   const hasNotif = ('Notification' in window);
   const perm = hasNotif ? Notification.permission : 'unsupported';
 
-  const cardMarketing = $('notif-prompt-card');     // ¡Activa tus Beneficios!
-  const cardSwitch    = $('notif-card');            // deslizante
+  const cardMarketing = $('notif-prompt-card');     // ¡Activá tus beneficios!
+  const cardSwitch    = $('notif-card');            // deslizante (sólo próxima sesión si tocó “Luego”)
   const warnBlocked   = $('notif-blocked-warning'); // aviso bloqueado
   const switchEl      = $('notif-switch');
 
-  // reset
+  // reset base
   show(cardMarketing, false);
   show(cardSwitch, false);
   show(warnBlocked, false);
@@ -121,11 +125,14 @@ function refreshNotifUIFromPermission() {
   const state = localStorage.getItem(LS_NOTIF_STATE); // null | 'deferred' | 'accepted' | 'blocked'
 
   if (state === 'deferred') {
-    // Próxima sesión luego de “Quizás más tarde” → mostrar solo deslizable
-    show(cardSwitch, true);
-    if (switchEl) switchEl.checked = false;
+    // → mostrar switch SOLO en próxima sesión, no en la misma en la que tocó “Luego”
+    if (!SESSION_NOTIF_DEFERRED) {
+      show(cardSwitch, true);
+      if (switchEl) switchEl.checked = false;
+    }
+    // si SESSION_NOTIF_DEFERRED === true, no mostramos nada ahora
   } else {
-    // Primera vez (o sin registro) → SOLO el card marketinero
+    // Primera vez (o sin registro) → SOLO card marketinero
     show(cardMarketing, true);
     if (switchEl) switchEl.checked = false;
   }
@@ -155,8 +162,9 @@ export async function handlePermissionRequest() {
       try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
       refreshNotifUIFromPermission();
     } else {
-      // dismissed desde el prompt nativo → cuenta como “luego”
+      // dismiss del prompt nativo → cuenta como “Luego”
       try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+      SESSION_NOTIF_DEFERRED = true; // ← no mostrar switch hasta próxima sesión
       refreshNotifUIFromPermission();
     }
   } catch (e) {
@@ -166,8 +174,9 @@ export async function handlePermissionRequest() {
 }
 
 export function dismissPermissionRequest() {
-  // “Quizás más tarde” → switch recién en la PRÓXIMA sesión
+  // “Quizás más tarde” en el card marketing
   try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+  SESSION_NOTIF_DEFERRED = true; // ← evita que el switch salga en esta sesión
   const el = $('notif-prompt-card');
   if (el) el.style.display = 'none';
 }
@@ -183,7 +192,7 @@ export async function handlePermissionSwitch(e) {
       try { await obtenerYGuardarToken(); } catch (err) { console.warn('[notifications] switch-on token error:', err?.message || err); }
       refreshNotifUIFromPermission();
     } else if (perm === 'default') {
-      await handlePermissionRequest(); // esto actualiza la UI coherentemente
+      await handlePermissionRequest(); // actualiza la UI coherentemente
     } else {
       if ($('notif-switch')) $('notif-switch').checked = false;
       refreshNotifUIFromPermission();
@@ -224,8 +233,6 @@ async function hookOnMessage() {
 }
 
 // ─────────────────────────────────────────────────────────────
-// INIT
-// ─────────────────────────────────────────────────────────────
 export async function initNotificationsOnce() {
   await registerSW();
 
@@ -244,14 +251,13 @@ export async function gestionarPermisoNotificaciones() {
 }
 
 export function handleBellClick() { return Promise.resolve(); }
-
 export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   console.debug('[notifications] handleSignOutCleanup → fcmToken (local) limpiado');
 }
 
 // ─────────────────────────────────────────────────────────────
-// GEOLOCALIZACIÓN — Card marketing → (próx. sesión) banner regular
+// “BENEFICIOS CERCA TUYO” — Card marketing → (próx. sesión) banner discreto
 // ─────────────────────────────────────────────────────────────
 function geoEls(){
   return {
@@ -268,7 +274,9 @@ function setGeoMarketingUI(on) {
   if (!banner) return;
   show(banner, on);
   if (!on) return;
-  if (txt) txt.textContent = '📍 Ofertas cerca tuyo: activá tu ubicación para no perderte beneficios exclusivos.';
+
+  // Copy sin mencionar “ubicación”
+  if (txt) txt.textContent = '🎯 Activá esta opción para ver ofertas y beneficios cerca tuyo. No te pierdas oportunidades exclusivas en tu zona.';
   showInline(btnOn,  true);
   showInline(btnOff, false);
   showInline(btnHelp,false);
@@ -285,6 +293,7 @@ function setGeoMarketingUI(on) {
     actions.appendChild(later);
     later.addEventListener('click', () => {
       try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
+      SESSION_GEO_DEFERRED = true; // ← no mostrar banner discreto en esta sesión
       setGeoMarketingUI(false);
     });
   } else {
@@ -295,14 +304,16 @@ function setGeoMarketingUI(on) {
 function setGeoRegularUI(state) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
+
+  // Mostrar banner discreto
   show(banner, true);
 
   if (state === 'granted') {
-    // Ya activada → no se pregunta más
     try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
-    if (txt) txt.textContent = '📍 Ubicación activada para recibir beneficios cercanos.';
+    // Mensaje informativo (sin decir “ubicación”)
+    if (txt) txt.textContent = '✔️ Beneficios cerca tuyo activados. Vas a recibir promos exclusivas cuando estés en la zona.';
     showInline(btnOn,  false);
-    showInline(btnOff, true);
+    showInline(btnOff, false);      // no ofrecemos “Desactivar”
     showInline(btnHelp,false);
     const later = document.getElementById('geo-later-btn');
     if (later) later.style.display = 'none';
@@ -310,24 +321,18 @@ function setGeoRegularUI(state) {
   }
 
   if (state === 'prompt') {
-    // Si el usuario pospuso alguna vez, mostramos el banner regular para activar
-    if (localStorage.getItem(LS_GEO_STATE) === 'deferred') {
-      if (txt) txt.textContent = '📍 Activá tu ubicación para ver beneficios cerca tuyo.';
-      showInline(btnOn,  true);
-      showInline(btnOff, false);
-      showInline(btnHelp,false);
-      const later = document.getElementById('geo-later-btn');
-      if (later) later.style.display = 'none';
-      return;
-    }
-    // Si no está deferred, el flujo de marketing se encarga (no llegamos acá)
-    show(banner, false);
+    if (txt) txt.textContent = 'Activá esta opción para descubrir promos en tu zona.';
+    showInline(btnOn,  true);
+    showInline(btnOff, false);
+    showInline(btnHelp,false);
+    const later = document.getElementById('geo-later-btn');
+    if (later) later.style.display = 'none';
     return;
   }
 
   // denied / unknown
   try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
-  if (txt) txt.textContent = '📍 La ubicación está bloqueada. Habilitala desde la configuración del navegador.';
+  if (txt) txt.textContent = 'Para aprovechar beneficios en tu zona, habilitalo desde la configuración del navegador.';
   showInline(btnOn,  false);
   showInline(btnOff, false);
   showInline(btnHelp,true);
@@ -356,12 +361,25 @@ async function updateGeoUI() {
   }
 
   if (state === 'prompt' && ls !== 'deferred') {
-    // Primera vez → card marketinero (esta sesión)
+    // Primera vez en la sesión sin “deferred” → card marketing
     setGeoMarketingUI(true);
     return;
   }
 
-  // Próximas sesiones o pospuesto → banner regular
+  // Si quedó “deferred”, sólo mostramos el banner discreto en PRÓXIMA sesión
+  if (state === 'prompt' && ls === 'deferred') {
+    if (SESSION_GEO_DEFERRED) {
+      // Esta sesión: no mostrar nada
+      setGeoMarketingUI(false);
+      show(geoEls().banner, false);
+      return;
+    }
+    setGeoMarketingUI(false);
+    setGeoRegularUI('prompt');
+    return;
+  }
+
+  // denied / unknown
   setGeoMarketingUI(false);
   setGeoRegularUI(state);
 }
@@ -372,18 +390,17 @@ async function handleGeoEnable() {
       if (!navigator.geolocation?.getCurrentPosition) return err(new Error('Geolocalización no disponible.'));
       navigator.geolocation.getCurrentPosition(()=>ok(true), ()=>ok(false), { timeout: 10000 });
     });
-    // Si se habilitó, marcamos aceptado
     try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
   } catch {}
   updateGeoUI();
 }
 function handleGeoDisable() {
-  // Desactivar “suave” a nivel app (no revoca permisos del navegador)
+  // desactivación “suave” (no revoca permisos del navegador)
   try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
   updateGeoUI();
 }
 function handleGeoHelp() {
-  alert('Para habilitar la ubicación:\n\n1) Abrí la configuración del sitio del navegador.\n2) Permisos → Ubicación → Permitir.\n3) Volvé a esta página y recargá.');
+  alert('Para habilitarlo: abrí la configuración del sitio en tu navegador, buscá Permisos y activalo. Luego recargá esta página.');
 }
 function wireGeoButtonsOnce() {
   const { banner, btnOn, btnOff, btnHelp } = geoEls();
