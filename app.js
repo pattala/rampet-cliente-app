@@ -1,4 +1,4 @@
-si por favor fue lo que te pedi por eso te pase la app para que lo depuraras, comentaras y realizaras las modificaciones: 
+
 // app.js — PWA del Cliente (instalación, notifs foreground + badge local, INBOX destacar/borrar + opt-in persistente)
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
@@ -813,6 +813,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
