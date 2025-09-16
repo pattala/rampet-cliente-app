@@ -1,50 +1,23 @@
-// app.js — PWA del Cliente (instalación, notifs foreground + badge local, INBOX destacar/borrar + opt-in persistente)
-import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
-import * as UI from './modules/ui.js';
-import * as Data from './modules/data.js';
-import * as Auth from './modules/auth.js';
 
-// Notificaciones (único import desde notifications.js)
-import {
-  initNotificationsOnce,
-  handlePermissionRequest,
-  dismissPermissionRequest,
-  handlePermissionSwitch,
-  handleBellClick,
-  handleSignOutCleanup
-} from './modules/notifications.js';
 
-// === DEBUG / OBS ===
-window.__RAMPET_DEBUG = true;
-window.__BUILD_ID = 'pwa-2025-09-07-3'; // bump
-function d(tag, ...args){ if (window.__RAMPET_DEBUG) console.log(`[DBG][${window.__BUILD_ID}] ${tag}`, ...args); }
+// /modules/notifications.js — FCM + VAPID + Opt-In (card → switch en próxima sesión) + “Beneficios cerca tuyo” (card → banner)
+'use strict';
 
-window.__reportState = async (where='')=>{
-  const notifPerm = (window.Notification?.permission)||'n/a';
-  let swReady = false;
-  try { swReady = !!(await navigator.serviceWorker?.getRegistration?.('/')); } catch {}
-  const fcm = localStorage.getItem('fcmToken') ? 'present' : 'missing';
-  let geo = 'n/a';
-  try { if (navigator.permissions?.query) geo = (await navigator.permissions.query({name:'geolocation'})).state; } catch {}
-  d(`STATE@${where}`, { notifPerm, swReady, fcm, geo });
-};
-
-// 🔥 CAMBIO — helper rápido de toast
-function showToast(msg, type='info', ms=4000){
-  const c = document.getElementById('toast-container');
-  if (!c) { alert(msg); return; }
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = msg;
-  c.appendChild(el);
-  setTimeout(()=> el.remove(), ms);
-}
-
-// ──────────────────────────────────────────────────────────────
-// FCM (foreground): asegurar token + handlers
-// ──────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// CONFIG / HELPERS
+// ─────────────────────────────────────────────────────────────
 const VAPID_PUBLIC = (window.__RAMPET__ && window.__RAMPET__.VAPID_PUBLIC) || '';
+if (!VAPID_PUBLIC) console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
 
+function $(id){ return document.getElementById(id); }
+function show(el, on){ if (el) el.style.display = on ? 'block' : 'none'; }
+function showInline(el, on){ if (el) el.style.display = on ? 'inline-block' : 'none'; }
+
+// Estados persistentes
+const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
+const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
+
+// ───────────────── Firebase compat helpers ─────────────────
 async function ensureMessagingCompatLoaded() {
   if (typeof firebase?.messaging === 'function') return;
   await new Promise((ok, err) => {
@@ -55,9 +28,11 @@ async function ensureMessagingCompatLoaded() {
   });
 }
 
-async function registerFcmSW() {
+async function registerSW() {
   if (!('serviceWorker' in navigator)) return false;
   try {
+    const existing = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
+    if (existing) { console.log('✅ SW FCM ya registrado:', existing.scope); return true; }
     const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
     console.log('✅ SW FCM registrado:', reg.scope || (location.origin + '/'));
     return true;
@@ -67,216 +42,290 @@ async function registerFcmSW() {
   }
 }
 
-async function resolveClienteRefByAuthUID() {
-  const u = auth.currentUser;
-  if (!u) return null;
-  const qs = await db.collection('clientes').where('authUID','==', u.uid).limit(1).get();
-  if (qs.empty) return null;
-  return qs.docs[0].ref;
+async function getClienteDocIdPorUID(uid) {
+  const snap = await firebase.firestore()
+    .collection('clientes')
+    .where('authUID', '==', uid)
+    .limit(1)
+    .get();
+  return snap.empty ? null : snap.docs[0].id;
 }
-
+async function setFcmTokensOnCliente(tokensArray) {
+  const uid = firebase.auth().currentUser?.uid;
+  if (!uid) throw new Error('No hay usuario logueado.');
+  const clienteId = await getClienteDocIdPorUID(uid);
+  if (!clienteId) throw new Error('No encontré tu doc en clientes (authUID).');
+  await firebase.firestore().collection('clientes').doc(clienteId)
+    .set({ fcmTokens: tokensArray }, { merge: true });
+  return clienteId;
+}
 async function guardarTokenEnMiDoc(token) {
-  const ref = await resolveClienteRefByAuthUID();
-  if (!ref) throw new Error('No encontré tu doc en clientes (authUID).');
-  await ref.set({ fcmTokens: [token] }, { merge: true }); // reemplazo total
+  const clienteId = await setFcmTokensOnCliente([token]);
   try { localStorage.setItem('fcmToken', token); } catch {}
-  console.log('✅ Token FCM guardado en', ref.path);
+  try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
+  console.log('✅ Token FCM guardado en clientes/' + clienteId);
 }
-
-/** Foreground: notificación del sistema aunque la PWA esté abierta */
-async function showForegroundNotification(data) {
+async function borrarTokenYOptOut() {
   try {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    const reg = await navigator.serviceWorker.getRegistration();
-    if (!reg) return;
-
-    const opts = {
-      body: data.body || '',
-      icon: data.icon || 'https://rampet.vercel.app/images/mi_logo_192.png',
-      data: { id: data.id, url: data.url || '/?inbox=1' }
-    };
-    if (data.tag) { opts.tag = data.tag; opts.renotify = true; }
-    if (data.badge) opts.badge = data.badge;
-
-    await reg.showNotification(data.title || 'RAMPET', opts);
-  } catch (e) {
-    console.warn('[FCM] showForegroundNotification error:', e?.message || e);
-  }
-}
-
-/** Badge campanita — solo local (suma al llegar, se limpia al abrir INBOX) */
-function ensureBellBlinkStyle(){
-  if (document.getElementById('__bell_blink_css__')) return;
-  const css = `
-    @keyframes rampet-blink { 0%,100%{opacity:1} 50%{opacity:.3} }
-    #btn-notifs.blink { animation: rampet-blink 1s linear infinite; }
-  `;
-  const style = document.createElement('style');
-  style.id = '__bell_blink_css__';
-  style.textContent = css;
-  document.head.appendChild(style);
-}
-function getBadgeCount(){ const n = Number(localStorage.getItem('notifBadgeCount')||'0'); return Number.isFinite(n)? n : 0; }
-function setBadgeCount(n){
-  ensureBellBlinkStyle();
-  try { localStorage.setItem('notifBadgeCount', String(Math.max(0, n|0))); } catch {}
-  const badge = document.getElementById('notif-counter');
-  const bell  = document.getElementById('btn-notifs');
-  if (!badge || !bell) return;
-  if (n > 0) {
-    badge.textContent = String(n);
-    badge.style.display = 'inline-block';
-    bell.classList.add('blink');
-  } else {
-    badge.style.display = 'none';
-    bell.classList.remove('blink');
-  }
-}
-function bumpBadge(){ setBadgeCount(getBadgeCount() + 1); }
-function resetBadge(){ setBadgeCount(0); }
-
-/** onMessage foreground → notificación + badge + refrescar inbox si visible */
-async function registerForegroundFCMHandlers() {
-  await ensureMessagingCompatLoaded();
-  const messaging = firebase.messaging();
-
-  messaging.onMessage(async (payload) => {
-    const d = (()=>{
-      const dd = payload?.data || {};
-      const id  = dd.id ? String(dd.id) : undefined;
-      const tag = dd.tag ? String(dd.tag) : (id ? `push-${id}` : undefined);
-      return {
-        id,
-        title: String(dd.title || dd.titulo || 'RAMPET'),
-        body:  String(dd.body  || dd.cuerpo || ''),
-        icon:  String(dd.icon  || 'https://rampet.vercel.app/images/mi_logo_192.png'),
-        badge: dd.badge ? String(dd.badge) : undefined,
-        url:   String(dd.url   || dd.click_action || '/?inbox=1'),
-        tag
-      };
-    })();
-
-    await showForegroundNotification(d);
-    bumpBadge();
-
-    try {
-      const modal = document.getElementById('inbox-modal');
-      if (modal && modal.style.display === 'flex') {
-        await fetchInboxBatchUnified?.();
-      }
-    } catch {}
-  });
-
-  // Canal SW → APP
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.addEventListener('message', async (ev) => {
-      const t = ev?.data?.type;
-      if (t === 'PUSH_DELIVERED') {
-        bumpBadge();
-      } else if (t === 'OPEN_INBOX') {
-        await openInboxModal();
-      }
-    });
-  }
-}
-
-/** Garantiza token si perm=granted (no fuerza prompt aquí) */
-async function initFCMForRampet() {
-  if (!VAPID_PUBLIC) {
-    console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
-    return;
-  }
-  await registerFcmSW();
-  await ensureMessagingCompatLoaded();
-
-  if ((Notification?.permission || 'default') !== 'granted') {
-    d('FCM@skip', 'perm ≠ granted (no se solicita aquí)');
-    return;
-  }
-
-  try {
+    await ensureMessagingCompatLoaded();
     try { await firebase.messaging().deleteToken(); } catch {}
-    const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
-    if (tok) {
-      await guardarTokenEnMiDoc(tok);
-      console.log('[FCM] token actual:', tok);
-    } else {
-      console.warn('[FCM] getToken devolvió vacío.');
-    }
+    await setFcmTokensOnCliente([]);
+    try { localStorage.removeItem('fcmToken'); } catch {}
+    try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+    console.log('🔕 Opt-out FCM aplicado.');
   } catch (e) {
-    console.warn('[FCM] init error:', e?.message || e);
+    console.warn('[FCM] borrarTokenYOptOut error:', e?.message || e);
   }
-
-  await registerForegroundFCMHandlers();
+}
+async function obtenerYGuardarToken() {
+  await ensureMessagingCompatLoaded();
+  try { await firebase.messaging().deleteToken(); } catch {}
+  const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
+  if (!tok) throw new Error('getToken devolvió vacío.');
+  await guardarTokenEnMiDoc(tok);
+  return tok;
 }
 
-// ... (sin cambios hasta setupMainAppScreenListeners)
+// ─────────────────────────────────────────────────────────────
+// NOTIFICACIONES — UI
+// ─────────────────────────────────────────────────────────────
+function refreshNotifUIFromPermission() {
+  const hasNotif = ('Notification' in window);
+  const perm = hasNotif ? Notification.permission : 'unsupported';
 
-// ──────────────────────────────────────────────────────────────
-// LISTENERS de app principal
-// ──────────────────────────────────────────────────────────────
-function setupMainAppScreenListeners() {
-  // Logout igual...
+  const cardMarketing = $('notif-prompt-card');
+  const cardSwitch    = $('notif-card');
+  const warnBlocked   = $('notif-blocked-warning');
+  const switchEl      = $('notif-switch');
 
-  // 🔥 CAMBIO — flujo completo de cambiar clave
-  on('change-password-btn', 'click', () => {
-    const m = document.getElementById('password-modal');
-    if (m) m.style.display = 'flex';
-  });
-  on('close-password-modal', 'click', () => {
-    const m = document.getElementById('password-modal');
-    if (m) m.style.display = 'none';
-  });
-  on('save-new-password-btn', 'click', async () => {
-    const input = document.getElementById('new-password-input');
-    const newPass = input?.value?.trim() || '';
-    if (newPass.length < 6) {
-      showToast('La clave debe tener al menos 6 caracteres', 'error');
+  show(cardMarketing, false);
+  show(cardSwitch, false);
+  show(warnBlocked, false);
+
+  if (!hasNotif) return;
+
+  if (perm === 'granted') {
+    if (switchEl) switchEl.checked = true;
+    try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
+    return;
+  }
+  if (perm === 'denied') {
+    if (switchEl) switchEl.checked = false;
+    show(warnBlocked, true);
+    try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
+    return;
+  }
+
+  const state = localStorage.getItem(LS_NOTIF_STATE);
+  if (state === 'deferred') {
+    show(cardSwitch, true);
+    if (switchEl) switchEl.checked = false;
+  } else {
+    show(cardMarketing, true);
+    if (switchEl) switchEl.checked = false;
+  }
+}
+
+export async function handlePermissionRequest() {
+  if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
+  try {
+    const current = Notification.permission;
+    if (current === 'granted') {
+      await obtenerYGuardarToken();
+      refreshNotifUIFromPermission();
       return;
     }
-    try {
-      await auth.currentUser.updatePassword(newPass);
-      showToast('✅ Clave actualizada con éxito', 'success');
-      const m = document.getElementById('password-modal');
-      if (m) m.style.display = 'none';
-      input.value = '';
-    } catch (e) {
-      console.warn('changePassword error:', e);
-      showToast('❌ Error al actualizar la clave', 'error');
+    if (current === 'denied') {
+      refreshNotifUIFromPermission();
+      return;
     }
-  });
+    const status = await Notification.requestPermission();
+    if (status === 'granted') {
+      await obtenerYGuardarToken();
+    } else if (status === 'denied') {
+      try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
+    } else {
+      try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+    }
+    refreshNotifUIFromPermission();
+  } catch (e) {
+    console.warn('[notifications] handlePermissionRequest error:', e?.message || e);
+    refreshNotifUIFromPermission();
+  }
+}
+export function dismissPermissionRequest() {
+  try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+  const el = $('notif-prompt-card');
+  if (el) el.style.display = 'none';
+}
+export async function handlePermissionSwitch(e) {
+  const checked = !!e?.target?.checked;
+  const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
+  if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
 
-  // 🔥 CAMBIO — notifs botón "Luego"
-  on('btn-rechazar-notif-prompt', 'click', async () => {
-    try { await Data.saveNotifDismiss(); } catch {}
-    try { await dismissPermissionRequest(); } catch {}
-    try { await window.__reportState?.('notif-dismiss'); } catch {}
-  });
-
-  // resto igual...
+  if (checked) {
+    if (perm === 'granted') {
+      try { await obtenerYGuardarToken(); } catch (err) {}
+    } else if (perm === 'default') {
+      await handlePermissionRequest();
+    } else {
+      if ($('notif-switch')) $('notif-switch').checked = false;
+    }
+  } else {
+    await borrarTokenYOptOut();
+  }
+  refreshNotifUIFromPermission();
 }
 
-// ──────────────────────────────────────────────────────────────
-// Main
-// ──────────────────────────────────────────────────────────────
-async function main() {
-  setupFirebase();
-  const messagingSupported = await checkMessagingSupport();
-
-  auth.onAuthStateChanged(async (user) => {
-    // ... igual hasta GEO inicio
-
-    // GEO inicio (si existe en este bundle)
-    try { await window.ensureGeoOnStartup?.(); } catch {}
-
-    // 🔥 CAMBIO — si pospuso, mostrar banner chico en próxima sesión
-    const geoState = localStorage.getItem('geoState');
-    if (geoState === 'deferred') {
-      try { await window.maybeRefreshIfStale?.(); } catch {}
-    }
-
-    // ... resto igual
-  });
+// ─────────────────────────────────────────────────────────────
+// FOREGROUND PUSH
+// ─────────────────────────────────────────────────────────────
+async function hookOnMessage() {
+  try {
+    await ensureMessagingCompatLoaded();
+    const messaging = firebase.messaging();
+    messaging.onMessage(async (payload) => {
+      const d = payload?.data || {};
+      try {
+        const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js')
+                 || await navigator.serviceWorker.getRegistration();
+        if (reg?.showNotification) {
+          await reg.showNotification(d.title || 'RAMPET', {
+            body: d.body || '',
+            icon: d.icon || 'https://rampet.vercel./images/mi_logo_192.png',
+            tag: d.tag || d.id || 'rampet-fg',
+            data: { url: d.url || d.click_action || '/?inbox=1' }
+          });
+        }
+      } catch (e) { console.warn('[onMessage] error', e?.message || e); }
+    });
+  } catch (e) {
+    console.warn('[notifications] hookOnMessage error:', e?.message || e);
+  }
 }
 
-document.addEventListener('DOMContentLoaded', main);
+// ─────────────────────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────────────────────
+export async function initNotificationsOnce() {
+  await registerSW();
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try { await obtenerYGuardarToken(); } catch {}
+  }
+  await hookOnMessage();
+  refreshNotifUIFromPermission();
+  return true;
+}
+export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
+export function handleBellClick() { return Promise.resolve(); }
+export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
+
+// ─────────────────────────────────────────────────────────────
+// “BENEFICIOS CERCA TUYO”
+// ─────────────────────────────────────────────────────────────
+function geoEls(){
+  return {
+    banner: $('geo-banner'),
+    txt: $('geo-banner-text'),
+    btnOn: $('geo-enable-btn'),
+    btnOff: $('geo-disable-btn'),
+    btnHelp: $('geo-help-btn')
+  };
+}
+
+function setGeoMarketingUI(on) {
+  const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
+  if (!banner) return;
+  show(banner, on);
+  if (!on) return;
+  if (txt) txt.textContent = 'Activá para ver ofertas y beneficios cerca tuyo.';
+  showInline(btnOn,true); showInline(btnOff,false); showInline(btnHelp,false);
+
+  let later = document.getElementById('geo-later-btn');
+  if (!later) {
+    later = document.createElement('button');
+    later.id = 'geo-later-btn';
+    later.className = 'secondary-btn';
+    later.textContent = 'Luego';
+    later.style.marginLeft = '8px';
+    const actions = banner.querySelector('.prompt-actions') || banner;
+    actions.appendChild(later);
+  }
+  later.onclick = () => {
+    try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
+    show(banner, false);
+  };
+}
+
+function setGeoRegularUI(state) {
+  const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
+  if (!banner) return;
+  show(banner,true);
+
+  const later = document.getElementById('geo-later-btn');
+  if (later) later.style.display = 'none';
+
+  if (state === 'granted') {
+    try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
+    if (txt) txt.textContent = 'Listo: ya podés recibir ofertas y beneficios cerca tuyo.';
+    showInline(btnOn,false);
+    showInline(btnOff,true); // comentar esta línea si querés ocultar desactivar
+    showInline(btnHelp,false);
+    return;
+  }
+  if (state === 'prompt') {
+    if (localStorage.getItem(LS_GEO_STATE) === 'deferred') {
+      if (txt) txt.textContent = 'Activá para ver ofertas y beneficios cerca tuyo.';
+      showInline(btnOn,true); showInline(btnOff,false); showInline(btnHelp,false);
+      return;
+    }
+    show(banner,false);
+    return;
+  }
+  try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
+  if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
+  showInline(btnOn,false); showInline(btnOff,false); showInline(btnHelp,true);
+}
+
+async function detectGeoPermission() {
+  try {
+    if (navigator.permissions?.query) {
+      const st = await navigator.permissions.query({ name: 'geolocation' });
+      return st.state;
+    }
+  } catch {}
+  return 'unknown';
+}
+async function updateGeoUI() {
+  const state = await detectGeoPermission();
+  const ls = localStorage.getItem(LS_GEO_STATE);
+  if (state === 'granted') { setGeoMarketingUI(false); setGeoRegularUI('granted'); return; }
+  if (state === 'prompt' && ls !== 'deferred') { setGeoMarketingUI(true); return; }
+  setGeoMarketingUI(false); setGeoRegularUI(state);
+}
+async function handleGeoEnable() {
+  try {
+    await new Promise((ok,err)=>{ if(!navigator.geolocation?.getCurrentPosition) return err(); navigator.geolocation.getCurrentPosition(()=>ok(true),()=>ok(false)); });
+    try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
+  } catch {}
+  updateGeoUI();
+}
+function handleGeoDisable() {
+  try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
+  updateGeoUI();
+}
+function handleGeoHelp() { alert('Para activarlo:\n\n1) Abrí configuración del navegador.\n2) Permisos → Activar.\n3) Recargá la página.'); }
+function wireGeoButtonsOnce() {
+  const { banner, btnOn, btnOff, btnHelp } = geoEls();
+  if (!banner || banner._wired) return; banner._wired = true;
+  btnOn?.addEventListener('click', handleGeoEnable);
+  btnOff?.addEventListener('click', handleGeoDisable);
+  btnHelp?.addEventListener('click', handleGeoHelp);
+}
+
+// Export
+export async function ensureGeoOnStartup(){ wireGeoButtonsOnce(); await updateGeoUI(); }
+export async function maybeRefreshIfStale(){ await updateGeoUI(); }
+try { window.ensureGeoOnStartup = ensureGeoOnStartup; window.maybeRefreshIfStale = maybeRefreshIfStale; } catch {}
+
+
