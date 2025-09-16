@@ -657,14 +657,18 @@ function setupMainAppScreenListeners() {
     try { window.cleanupUiObservers?.(); } catch {}
     Auth.logout();
   });
-
-  // Cambio de password
-  on('change-password-btn', 'click', UI.openChangePasswordModal);
-
+// Cambio de password
+on('change-password-btn', 'click', UI.openChangePasswordModal);
 
 // Cerrar modal (X) y botón Cancelar
-on('close-password-modal', 'click', () => { const m = document.getElementById('change-password-modal'); if (m) m.style.display = 'none'; });
-on('cancel-change-password', 'click', () => { const m = document.getElementById('change-password-modal'); if (m) m.style.display = 'none'; });
+on('close-password-modal', 'click', () => {
+  const m = document.getElementById('change-password-modal');
+  if (m) m.style.display = 'none';
+});
+on('cancel-change-password', 'click', () => {
+  const m = document.getElementById('change-password-modal');
+  if (m) m.style.display = 'none';
+});
 
 // Guardar nueva contraseña
 on('save-change-password', 'click', async () => {
@@ -680,7 +684,7 @@ on('save-change-password', 'click', async () => {
   if (!user) { UI.showToast('No hay sesión activa.', 'error'); return; }
 
   try {
-    // 1) Intentar re-autenticación si el usuario ingresó su contraseña actual
+    // Re-auth opcional si ingresó la actual
     if (curr) {
       try {
         const cred = firebase.auth.EmailAuthProvider.credential(user.email, curr);
@@ -691,12 +695,10 @@ on('save-change-password', 'click', async () => {
       }
     }
 
-    // 2) Intentar cambio de contraseña
     await user.updatePassword(pass1);
     UI.showToast('¡Listo! Contraseña actualizada.', 'success');
     const m = document.getElementById('change-password-modal'); if (m) m.style.display = 'none';
   } catch (e) {
-    // Si requiere login reciente y no tenemos la actual → mandar e-mail de reset
     if (e?.code === 'auth/requires-recent-login') {
       try {
         await firebase.auth().sendPasswordResetEmail(user.email);
@@ -711,6 +713,8 @@ on('save-change-password', 'click', async () => {
     }
   }
 });
+
+
 
   // T&C
   on('show-terms-link-banner', 'click', (e) => { e.preventDefault(); openTermsModal(); });
@@ -864,6 +868,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
