@@ -1,6 +1,8 @@
 
 // app.js — PWA del Cliente (instalación, notifs foreground + badge local, INBOX destacar/borrar + opt-in persistente)
-import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
+
+import { setupFirebase, checkMessagingSupport, auth, db, firebase } from './modules/firebase.js';
+
 import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
@@ -658,8 +660,57 @@ function setupMainAppScreenListeners() {
 
   // Cambio de password
   on('change-password-btn', 'click', UI.openChangePasswordModal);
-  on('save-new-password-btn', 'click', Auth.changePassword);
-  on('close-password-modal', 'click', UI.closeChangePasswordModal);
+
+
+// Cerrar modal (X) y botón Cancelar
+on('close-password-modal', 'click', () => { const m = document.getElementById('change-password-modal'); if (m) m.style.display = 'none'; });
+on('cancel-change-password', 'click', () => { const m = document.getElementById('change-password-modal'); if (m) m.style.display = 'none'; });
+
+// Guardar nueva contraseña
+on('save-change-password', 'click', async () => {
+  const get = id => document.getElementById(id)?.value?.trim() || '';
+  const curr = get('current-password');
+  const pass1 = get('new-password');
+  const pass2 = get('confirm-new-password');
+
+  if (!pass1 || pass1.length < 6) { UI.showToast('La nueva contraseña debe tener al menos 6 caracteres.', 'error'); return; }
+  if (pass1 !== pass2) { UI.showToast('Las contraseñas no coinciden.', 'error'); return; }
+
+  const user = firebase?.auth?.()?.currentUser;
+  if (!user) { UI.showToast('No hay sesión activa.', 'error'); return; }
+
+  try {
+    // 1) Intentar re-autenticación si el usuario ingresó su contraseña actual
+    if (curr) {
+      try {
+        const cred = firebase.auth.EmailAuthProvider.credential(user.email, curr);
+        await user.reauthenticateWithCredential(cred);
+      } catch (e) {
+        console.warn('Reauth falló:', e?.code || e);
+        UI.showToast('No pudimos validar tu contraseña actual.', 'warning');
+      }
+    }
+
+    // 2) Intentar cambio de contraseña
+    await user.updatePassword(pass1);
+    UI.showToast('¡Listo! Contraseña actualizada.', 'success');
+    const m = document.getElementById('change-password-modal'); if (m) m.style.display = 'none';
+  } catch (e) {
+    // Si requiere login reciente y no tenemos la actual → mandar e-mail de reset
+    if (e?.code === 'auth/requires-recent-login') {
+      try {
+        await firebase.auth().sendPasswordResetEmail(user.email);
+        UI.showToast('Por seguridad te enviamos un e-mail para restablecer la contraseña.', 'info');
+      } catch (e2) {
+        console.error('Reset email error:', e2?.code || e2);
+        UI.showToast('No pudimos enviar el e-mail de restablecimiento.', 'error');
+      }
+    } else {
+      console.error('updatePassword error:', e?.code || e);
+      UI.showToast('No se pudo actualizar la contraseña.', 'error');
+    }
+  }
+});
 
   // T&C
   on('show-terms-link-banner', 'click', (e) => { e.preventDefault(); openTermsModal(); });
@@ -813,6 +864,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
