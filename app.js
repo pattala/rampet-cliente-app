@@ -1,5 +1,4 @@
 
-// app.js — PWA del Cliente (instalación, notifs foreground + badge local, INBOX destacar/borrar + opt-in persistente)
 import { setupFirebase, checkMessagingSupport, auth, db } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
@@ -813,7 +812,6 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
 
 
 
