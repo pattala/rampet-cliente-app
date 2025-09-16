@@ -675,8 +675,12 @@ on('cancel-change-password', 'click', () => {
 
 // Guardar nueva contraseña
 on('save-change-password', 'click', async () => {
+  const saveBtn = document.getElementById('save-change-password');
+  if (!saveBtn) return;
+  if (saveBtn.disabled) return; // evita doble click
+
   const get = id => document.getElementById(id)?.value?.trim() || '';
-  const curr = get('current-password');
+  const curr  = get('current-password');
   const pass1 = get('new-password');
   const pass2 = get('confirm-new-password');
 
@@ -686,8 +690,18 @@ on('save-change-password', 'click', async () => {
   const user = firebase?.auth?.()?.currentUser;
   if (!user) { UI.showToast('No hay sesión activa.', 'error'); return; }
 
+  // 🔹 Feedback inmediato
+  const prevTxt = saveBtn.textContent;
+  saveBtn.textContent = 'Guardando…';
+  saveBtn.disabled = true;
+  saveBtn.setAttribute('aria-busy', 'true');
+  ['current-password','new-password','confirm-new-password'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = true;
+  });
+
   try {
-    // Re-auth opcional si ingresó la actual
+    // Reauth opcional si ingresó la actual
     if (curr) {
       try {
         const cred = firebase.auth.EmailAuthProvider.credential(user.email, curr);
@@ -714,8 +728,18 @@ on('save-change-password', 'click', async () => {
       console.error('updatePassword error:', e?.code || e);
       UI.showToast('No se pudo actualizar la contraseña.', 'error');
     }
+  } finally {
+    // 🔹 Restaurar UI
+    saveBtn.textContent = prevTxt;
+    saveBtn.disabled = false;
+    saveBtn.removeAttribute('aria-busy');
+    ['current-password','new-password','confirm-new-password'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = false;
+    });
   }
 });
+
 
 
 
@@ -871,6 +895,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
