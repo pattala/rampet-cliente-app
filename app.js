@@ -648,6 +648,9 @@ function setupAuthScreenListeners() {
 }
 
 function setupMainAppScreenListeners() {
+ if (window.__RAMPET__?.mainListenersWired) return;
+  (window.__RAMPET__ ||= {}).mainListenersWired = true;
+  
   // Logout
   on('logout-btn', 'click', async () => {
     try { await handleSignOutCleanup(); } catch {}
@@ -868,6 +871,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
