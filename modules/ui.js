@@ -357,3 +357,29 @@ export function renderRecentHistory(cliente = {}) {
 document.addEventListener('rampet:cliente-updated', (e) => {
   try { renderRecentHistory(e.detail?.cliente || {}); } catch {}
 });
+// ===== Perfil (modal) =====
+function setVal(id, v){ const el = document.getElementById(id); if (el) el.value = v ?? ''; }
+function setChecked(id, v){ const el = document.getElementById(id); if (el) el.checked = !!v; }
+function setText(id, v){ const el = document.getElementById(id); if (el) el.textContent = v ?? '—'; }
+
+export function openProfileModal(){
+  const m = document.getElementById('profile-modal');
+  if (!m) return;
+  const c = (window.clienteData) || {};
+  setVal('prof-nombre',   c.nombre || '');
+  setVal('prof-telefono', c.telefono || '');
+  setVal('prof-fecha',    c.fechaNacimiento || '');
+  setVal('prof-dni',      c.dni || '');
+  setVal('prof-email',    c.email || '');
+  setChecked('prof-consent-notif', !!(c.config && c.config.notifEnabled));
+  setChecked('prof-consent-geo',   !!(c.config && c.config.geoEnabled));
+  const addr = c?.domicilio?.addressLine || '—';
+  setText('prof-address-summary', addr);
+  m.style.display = 'flex';
+}
+
+export function closeProfileModal(){
+  const m = document.getElementById('profile-modal');
+  if (m) m.style.display = 'none';
+}
+
