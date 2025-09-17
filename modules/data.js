@@ -284,6 +284,14 @@ async function mergeCliente(data) {
   if (!clienteRef) return;
   await clienteRef.set(data, { merge: true });
 }
+export async function updateProfile(partial = {}) {
+  if (!clienteRef) return;
+  const allowed = {};
+  ['nombre','telefono','fechaNacimiento'].forEach(k=>{
+    if (partial[k] != null) allowed[k] = partial[k];
+  });
+  await clienteRef.set(allowed, { merge:true });
+}
 
 export async function updateConfig(partial = {}) {
   if (!clienteRef) return;
@@ -406,3 +414,4 @@ if (typeof window !== 'undefined') {
 
 // Stubs
 export async function acceptTerms() { /* futuro: guardar aceptación */ }
+
