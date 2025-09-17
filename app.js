@@ -1,4 +1,3 @@
-
 // app.js — PWA del Cliente (instalación, notifs foreground + badge local, INBOX destacar/borrar + opt-in persistente)
 
 import { setupFirebase, checkMessagingSupport, auth, db, firebase } from './modules/firebase.js';
@@ -7,12 +6,8 @@ import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 
-// Import (si no estaba)
+// Import del módulo (lo usamos luego tras login para inicializar el form)
 import * as Notifications from './modules/notifications.js';
-
-// Luego de montar la UI principal / perfil:
-Notifications.initDomicilioForm?.();
-
 
 // Notificaciones (único import desde notifications.js)
 import {
@@ -667,88 +662,86 @@ function setupMainAppScreenListeners() {
     try { window.cleanupUiObservers?.(); } catch {}
     Auth.logout();
   });
-// Cambio de password
-on('change-password-btn', 'click', UI.openChangePasswordModal);
 
-// Cerrar modal (X) y botón Cancelar
-on('close-password-modal', 'click', () => {
-  const m = document.getElementById('change-password-modal');
-  if (m) m.style.display = 'none';
-});
-on('cancel-change-password', 'click', () => {
-  const m = document.getElementById('change-password-modal');
-  if (m) m.style.display = 'none';
-});
+  // Cambio de password
+  on('change-password-btn', 'click', UI.openChangePasswordModal);
 
-// Guardar nueva contraseña
-on('save-change-password', 'click', async () => {
-  const saveBtn = document.getElementById('save-change-password');
-  if (!saveBtn) return;
-  if (saveBtn.disabled) return; // evita doble click
-
-  const get = id => document.getElementById(id)?.value?.trim() || '';
-  const curr  = get('current-password');
-  const pass1 = get('new-password');
-  const pass2 = get('confirm-new-password');
-
-  if (!pass1 || pass1.length < 6) { UI.showToast('La nueva contraseña debe tener al menos 6 caracteres.', 'error'); return; }
-  if (pass1 !== pass2) { UI.showToast('Las contraseñas no coinciden.', 'error'); return; }
-
-  const user = firebase?.auth?.()?.currentUser;
-  if (!user) { UI.showToast('No hay sesión activa.', 'error'); return; }
-
-  // 🔹 Feedback inmediato
-  const prevTxt = saveBtn.textContent;
-  saveBtn.textContent = 'Guardando…';
-  saveBtn.disabled = true;
-  saveBtn.setAttribute('aria-busy', 'true');
-  ['current-password','new-password','confirm-new-password'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.disabled = true;
+  // Cerrar modal (X) y botón Cancelar
+  on('close-password-modal', 'click', () => {
+    const m = document.getElementById('change-password-modal');
+    if (m) m.style.display = 'none';
+  });
+  on('cancel-change-password', 'click', () => {
+    const m = document.getElementById('change-password-modal');
+    if (m) m.style.display = 'none';
   });
 
-  try {
-    // Reauth opcional si ingresó la actual
-    if (curr) {
-      try {
-        const cred = firebase.auth.EmailAuthProvider.credential(user.email, curr);
-        await user.reauthenticateWithCredential(cred);
-      } catch (e) {
-        console.warn('Reauth falló:', e?.code || e);
-        UI.showToast('No pudimos validar tu contraseña actual.', 'warning');
-      }
-    }
+  // Guardar nueva contraseña
+  on('save-change-password', 'click', async () => {
+    const saveBtn = document.getElementById('save-change-password');
+    if (!saveBtn) return;
+    if (saveBtn.disabled) return; // evita doble click
 
-    await user.updatePassword(pass1);
-    UI.showToast('¡Listo! Contraseña actualizada.', 'success');
-    const m = document.getElementById('change-password-modal'); if (m) m.style.display = 'none';
-  } catch (e) {
-    if (e?.code === 'auth/requires-recent-login') {
-      try {
-        await firebase.auth().sendPasswordResetEmail(user.email);
-        UI.showToast('Por seguridad te enviamos un e-mail para restablecer la contraseña.', 'info');
-      } catch (e2) {
-        console.error('Reset email error:', e2?.code || e2);
-        UI.showToast('No pudimos enviar el e-mail de restablecimiento.', 'error');
-      }
-    } else {
-      console.error('updatePassword error:', e?.code || e);
-      UI.showToast('No se pudo actualizar la contraseña.', 'error');
-    }
-  } finally {
-    // 🔹 Restaurar UI
-    saveBtn.textContent = prevTxt;
-    saveBtn.disabled = false;
-    saveBtn.removeAttribute('aria-busy');
+    const get = id => document.getElementById(id)?.value?.trim() || '';
+    const curr  = get('current-password');
+    const pass1 = get('new-password');
+    const pass2 = get('confirm-new-password');
+
+    if (!pass1 || pass1.length < 6) { UI.showToast('La nueva contraseña debe tener al menos 6 caracteres.', 'error'); return; }
+    if (pass1 !== pass2) { UI.showToast('Las contraseñas no coinciden.', 'error'); return; }
+
+    const user = firebase?.auth?.()?.currentUser;
+    if (!user) { UI.showToast('No hay sesión activa.', 'error'); return; }
+
+    // 🔹 Feedback inmediato
+    const prevTxt = saveBtn.textContent;
+    saveBtn.textContent = 'Guardando…';
+    saveBtn.disabled = true;
+    saveBtn.setAttribute('aria-busy', 'true');
     ['current-password','new-password','confirm-new-password'].forEach(id => {
       const el = document.getElementById(id);
-      if (el) el.disabled = false;
+      if (el) el.disabled = true;
     });
-  }
-});
 
+    try {
+      // Reauth opcional si ingresó la actual
+      if (curr) {
+        try {
+          const cred = firebase.auth.EmailAuthProvider.credential(user.email, curr);
+          await user.reauthenticateWithCredential(cred);
+        } catch (e) {
+          console.warn('Reauth falló:', e?.code || e);
+          UI.showToast('No pudimos validar tu contraseña actual.', 'warning');
+        }
+      }
 
-
+      await user.updatePassword(pass1);
+      UI.showToast('¡Listo! Contraseña actualizada.', 'success');
+      const m = document.getElementById('change-password-modal'); if (m) m.style.display = 'none';
+    } catch (e) {
+      if (e?.code === 'auth/requires-recent-login') {
+        try {
+          await firebase.auth().sendPasswordResetEmail(user.email);
+          UI.showToast('Por seguridad te enviamos un e-mail para restablecer la contraseña.', 'info');
+        } catch (e2) {
+          console.error('Reset email error:', e2?.code || e2);
+          UI.showToast('No pudimos enviar el e-mail de restablecimiento.', 'error');
+        }
+      } else {
+        console.error('updatePassword error:', e?.code || e);
+        UI.showToast('No se pudo actualizar la contraseña.', 'error');
+      }
+    } finally {
+      // 🔹 Restaurar UI
+      saveBtn.textContent = prevTxt;
+      saveBtn.disabled = false;
+      saveBtn.removeAttribute('aria-busy');
+      ['current-password','new-password','confirm-new-password'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.disabled = false;
+      });
+    }
+  });
 
   // T&C
   on('show-terms-link-banner', 'click', (e) => { e.preventDefault(); openTermsModal(); });
@@ -796,7 +789,6 @@ on('save-change-password', 'click', async () => {
   });
 
   // Puente de eventos de notifications.js → persistencia en Firestore
-  // (si notifications.js dispara estos eventos, acá los persistimos como respaldo)
   document.addEventListener('rampet:consent:notif-opt-in', async (ev) => {
     try { await Data.saveNotifConsent(true, { notifOptInSource: ev?.detail?.source || 'ui' }); } catch {}
   });
@@ -821,6 +813,73 @@ function openInboxIfQuery() {
       openInboxModal();
     }
   } catch {}
+}
+
+// ————————————————————————————————————————————————
+// Domicilio: mostrar form a nuevos y banner a existentes sin datos
+// ————————————————————————————————————————————————
+async function setupAddressSection() {
+  const banner = document.getElementById('address-banner');
+  const card   = document.getElementById('address-card');
+
+  // Cablear botones del banner una sola vez
+  if (banner && !banner.dataset.wired) {
+    banner.dataset.wired = '1';
+    document.getElementById('address-open-btn')?.addEventListener('click', () => {
+      if (card) card.style.display = 'block';
+      banner.style.display = 'none';
+      try { window.scrollTo({ top: card.offsetTop - 20, behavior: 'smooth' }); } catch {}
+    });
+    document.getElementById('address-dismiss')?.addEventListener('click', () => {
+      banner.style.display = 'none';
+      try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
+    });
+
+    // (Opcional) ocultar el form luego de "Guardar domicilio"
+    document.getElementById('address-save')?.addEventListener('click', () => {
+      setTimeout(() => {
+        try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
+        if (card) card.style.display = 'none';
+      }, 600);
+    });
+  }
+
+  // Inicializa y precarga el formulario (módulo notifications.js)
+  try { await Notifications.initDomicilioForm?.(); } catch {}
+
+  // Detectar si es PRIMER login (Firebase metadata)
+  const user = auth.currentUser;
+  const isFirstLogin = !!(user?.metadata && user.metadata.creationTime === user.metadata.lastSignInTime);
+
+  // ¿El cliente ya tiene algún dato de domicilio cargado?
+  let hasAddress = false;
+  try {
+    const ref = await resolveClienteRefByAuthUID();
+    if (ref) {
+      const snap = await ref.get();
+      const comp = snap.data()?.domicilio?.components;
+      hasAddress = !!(comp && (comp.calle || comp.localidad || comp.partido || comp.provincia || comp.codigoPostal));
+    }
+  } catch {}
+
+  const dismissed = localStorage.getItem('addressBannerDismissed') === '1';
+
+  // Reglas de visibilidad:
+  if (isFirstLogin) {
+    // Usuario NUEVO → mostramos el formulario completo una vez
+    if (card) card.style.display = 'block';
+    if (banner) banner.style.display = 'none';
+    return;
+  }
+
+  // Usuario EXISTENTE sin domicilio → banner (si no lo descartó)
+  if (!hasAddress && !dismissed) {
+    if (banner) banner.style.display = 'block';
+    if (card) card.style.display = 'none';
+  } else {
+    if (banner) banner.style.display = 'none';
+    if (card) card.style.display = 'none';
+  }
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -874,6 +933,9 @@ async function main() {
 
       initCarouselBasic();
 
+      // 👉 Domicilio: nuevos → form; existentes sin datos → banner
+      await setupAddressSection();
+
       // Deep link a INBOX si viene desde el click de la notificación
       openInboxIfQuery();
 
@@ -902,12 +964,3 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
-
-
-
-
-
-
-
-
-
