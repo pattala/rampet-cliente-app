@@ -832,24 +832,6 @@ function openInboxIfQuery() {
 // Catálogo mínimo para desplegables por provincia
 // (Podés ampliarlo luego; esto es para que ya funcione el flujo)
 // ————————————————————————————————————————————————
-const AR_OPTIONS = {
-  'Buenos Aires': {
-    partidos: ['La Plata','Quilmes','Avellaneda','Lanús','Lomas de Zamora','Morón','San Isidro','San Martín','Tigre','Vicente López','Bahía Blanca','General Pueyrredón'],
-    localidades: ['La Plata','City Bell','Gonnet','Quilmes','Bernal','Avellaneda','Lanús','Banfield','Temperley','San Isidro','Martínez','Tigre','San Fernando','Olivos','Mar del Plata','Bahía Blanca']
-  },
-  'CABA': {
-    partidos: [],
-    localidades: ['Palermo','Recoleta','Belgrano','Caballito','Almagro','San Telmo','Microcentro','Flores','Villa Urquiza','Villa Devoto','Parque Chacabuco']
-  },
-  'Córdoba': {
-    partidos: ['Capital','Colón','Punilla','Santa María'],
-    localidades: ['Córdoba','Villa Carlos Paz','Alta Gracia','Río Ceballos','Mendiolaza']
-  },
-  'Santa Fe': {
-    partidos: ['Rosario','La Capital','General López'],
-    localidades: ['Rosario','Santa Fe','Rafaela','Venado Tuerto']
-  }
-};
 
 function fillDatalist(el, values) {
   if (!el) return;
@@ -900,24 +882,7 @@ document.getElementById('address-skip')?.addEventListener('click', () => {
 // ————————————————————————————————————————————————
 // Catálogo mínimo para desplegables por provincia
 // ————————————————————————————————————————————————
-const AR_OPTIONS = {
-  'Buenos Aires': {
-    partidos: ['La Plata','Quilmes','Avellaneda','Lanús','Lomas de Zamora','Morón','San Isidro','San Martín','Tigre','Vicente López','Bahía Blanca','General Pueyrredón'],
-    localidades: ['La Plata','City Bell','Gonnet','Quilmes','Bernal','Avellaneda','Lanús','Banfield','Temperley','San Isidro','Martínez','Tigre','San Fernando','Olivos','Mar del Plata','Bahía Blanca']
-  },
-  'CABA': {
-    partidos: [],
-    localidades: ['Palermo','Recoleta','Belgrano','Caballito','Almagro','San Telmo','Microcentro','Flores','Villa Urquiza','Villa Devoto','Parque Chacabuco']
-  },
-  'Córdoba': {
-    partidos: ['Capital','Colón','Punilla','Santa María'],
-    localidades: ['Córdoba','Villa Carlos Paz','Alta Gracia','Río Ceballos','Mendiolaza']
-  },
-  'Santa Fe': {
-    partidos: ['Rosario','La Capital','General López'],
-    localidades: ['Rosario','Santa Fe','Rafaela','Venado Tuerto']
-  }
-};
+
 
 function fillDatalist(el, values) {
   if (!el) return;
@@ -925,6 +890,26 @@ function fillDatalist(el, values) {
 }
 
 function wireAddressDatalists() {
+  // Catálogo mínimo embebido (sin globales)
+  const MAP = {
+    'Buenos Aires': {
+      partidos: ['La Plata','Quilmes','Avellaneda','Lanús','Lomas de Zamora','Morón','San Isidro','San Martín','Tigre','Vicente López','Bahía Blanca','General Pueyrredón'],
+      localidades: ['La Plata','City Bell','Gonnet','Quilmes','Bernal','Avellaneda','Lanús','Banfield','Temperley','San Isidro','Martínez','Tigre','San Fernando','Olivos','Mar del Plata','Bahía Blanca']
+    },
+    'CABA': {
+      partidos: [],
+      localidades: ['Palermo','Recoleta','Belgrano','Caballito','Almagro','San Telmo','Microcentro','Flores','Villa Urquiza','Villa Devoto','Parque Chacabuco']
+    },
+    'Córdoba': {
+      partidos: ['Capital','Colón','Punilla','Santa María'],
+      localidades: ['Córdoba','Villa Carlos Paz','Alta Gracia','Río Ceballos','Mendiolaza']
+    },
+    'Santa Fe': {
+      partidos: ['Rosario','La Capital','General López'],
+      localidades: ['Rosario','Santa Fe','Rafaela','Venado Tuerto']
+    }
+  };
+
   const provSel   = document.getElementById('dom-provincia');
   const locInput  = document.getElementById('dom-localidad');
   const locList   = document.getElementById('localidad-list');
@@ -932,9 +917,14 @@ function wireAddressDatalists() {
   const partList  = document.getElementById('partido-list');
   if (!provSel) return;
 
+  const fillDatalist = (el, values) => {
+    if (!el) return;
+    el.innerHTML = (values || []).map(v => `<option value="${v}">`).join('');
+  };
+
   const update = () => {
     const p = provSel.value.trim();
-    const data = AR_OPTIONS[p] || { partidos: [], localidades: [] };
+    const data = MAP[p] || { partidos: [], localidades: [] };
     fillDatalist(locList, data.localidades);
     fillDatalist(partList, data.partidos);
     if (locInput)  locInput.placeholder  = data.localidades.length ? 'Localidad / Ciudad (elige o escribe)' : 'Localidad / Ciudad';
@@ -942,8 +932,9 @@ function wireAddressDatalists() {
   };
 
   provSel.addEventListener('change', update);
-  update();
+  update(); // cargar por primera vez
 }
+
 
 // ————————————————————————————————————————————————
 // Domicilio: form para NUEVOS, banner para EXISTENTES sin datos
@@ -1115,5 +1106,6 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
