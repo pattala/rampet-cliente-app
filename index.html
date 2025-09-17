@@ -89,6 +89,35 @@
 
       <p class="toggle-link">¿Ya tienes cuenta? <a href="#" id="show-login-link">Ingresa aquí</a></p>
     </div>
+<section id="address-card" class="card">
+  <h3>Recibí beneficios cerca tuyo</h3>
+  <p class="sub">
+    Contanos tu zona y activamos promos para tu barrio. Opcional, podés hacerlo más tarde.
+  </p>
+
+  <div class="grid-2">
+    <input id="dom-calle" placeholder="Calle">
+    <input id="dom-numero" placeholder="Número (puede ser s/n)">
+    <input id="dom-piso" placeholder="Piso">
+    <input id="dom-depto" placeholder="Depto">
+    <input id="dom-barrio" placeholder="Barrio">
+    <input id="dom-localidad" placeholder="Localidad / Ciudad">
+    <input id="dom-partido" placeholder="Partido / Departamento">
+    <input id="dom-provincia" placeholder="Provincia">
+    <input id="dom-cp" placeholder="Código Postal">
+    <input id="dom-pais" placeholder="País" value="Argentina">
+    <input id="dom-referencia" placeholder="Referencia (opcional)">
+  </div>
+
+  <div class="actions" style="margin-top:10px; display:flex; gap:8px; justify-content:flex-end;">
+    <button id="address-skip" class="secondary-btn" type="button">Luego</button>
+    <button id="address-save" class="primary-btn" type="button">Guardar domicilio</button>
+  </div>
+
+  <p class="small-note">
+    Usamos estos datos para personalizar beneficios por zona. Podés borrarlos cuando quieras.
+  </p>
+</section>
 
     <!-- APP -->
     <div id="main-app-screen" class="screen">
@@ -320,5 +349,6 @@
   </script>
 </body>
 </html>
+
 
 
