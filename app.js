@@ -643,7 +643,17 @@ function setupAuthScreenListeners() {
   on('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); });
   on('show-login-link', 'click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
   on('login-btn', 'click', Auth.login);
-  on('register-btn', 'click', Auth.registerNewAccount);
+ on('register-btn','click', async () => {
+  try {
+    const r = await Auth.registerNewAccount();
+    try { localStorage.setItem('justSignedUp','1'); } catch {}
+    return r;
+  } catch (e) {
+    try { localStorage.removeItem('justSignedUp'); } catch {}
+    throw e;
+  }
+});
+
   on('show-terms-link', 'click', (e) => { e.preventDefault(); openTermsModal(); });
   on('forgot-password-link', 'click', (e) => { e.preventDefault(); Auth.sendPasswordResetFromLogin(); });
   on('close-terms-modal', 'click', closeTermsModal);
@@ -887,11 +897,62 @@ document.getElementById('address-skip')?.addEventListener('click', () => {
 // ————————————————————————————————————————————————
 // Domicilio: form para NUEVOS, banner para EXISTENTES sin datos
 // ————————————————————————————————————————————————
+// ————————————————————————————————————————————————
+// Catálogo mínimo para desplegables por provincia
+// ————————————————————————————————————————————————
+const AR_OPTIONS = {
+  'Buenos Aires': {
+    partidos: ['La Plata','Quilmes','Avellaneda','Lanús','Lomas de Zamora','Morón','San Isidro','San Martín','Tigre','Vicente López','Bahía Blanca','General Pueyrredón'],
+    localidades: ['La Plata','City Bell','Gonnet','Quilmes','Bernal','Avellaneda','Lanús','Banfield','Temperley','San Isidro','Martínez','Tigre','San Fernando','Olivos','Mar del Plata','Bahía Blanca']
+  },
+  'CABA': {
+    partidos: [],
+    localidades: ['Palermo','Recoleta','Belgrano','Caballito','Almagro','San Telmo','Microcentro','Flores','Villa Urquiza','Villa Devoto','Parque Chacabuco']
+  },
+  'Córdoba': {
+    partidos: ['Capital','Colón','Punilla','Santa María'],
+    localidades: ['Córdoba','Villa Carlos Paz','Alta Gracia','Río Ceballos','Mendiolaza']
+  },
+  'Santa Fe': {
+    partidos: ['Rosario','La Capital','General López'],
+    localidades: ['Rosario','Santa Fe','Rafaela','Venado Tuerto']
+  }
+};
+
+function fillDatalist(el, values) {
+  if (!el) return;
+  el.innerHTML = (values || []).map(v => `<option value="${v}">`).join('');
+}
+
+function wireAddressDatalists() {
+  const provSel   = document.getElementById('dom-provincia');
+  const locInput  = document.getElementById('dom-localidad');
+  const locList   = document.getElementById('localidad-list');
+  const partInput = document.getElementById('dom-partido');
+  const partList  = document.getElementById('partido-list');
+  if (!provSel) return;
+
+  const update = () => {
+    const p = provSel.value.trim();
+    const data = AR_OPTIONS[p] || { partidos: [], localidades: [] };
+    fillDatalist(locList, data.localidades);
+    fillDatalist(partList, data.partidos);
+    if (locInput)  locInput.placeholder  = data.localidades.length ? 'Localidad / Ciudad (elige o escribe)' : 'Localidad / Ciudad';
+    if (partInput) partInput.placeholder = data.partidos.length ? 'Partido / Departamento (elige o escribe)' : 'Partido / Departamento';
+  };
+
+  provSel.addEventListener('change', update);
+  update();
+}
+
+// ————————————————————————————————————————————————
+// Domicilio: form para NUEVOS, banner para EXISTENTES sin datos
+// ————————————————————————————————————————————————
 async function setupAddressSection() {
   const banner = document.getElementById('address-banner');
   const card   = document.getElementById('address-card');
 
-  // Cablear botones del banner una sola vez
+  // Botones del banner (una sola vez)
   if (banner && !banner.dataset.wired) {
     banner.dataset.wired = '1';
     document.getElementById('address-open-btn')?.addEventListener('click', () => {
@@ -903,23 +964,41 @@ async function setupAddressSection() {
       banner.style.display = 'none';
       try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
     });
-
-    // (Opcional) ocultar el form luego de "Guardar domicilio"
-    document.getElementById('address-save')?.addEventListener('click', () => {
-      setTimeout(() => {
-        try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
-        if (card) card.style.display = 'none';
-      }, 600);
-    });
   }
 
-  // Inicializar datalists dependientes
+  // "Luego" dentro del formulario
+  document.getElementById('address-skip')?.addEventListener('click', () => {
+    if (card) card.style.display = 'none';
+    const b = document.getElementById('address-banner');
+    if (b) b.style.display = 'block';
+    try { localStorage.removeItem('addressBannerDismissed'); } catch {}
+  });
+
+  // (Opcional) ocultar el form luego de "Guardar domicilio"
+  document.getElementById('address-save')?.addEventListener('click', () => {
+    setTimeout(() => {
+      try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
+      if (card) card.style.display = 'none';
+    }, 600);
+  });
+
+  // Datalists dependientes
   wireAddressDatalists();
 
-  // Precargar/guardar del formulario (si tu módulo lo implementa)
+  // Precarga/guardado del form (si existe)
   try { await Notifications.initDomicilioForm?.(); } catch {}
 
-  // Detectar si es PRIMER login
+  // PRIORIDAD: flag confiable de "recién registrado"
+  const justSignedUp = localStorage.getItem('justSignedUp') === '1';
+  if (justSignedUp) {
+    if (card) card.style.display = 'block';   // mostrar el formulario YA
+    if (banner) banner.style.display = 'none';
+    try { localStorage.removeItem('justSignedUp'); } catch {}
+    try { localStorage.removeItem('addressBannerDismissed'); } catch {}
+    return;
+  }
+
+  // Fallback: detectar si es primer login por metadata (puede fallar en algunos flujos)
   const user = auth.currentUser;
   const isFirstLogin = !!(user?.metadata && user.metadata.creationTime === user.metadata.lastSignInTime);
 
@@ -936,14 +1015,13 @@ async function setupAddressSection() {
 
   const dismissed = localStorage.getItem('addressBannerDismissed') === '1';
 
-  // Reglas de visibilidad
   if (isFirstLogin) {
-    if (card) card.style.display = 'block';  // NUEVO → mostrar FORM una sola vez
+    if (card) card.style.display = 'block';
     if (banner) banner.style.display = 'none';
     return;
   }
 
-  // EXISTENTE sin domicilio → mostrar BANNER (si no lo descartó)
+  // EXISTENTE sin domicilio → banner si no lo descartó
   if (!hasAddress && !dismissed) {
     if (banner) banner.style.display = 'block';
     if (card) card.style.display = 'none';
@@ -952,6 +1030,7 @@ async function setupAddressSection() {
     if (card) card.style.display = 'none';
   }
 }
+
 
 
 // ──────────────────────────────────────────────────────────────
@@ -1036,4 +1115,5 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
