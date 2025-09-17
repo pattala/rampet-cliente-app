@@ -246,3 +246,15 @@ input:checked + .slider:before{ transform:translateX(26px); }
   100%{transform: rotate(0deg);   filter: brightness(1); }
 }
 #btn-notifs.blink { animation: bellBlink 1.2s ease-in-out 6; }
+.card.address-card{
+  background:#fff; border-radius:12px; padding:16px;
+  box-shadow:0 6px 18px rgba(0,0,0,.08); max-width:720px; margin:16px auto;
+}
+.card.address-card h3{ margin:0 0 6px; }
+.card.address-card .sub{ margin:0 0 12px; color:#555; }
+.card.address-card .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+@media (max-width:520px){ .card.address-card .grid-2{ grid-template-columns:1fr; } }
+.card.address-card input, .card.address-card select{
+  width:100%; padding:10px; border:1px solid #dcdcdc; border-radius:8px; font:inherit;
+}
+
