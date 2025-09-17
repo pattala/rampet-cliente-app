@@ -25,8 +25,76 @@
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js"></script>
+
+
+
 </head>
-<body>
+
+  
+  <!-- Modal perfil / editar datos -->
+<div id="profile-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-content" style="max-width:520px;">
+    <span id="profile-close" class="modal-close-btn">×</span>
+    <h2>Mi perfil</h2>
+
+    <div class="form-group">
+      <div>
+        <label for="prof-nombre">Nombre completo</label>
+        <input id="prof-nombre" type="text" placeholder="Nombre completo">
+      </div>
+
+      <div>
+        <label for="prof-telefono">Teléfono</label>
+        <input id="prof-telefono" type="tel" placeholder="Sólo números">
+      </div>
+
+      <div>
+        <label for="prof-fecha">Fecha de nacimiento</label>
+        <input id="prof-fecha" type="date">
+      </div>
+
+      <div>
+        <label for="prof-dni">DNI</label>
+        <input id="prof-dni" type="text" disabled>
+      </div>
+
+      <div>
+        <label for="prof-email">Email</label>
+        <input id="prof-email" type="email" disabled>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:8px;">
+      <h3 style="margin-top:0;">Preferencias</h3>
+      <label class="profile-consent">
+        <input id="prof-consent-notif" type="checkbox">
+        <span>Recibir <strong>avisos de descuentos y novedades</strong></span>
+      </label>
+      <label class="profile-consent">
+        <input id="prof-consent-geo" type="checkbox">
+        <span>Activar <strong>beneficios en mi zona</strong></span>
+      </label>
+      <p class="small-note">Podés cambiar estas opciones cuando quieras.</p>
+    </div>
+
+    <div class="card" style="margin-top:8px;">
+      <h3 style="margin-top:0;">Domicilio</h3>
+      <div id="prof-address-summary" class="profile-address-summary">—</div>
+      <div style="display:flex;justify-content:flex-end;">
+        <button id="prof-edit-address-btn" class="secondary-btn" type="button">Editar domicilio</button>
+      </div>
+    </div>
+
+    <div class="modal-actions" style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px;">
+      <button id="prof-cancel" class="secondary-btn" type="button">Cancelar</button>
+      <button id="prof-save" class="primary-btn" type="button">Guardar cambios</button>
+    </div>
+  </div>
+</div>
+
+  
+  
+  <body>
   <div id="toast-container"></div>
 
   <div class="container">
@@ -406,3 +474,4 @@
   </script>
 </body>
 </html>
+
