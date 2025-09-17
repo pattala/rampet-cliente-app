@@ -824,20 +824,13 @@ function openInboxIfQuery() {
     }
   } catch {}
 }
-
 // ————————————————————————————————————————————————
-// Domicilio: mostrar form a nuevos y banner a existentes sin datos
-// ————————————————————————————————————————————————
-// ————————————————————————————————————————————————
-// Catálogo mínimo para desplegables por provincia
-// (Podés ampliarlo luego; esto es para que ya funcione el flujo)
+// Domicilio: NUEVOS → formulario, EXISTENTES sin datos → banner
+// (bloque único y sin duplicados)
 // ————————————————————————————————————————————————
 
-
-
-// ── ÚNICA versión sin globales ni duplicados ─────────────────
 function wireAddressDatalists() {
-  // Catálogo mínimo embebido (evita variables globales)
+  // Catálogo mínimo embebido (evita globales y choques de nombres)
   const MAP = {
     'Buenos Aires': {
       partidos: ['La Plata','Quilmes','Avellaneda','Lanús','Lomas de Zamora','Morón','San Isidro','San Martín','Tigre','Vicente López','Bahía Blanca','General Pueyrredón'],
@@ -864,7 +857,6 @@ function wireAddressDatalists() {
   const partList  = document.getElementById('partido-list');
   if (!provSel) return;
 
-  // Nombre distinto para evitar choques: no usar "fillDatalist"
   const setOptionsList = (el, values = []) => {
     if (!el) return;
     el.innerHTML = values.map(v => `<option value="${v}">`).join('');
@@ -880,7 +872,6 @@ function wireAddressDatalists() {
     if (partInput) partInput.placeholder = data.partidos.length ? 'Partido / Departamento (elegí o escribí)' : 'Partido / Departamento';
   };
 
-  // Evitar múltiples listeners si esta función se llama más de una vez
   if (!provSel.dataset.dlWired) {
     provSel.addEventListener('change', update);
     provSel.dataset.dlWired = '1';
@@ -889,85 +880,11 @@ function wireAddressDatalists() {
   update(); // primera carga
 }
 
-// Wire "Luego" del formulario de domicilio
-document.getElementById('address-skip')?.addEventListener('click', () => {
-  // 1) Ocultar el form
-  if (card) card.style.display = 'none';
-
-  // 2) Mostrar el banner chico para que lo pueda completar cuando quiera
-  const bannerEl = document.getElementById('address-banner');
-  if (bannerEl) bannerEl.style.display = 'block';
-
-  // 3) Importante: NO marcamos "dismissed" para que en próximas sesiones
-  //    (si no completa), el banner pueda volver a mostrarse automáticamente.
-  try { localStorage.removeItem('addressBannerDismissed'); } catch {}
-});
-
-// ————————————————————————————————————————————————
-// Domicilio: form para NUEVOS, banner para EXISTENTES sin datos
-// ————————————————————————————————————————————————
-// ————————————————————————————————————————————————
-// Catálogo mínimo para desplegables por provincia
-// ————————————————————————————————————————————————
-
-
-
-
-function wireAddressDatalists() {
-  // Catálogo mínimo embebido (sin globales)
-  const MAP = {
-    'Buenos Aires': {
-      partidos: ['La Plata','Quilmes','Avellaneda','Lanús','Lomas de Zamora','Morón','San Isidro','San Martín','Tigre','Vicente López','Bahía Blanca','General Pueyrredón'],
-      localidades: ['La Plata','City Bell','Gonnet','Quilmes','Bernal','Avellaneda','Lanús','Banfield','Temperley','San Isidro','Martínez','Tigre','San Fernando','Olivos','Mar del Plata','Bahía Blanca']
-    },
-    'CABA': {
-      partidos: [],
-      localidades: ['Palermo','Recoleta','Belgrano','Caballito','Almagro','San Telmo','Microcentro','Flores','Villa Urquiza','Villa Devoto','Parque Chacabuco']
-    },
-    'Córdoba': {
-      partidos: ['Capital','Colón','Punilla','Santa María'],
-      localidades: ['Córdoba','Villa Carlos Paz','Alta Gracia','Río Ceballos','Mendiolaza']
-    },
-    'Santa Fe': {
-      partidos: ['Rosario','La Capital','General López'],
-      localidades: ['Rosario','Santa Fe','Rafaela','Venado Tuerto']
-    }
-  };
-
-  const provSel   = document.getElementById('dom-provincia');
-  const locInput  = document.getElementById('dom-localidad');
-  const locList   = document.getElementById('localidad-list');
-  const partInput = document.getElementById('dom-partido');
-  const partList  = document.getElementById('partido-list');
-  if (!provSel) return;
-
-  const fillDatalist = (el, values) => {
-    if (!el) return;
-    el.innerHTML = (values || []).map(v => `<option value="${v}">`).join('');
-  };
-
-  const update = () => {
-    const p = provSel.value.trim();
-    const data = MAP[p] || { partidos: [], localidades: [] };
-    fillDatalist(locList, data.localidades);
-    fillDatalist(partList, data.partidos);
-    if (locInput)  locInput.placeholder  = data.localidades.length ? 'Localidad / Ciudad (elige o escribe)' : 'Localidad / Ciudad';
-    if (partInput) partInput.placeholder = data.partidos.length ? 'Partido / Departamento (elige o escribe)' : 'Partido / Departamento';
-  };
-
-  provSel.addEventListener('change', update);
-  update(); // cargar por primera vez
-}
-
-
-// ————————————————————————————————————————————————
-// Domicilio: form para NUEVOS, banner para EXISTENTES sin datos
-// ————————————————————————————————————————————————
 async function setupAddressSection() {
   const banner = document.getElementById('address-banner');
   const card   = document.getElementById('address-card');
 
-  // Botones del banner (una sola vez)
+  // ——— Banner (cableado una vez)
   if (banner && !banner.dataset.wired) {
     banner.dataset.wired = '1';
     document.getElementById('address-open-btn')?.addEventListener('click', () => {
@@ -981,15 +898,16 @@ async function setupAddressSection() {
     });
   }
 
-  // "Luego" dentro del formulario
+  // ——— Botón “Luego” dentro del formulario (scope correcto)
   document.getElementById('address-skip')?.addEventListener('click', () => {
     if (card) card.style.display = 'none';
     const b = document.getElementById('address-banner');
     if (b) b.style.display = 'block';
+    // No marcamos dismissed para que vuelva a aparecer en próximas sesiones si sigue sin domicilio
     try { localStorage.removeItem('addressBannerDismissed'); } catch {}
   });
 
-  // (Opcional) ocultar el form luego de "Guardar domicilio"
+  // ——— Guardar: ocultar el form y no volver a mostrar banner
   document.getElementById('address-save')?.addEventListener('click', () => {
     setTimeout(() => {
       try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
@@ -997,27 +915,27 @@ async function setupAddressSection() {
     }, 600);
   });
 
-  // Datalists dependientes
+  // ——— Datalists dependientes
   wireAddressDatalists();
 
-  // Precarga/guardado del form (si existe)
+  // ——— Precarga/guardado real (si tu módulo lo implementa)
   try { await Notifications.initDomicilioForm?.(); } catch {}
 
-  // PRIORIDAD: flag confiable de "recién registrado"
+  // ——— PRIORIDAD: recién registrado (flag confiable)
   const justSignedUp = localStorage.getItem('justSignedUp') === '1';
   if (justSignedUp) {
-    if (card) card.style.display = 'block';   // mostrar el formulario YA
+    if (card) card.style.display = 'block';
     if (banner) banner.style.display = 'none';
     try { localStorage.removeItem('justSignedUp'); } catch {}
     try { localStorage.removeItem('addressBannerDismissed'); } catch {}
     return;
   }
 
-  // Fallback: detectar si es primer login por metadata (puede fallar en algunos flujos)
+  // ——— Fallback por metadata (puede fallar según flujo)
   const user = auth.currentUser;
   const isFirstLogin = !!(user?.metadata && user.metadata.creationTime === user.metadata.lastSignInTime);
 
-  // ¿El cliente ya tiene algún dato de domicilio cargado?
+  // ——— ¿Ya tiene algún dato de domicilio?
   let hasAddress = false;
   try {
     const ref = await resolveClienteRefByAuthUID();
@@ -1036,7 +954,7 @@ async function setupAddressSection() {
     return;
   }
 
-  // EXISTENTE sin domicilio → banner si no lo descartó
+  // ——— EXISTENTE sin domicilio → banner (si no lo descartó)
   if (!hasAddress && !dismissed) {
     if (banner) banner.style.display = 'block';
     if (card) card.style.display = 'none';
@@ -1045,7 +963,6 @@ async function setupAddressSection() {
     if (card) card.style.display = 'none';
   }
 }
-
 
 
 // ──────────────────────────────────────────────────────────────
@@ -1130,6 +1047,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
