@@ -7,6 +7,13 @@ import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 
+// Import (si no estaba)
+import * as Notifications from './modules/notifications.js';
+
+// Luego de montar la UI principal / perfil:
+Notifications.initDomicilioForm?.();
+
+
 // Notificaciones (único import desde notifications.js)
 import {
   initNotificationsOnce,
@@ -895,6 +902,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
