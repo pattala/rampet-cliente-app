@@ -1,4 +1,4 @@
-// /modules/notifications.js — FCM + VAPID + Opt-In (card → switch en próxima sesión) + “Beneficios cerca tuyo” (card → banner)
+// /modules/notifications.js — FCM + VAPID + Opt-In (card → switch) + Geo banner + domicilio
 'use strict';
 
 // ─────────────────────────────────────────────────────────────
@@ -10,6 +10,12 @@ if (!VAPID_PUBLIC) console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en i
 function $(id){ return document.getElementById(id); }
 function show(el, on){ if (el) el.style.display = on ? 'block' : 'none'; }
 function showInline(el, on){ if (el) el.style.display = on ? 'inline-block' : 'none'; }
+function emit(name, detail){ try { document.dispatchEvent(new CustomEvent(name, { detail })); } catch {} }
+
+function toast(msg, type='info') {
+  try { window.UI?.showToast?.(msg, type); } catch {}
+  if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
+}
 
 // Estados persistentes
 const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
@@ -91,6 +97,7 @@ async function guardarTokenEnMiDoc(token) {
   const clienteId = await setFcmTokensOnCliente([token]);
   try { localStorage.setItem('fcmToken', token); } catch {}
   try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
+  emit('rampet:consent:notif-opt-in', { source: 'ui' });
   console.log('✅ Token FCM guardado en clientes/' + clienteId);
 }
 async function borrarTokenYOptOut() {
@@ -100,6 +107,7 @@ async function borrarTokenYOptOut() {
     await setFcmTokensOnCliente([]);
     try { localStorage.removeItem('fcmToken'); } catch {}
     try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+    emit('rampet:consent:notif-opt-out', { source: 'ui' });
     console.log('🔕 Opt-out FCM aplicado.');
   } catch (e) {
     console.warn('[FCM] borrarTokenYOptOut error:', e?.message || e);
@@ -172,8 +180,10 @@ export async function handlePermissionRequest() {
       await obtenerYGuardarToken();
     } else if (status === 'denied') {
       try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
+      emit('rampet:consent:notif-opt-out', { source: 'prompt' });
     } else {
       try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+      emit('rampet:consent:notif-dismissed', {});
     }
     refreshNotifUIFromPermission();
   } catch (e) {
@@ -185,6 +195,7 @@ export function dismissPermissionRequest() {
   try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
   const el = $('notif-prompt-card');
   if (el) el.style.display = 'none';
+  emit('rampet:consent:notif-dismissed', {});
 }
 export async function handlePermissionSwitch(e) {
   const checked = !!e?.target?.checked;
@@ -206,7 +217,7 @@ export async function handlePermissionSwitch(e) {
 }
 
 // ─────────────────────────────────────────────────────────────
-/** FOREGROUND PUSH: muestra sistemica incluso en foreground */
+/** FOREGROUND PUSH: muestra sistémica incluso en foreground */
 async function hookOnMessage() {
   try {
     await ensureMessagingCompatLoaded();
@@ -219,7 +230,7 @@ async function hookOnMessage() {
         if (reg?.showNotification) {
           await reg.showNotification(d.title || 'RAMPET', {
             body: d.body || '',
-            icon: d.icon || 'https://rampet.vercel.app/images/mi_logo_192.png', // ← FIX dominio
+            icon: d.icon || '/images/mi_logo_192.png',
             tag: d.tag || d.id || 'rampet-fg',
             data: { url: d.url || d.click_action || '/?inbox=1' }
           });
@@ -298,12 +309,11 @@ function setGeoRegularUI(state) {
     try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
     if (txt) txt.textContent = 'Listo: ya podés recibir ofertas y beneficios cerca tuyo.';
     showInline(btnOn,false);
-    showInline(btnOff,false); // ← ocultamos “desactivar” cuando está activo
+    showInline(btnOff,false); // ocultamos “desactivar” cuando está activo
     showInline(btnHelp,false);
     return;
   }
 
-  // Bloqueado: mostrar ayuda (no podemos volver a pedir permiso hasta que el user cambie el setting)
   if (state === 'denied') {
     try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
     if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
@@ -311,7 +321,6 @@ function setGeoRegularUI(state) {
     return;
   }
 
-  // Estado prompt/unknown: cae en marketing card (se maneja en updateGeoUI)
   if (txt) txt.textContent = 'Activá para ver ofertas y beneficios cerca tuyo.';
   showInline(btnOn,true); showInline(btnOff,false); showInline(btnHelp,false);
 }
@@ -326,46 +335,48 @@ async function detectGeoPermission() {
   return 'unknown';
 }
 
-/** Política acordada:
+/** Política:
  * - Si NO está activo al iniciar (prompt/unknown) → mostrar CARD marketing.
  * - Si está BLOQUEADO → mostrar banner de ayuda.
  * - Si está ACTIVO → mostrar texto “Listo…” y sin botón desactivar.
  */
-// Reemplazo de updateGeoUI()
 async function updateGeoUI() {
   const state = await detectGeoPermission();
 
   if (state === 'granted') {
     setGeoMarketingUI(false);
     setGeoRegularUI('granted');
-    startGeoWatch();        // ← inicia captura mientras esté visible
+    startGeoWatch();
+    emit('rampet:geo:enabled', { method: 'ui' });
     return;
   }
-  stopGeoWatch();           // ← detiene si no hay permiso
+  stopGeoWatch();
 
   if (state === 'denied') {
     setGeoMarketingUI(false);
     setGeoRegularUI('denied'); // ayuda
+    emit('rampet:geo:disabled', { method: 'ui' });
     return;
   }
 
-  // prompt/unknown → card marketing (copy “te estás perdiendo promos…”)
+  // prompt/unknown → card marketing
   setGeoMarketingUI(true);
 }
-
 
 async function handleGeoEnable() {
   try {
     await new Promise((ok,err)=>{ if(!navigator.geolocation?.getCurrentPosition) return err(); navigator.geolocation.getCurrentPosition(()=>ok(true),()=>ok(false)); });
     try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
+    emit('rampet:geo:enabled', { method: 'ui' });
   } catch {}
   updateGeoUI();
 }
 function handleGeoDisable() {
   try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
+  emit('rampet:geo:disabled', { method: 'ui' });
   updateGeoUI();
 }
-function handleGeoHelp() { alert('Para activarlo:\n\n1) Abrí configuración del navegador.\n2) Permisos → Activar.\n3) Recargá la página.'); }
+function handleGeoHelp() { alert('Para activarlo:\n\n1) Abrí configuración del navegador.\n2) Permisos → Activar ubicación.\n3) Recargá la página.'); }
 function wireGeoButtonsOnce() {
   const { banner, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner || banner._wired) return; banner._wired = true;
@@ -374,10 +385,11 @@ function wireGeoButtonsOnce() {
   btnHelp?.addEventListener('click', handleGeoHelp);
 }
 
-// Export
+// Export UI geo
 export async function ensureGeoOnStartup(){ wireGeoButtonsOnce(); await updateGeoUI(); }
 export async function maybeRefreshIfStale(){ await updateGeoUI(); }
 try { window.ensureGeoOnStartup = ensureGeoOnStartup; window.maybeRefreshIfStale = maybeRefreshIfStale; } catch {}
+
 // ─────────────────────────────────────────────────────────────
 // GEO TRACKING “MIENTRAS ESTÉ ABIERTA” (historial con hora)
 // ─────────────────────────────────────────────────────────────
@@ -474,9 +486,8 @@ function onGeoPosSuccess(pos) {
     console.warn('[geo] onGeoPosSuccess error', e?.message || e);
   }
 }
-function onGeoPosError(err) {
-  // Silencioso: permisos denegados o timeout
-  // console.warn('[geo] watch error', err?.message || err);
+function onGeoPosError(_) {
+  // silencioso
 }
 
 function startGeoWatch() {
@@ -504,10 +515,9 @@ try {
   });
 } catch {}
 
-function toast(msg, type='info') {
-  try { window.UI?.showToast?.(msg, type); } catch {}
-  if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
-}
+// ─────────────────────────────────────────────────────────────
+// FORMULARIO DOMICILIO (guardar bajo clientes/{id}.domicilio)
+// ─────────────────────────────────────────────────────────────
 function buildAddressLine(c) {
   const parts = [];
   if (c.calle) parts.push(c.calle + (c.numero ? ' ' + c.numero : ''));
@@ -585,6 +595,7 @@ export async function initDomicilioForm() {
         }
       }, { merge: true });
 
+      try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
       toast('Domicilio guardado. ¡Gracias!', 'success');
     } catch (e) {
       console.error('save domicilio error', e);
@@ -596,4 +607,3 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
-
