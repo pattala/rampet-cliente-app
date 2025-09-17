@@ -1,5 +1,3 @@
-
-
 // /modules/notifications.js — FCM + VAPID + Opt-In (card → switch en próxima sesión) + “Beneficios cerca tuyo” (card → banner)
 'use strict';
 
@@ -50,15 +48,45 @@ async function getClienteDocIdPorUID(uid) {
     .get();
   return snap.empty ? null : snap.docs[0].id;
 }
-async function setFcmTokensOnCliente(tokensArray) {
+
+// ───────── PATCH: merge & cap de fcmTokens (máx. 5, sin duplicados) ─────────
+const MAX_TOKENS = 5;
+
+function dedupeTokens(arr = []) {
+  const out = [];
+  const seen = new Set();
+  for (const t of arr) {
+    const s = (t || '').trim();
+    if (!s) continue;
+    if (!seen.has(s)) { seen.add(s); out.push(s); }
+  }
+  return out;
+}
+
+async function setFcmTokensOnCliente(newTokens) {
   const uid = firebase.auth().currentUser?.uid;
   if (!uid) throw new Error('No hay usuario logueado.');
   const clienteId = await getClienteDocIdPorUID(uid);
   if (!clienteId) throw new Error('No encontré tu doc en clientes (authUID).');
-  await firebase.firestore().collection('clientes').doc(clienteId)
-    .set({ fcmTokens: tokensArray }, { merge: true });
+
+  const ref = firebase.firestore().collection('clientes').doc(clienteId);
+
+  // Leer tokens actuales
+  let current = [];
+  try {
+    const snap = await ref.get();
+    const data = snap.exists ? snap.data() : null;
+    current = Array.isArray(data?.fcmTokens) ? data.fcmTokens : [];
+  } catch {}
+
+  // Merge → nuevo primero, luego los existentes; dedupe y cap
+  const merged = dedupeTokens([...(newTokens || []), ...current]).slice(0, MAX_TOKENS);
+
+  await ref.set({ fcmTokens: merged }, { merge: true });
   return clienteId;
 }
+
+// Guardado / borrado de token
 async function guardarTokenEnMiDoc(token) {
   const clienteId = await setFcmTokensOnCliente([token]);
   try { localStorage.setItem('fcmToken', token); } catch {}
@@ -178,8 +206,7 @@ export async function handlePermissionSwitch(e) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// FOREGROUND PUSH
-// ─────────────────────────────────────────────────────────────
+/** FOREGROUND PUSH: muestra sistemica incluso en foreground */
 async function hookOnMessage() {
   try {
     await ensureMessagingCompatLoaded();
@@ -192,7 +219,7 @@ async function hookOnMessage() {
         if (reg?.showNotification) {
           await reg.showNotification(d.title || 'RAMPET', {
             body: d.body || '',
-            icon: d.icon || 'https://rampet.vercel./images/mi_logo_192.png',
+            icon: d.icon || 'https://rampet.vercel.app/images/mi_logo_192.png', // ← FIX dominio
             tag: d.tag || d.id || 'rampet-fg',
             data: { url: d.url || d.click_action || '/?inbox=1' }
           });
@@ -233,6 +260,7 @@ function geoEls(){
   };
 }
 
+/** Card marketing (primera vez o cuando no está activo) */
 function setGeoMarketingUI(on) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
@@ -257,6 +285,7 @@ function setGeoMarketingUI(on) {
   };
 }
 
+/** Banner/estado regular */
 function setGeoRegularUI(state) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
@@ -269,40 +298,57 @@ function setGeoRegularUI(state) {
     try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
     if (txt) txt.textContent = 'Listo: ya podés recibir ofertas y beneficios cerca tuyo.';
     showInline(btnOn,false);
-    showInline(btnOff,true); // comentar esta línea si querés ocultar desactivar
+    showInline(btnOff,false); // ← ocultamos “desactivar” cuando está activo
     showInline(btnHelp,false);
     return;
   }
-  if (state === 'prompt') {
-    if (localStorage.getItem(LS_GEO_STATE) === 'deferred') {
-      if (txt) txt.textContent = 'Activá para ver ofertas y beneficios cerca tuyo.';
-      showInline(btnOn,true); showInline(btnOff,false); showInline(btnHelp,false);
-      return;
-    }
-    show(banner,false);
+
+  // Bloqueado: mostrar ayuda (no podemos volver a pedir permiso hasta que el user cambie el setting)
+  if (state === 'denied') {
+    try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
+    if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
+    showInline(btnOn,false); showInline(btnOff,false); showInline(btnHelp,true);
     return;
   }
-  try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
-  if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
-  showInline(btnOn,false); showInline(btnOff,false); showInline(btnHelp,true);
+
+  // Estado prompt/unknown: cae en marketing card (se maneja en updateGeoUI)
+  if (txt) txt.textContent = 'Activá para ver ofertas y beneficios cerca tuyo.';
+  showInline(btnOn,true); showInline(btnOff,false); showInline(btnHelp,false);
 }
 
 async function detectGeoPermission() {
   try {
     if (navigator.permissions?.query) {
       const st = await navigator.permissions.query({ name: 'geolocation' });
-      return st.state;
+      return st.state; // 'granted' | 'denied' | 'prompt'
     }
   } catch {}
   return 'unknown';
 }
+
+/** Política acordada:
+ * - Si NO está activo al iniciar (prompt/unknown) → mostrar CARD marketing.
+ * - Si está BLOQUEADO → mostrar banner de ayuda.
+ * - Si está ACTIVO → mostrar texto “Listo…” y sin botón desactivar.
+ */
 async function updateGeoUI() {
   const state = await detectGeoPermission();
-  const ls = localStorage.getItem(LS_GEO_STATE);
-  if (state === 'granted') { setGeoMarketingUI(false); setGeoRegularUI('granted'); return; }
-  if (state === 'prompt' && ls !== 'deferred') { setGeoMarketingUI(true); return; }
-  setGeoMarketingUI(false); setGeoRegularUI(state);
+
+  if (state === 'granted') {
+    setGeoMarketingUI(false);
+    setGeoRegularUI('granted');
+    return;
+  }
+  if (state === 'denied') {
+    setGeoMarketingUI(false);
+    setGeoRegularUI('denied'); // ayuda
+    return;
+  }
+
+  // prompt/unknown → card marketing (copy “te estás perdiendo promos…”)
+  setGeoMarketingUI(true);
 }
+
 async function handleGeoEnable() {
   try {
     await new Promise((ok,err)=>{ if(!navigator.geolocation?.getCurrentPosition) return err(); navigator.geolocation.getCurrentPosition(()=>ok(true),()=>ok(false)); });
@@ -327,5 +373,3 @@ function wireGeoButtonsOnce() {
 export async function ensureGeoOnStartup(){ wireGeoButtonsOnce(); await updateGeoUI(); }
 export async function maybeRefreshIfStale(){ await updateGeoUI(); }
 try { window.ensureGeoOnStartup = ensureGeoOnStartup; window.maybeRefreshIfStale = maybeRefreshIfStale; } catch {}
-
-
