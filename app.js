@@ -833,12 +833,30 @@ function openInboxIfQuery() {
 // (Podés ampliarlo luego; esto es para que ya funcione el flujo)
 // ————————————————————————————————————————————————
 
-function fillDatalist(el, values) {
-  if (!el) return;
-  el.innerHTML = (values || []).map(v => `<option value="${v}">`).join('');
-}
 
+
+// ── ÚNICA versión sin globales ni duplicados ─────────────────
 function wireAddressDatalists() {
+  // Catálogo mínimo embebido (evita variables globales)
+  const MAP = {
+    'Buenos Aires': {
+      partidos: ['La Plata','Quilmes','Avellaneda','Lanús','Lomas de Zamora','Morón','San Isidro','San Martín','Tigre','Vicente López','Bahía Blanca','General Pueyrredón'],
+      localidades: ['La Plata','City Bell','Gonnet','Quilmes','Bernal','Avellaneda','Lanús','Banfield','Temperley','San Isidro','Martínez','Tigre','San Fernando','Olivos','Mar del Plata','Bahía Blanca']
+    },
+    'CABA': {
+      partidos: [],
+      localidades: ['Palermo','Recoleta','Belgrano','Caballito','Almagro','San Telmo','Microcentro','Flores','Villa Urquiza','Villa Devoto','Parque Chacabuco']
+    },
+    'Córdoba': {
+      partidos: ['Capital','Colón','Punilla','Santa María'],
+      localidades: ['Córdoba','Villa Carlos Paz','Alta Gracia','Río Ceballos','Mendiolaza']
+    },
+    'Santa Fe': {
+      partidos: ['Rosario','La Capital','General López'],
+      localidades: ['Rosario','Santa Fe','Rafaela','Venado Tuerto']
+    }
+  };
+
   const provSel   = document.getElementById('dom-provincia');
   const locInput  = document.getElementById('dom-localidad');
   const locList   = document.getElementById('localidad-list');
@@ -846,22 +864,31 @@ function wireAddressDatalists() {
   const partList  = document.getElementById('partido-list');
   if (!provSel) return;
 
-  const update = () => {
-    const p = provSel.value.trim();
-    const data = AR_OPTIONS[p] || { partidos: [], localidades: [] };
-
-    // Llenar datalists
-    fillDatalist(locList, data.localidades);
-    fillDatalist(partList, data.partidos);
-
-    // Tips de placeholder
-    if (locInput)  locInput.placeholder  = data.localidades.length ? 'Localidad / Ciudad (elige o escribe)' : 'Localidad / Ciudad';
-    if (partInput) partInput.placeholder = data.partidos.length ? 'Partido / Departamento (elige o escribe)' : 'Partido / Departamento';
+  // Nombre distinto para evitar choques: no usar "fillDatalist"
+  const setOptionsList = (el, values = []) => {
+    if (!el) return;
+    el.innerHTML = values.map(v => `<option value="${v}">`).join('');
   };
 
-  provSel.addEventListener('change', update);
-  update(); // primera carga por si la provincia viene precargada
+  const update = () => {
+    const p = provSel.value.trim();
+    const data = MAP[p] || { partidos: [], localidades: [] };
+    setOptionsList(locList, data.localidades);
+    setOptionsList(partList, data.partidos);
+
+    if (locInput)  locInput.placeholder  = data.localidades.length ? 'Localidad / Ciudad (elegí o escribí)' : 'Localidad / Ciudad';
+    if (partInput) partInput.placeholder = data.partidos.length ? 'Partido / Departamento (elegí o escribí)' : 'Partido / Departamento';
+  };
+
+  // Evitar múltiples listeners si esta función se llama más de una vez
+  if (!provSel.dataset.dlWired) {
+    provSel.addEventListener('change', update);
+    provSel.dataset.dlWired = '1';
+  }
+
+  update(); // primera carga
 }
+
 // Wire "Luego" del formulario de domicilio
 document.getElementById('address-skip')?.addEventListener('click', () => {
   // 1) Ocultar el form
@@ -884,10 +911,7 @@ document.getElementById('address-skip')?.addEventListener('click', () => {
 // ————————————————————————————————————————————————
 
 
-function fillDatalist(el, values) {
-  if (!el) return;
-  el.innerHTML = (values || []).map(v => `<option value="${v}">`).join('');
-}
+
 
 function wireAddressDatalists() {
   // Catálogo mínimo embebido (sin globales)
@@ -1106,6 +1130,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
