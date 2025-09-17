@@ -1,4 +1,4 @@
-// pwa/modules/ui.js (VERSIÓN OK - export top-level, carrusel + historial reciente)
+// modules/ui.js (VERSIÓN OK - render principal, carrusel + historial reciente)
 
 import * as Data from './data.js';
 
@@ -57,7 +57,7 @@ export function renderMainScreen(clienteData, premiosData, campanasData = []) {
   const termsBanner = document.getElementById('terms-banner');
   if (termsBanner) termsBanner.style.display = !clienteData.terminosAceptados ? 'block' : 'none';
 
-  // Tarjeta de vencimiento (la dejamos visible con 0/— si no hay próximas tandas)
+  // Tarjeta de vencimiento
   const vencCard = document.getElementById('vencimiento-card');
   if (vencCard) {
     const pts = Data.getPuntosEnProximoVencimiento(clienteData);
@@ -67,7 +67,7 @@ export function renderMainScreen(clienteData, premiosData, campanasData = []) {
     vencCard.style.display = 'block';
   }
 
-  // Historial reciente (incluye canjes)
+  // Historial reciente
   renderRecentHistory(clienteData);
 
   // Lista de premios
@@ -138,110 +138,102 @@ function renderCampanasCarousel(campanasData) {
   carrusel.innerHTML = '';
   indicadoresContainer.innerHTML = '';
 
- campanasVisibles.forEach((campana, index) => {
-  let item;
+  campanasVisibles.forEach((campana, index) => {
+    let item;
 
-  // 🔎 Mapeo robusto de campos (imagen y link)
-  const banner =
-    campana.urlBanner ||
-    campana.bannerUrl ||
-    campana.bannerURL ||
-    campana.banner ||
-    campana.imagen ||
-    campana.imagenUrl ||
-    campana.image ||
-    campana.imageUrl ||
-    campana.imageURL ||
-    '';
+    const banner =
+      campana.urlBanner ||
+      campana.bannerUrl ||
+      campana.bannerURL ||
+      campana.banner ||
+      campana.imagen ||
+      campana.imagenUrl ||
+      campana.image ||
+      campana.imageUrl ||
+      campana.imageURL ||
+      '';
 
-  const link =
-    campana.urlDestino ||
-    campana.url ||
-    campana.link ||
-    campana.href ||
-    '';
+    const link =
+      campana.urlDestino ||
+      campana.url ||
+      campana.link ||
+      campana.href ||
+      '';
 
-  const titleText = campana.nombre || '';
-  const bodyText  = campana.cuerpo || '';
+    const titleText = campana.nombre || '';
+    const bodyText  = campana.cuerpo || '';
 
-  if (banner) {
-    // Aviso si es http bajo https (posible bloqueo por mixed content)
-    const isMixed = (location.protocol === 'https:' && /^http:\/\//i.test(banner));
-    if (isMixed) {
-      console.warn('[PWA] Banner con http bajo https (mixed content):', banner);
-    }
-
-    // Si hay link lo hacemos <a>, si no un <div>
-    item = document.createElement(link ? 'a' : 'div');
-    if (link) {
-      item.href = link;
-      item.target = '_blank';
-      item.rel = 'noopener noreferrer';
-    }
-    item.className = 'banner-item banner-con-imagen';
-
-    const img = document.createElement('img');
-    img.src = banner;
-    img.alt = titleText || 'Promoción';
-    img.loading = 'lazy';
-
-    // ⛑️ Fallback si la imagen no carga → mostramos bloque de texto
-    img.onerror = () => {
-      console.warn('[PWA] Banner no cargó, fallback a texto:', banner);
-      item.className = 'banner-item banner-item-texto';
-      item.innerHTML = '';
-      const t = document.createElement('h4');
-      t.textContent = titleText || 'Promoción';
-      item.appendChild(t);
-      if (bodyText) {
-        const p = document.createElement('p');
-        p.textContent = bodyText;
-        item.appendChild(p);
+    if (banner) {
+      const isMixed = (location.protocol === 'https:' && /^http:\/\//i.test(banner));
+      if (isMixed) {
+        console.warn('[PWA] Banner con http bajo https (mixed content):', banner);
       }
-    };
 
-    item.appendChild(img);
+      item = document.createElement(link ? 'a' : 'div');
+      if (link) {
+        item.href = link;
+        item.target = '_blank';
+        item.rel = 'noopener noreferrer';
+      }
+      item.className = 'banner-item banner-con-imagen';
 
-    // Overlay opcional con texto si existe
-    if (bodyText) {
-      const textoOverlay = document.createElement('div');
-      textoOverlay.className = 'banner-texto-overlay';
-      const titulo = document.createElement('h4');
-      titulo.textContent = titleText;
-      const parrafo = document.createElement('p');
-      parrafo.textContent = bodyText;
-      textoOverlay.appendChild(titulo);
-      textoOverlay.appendChild(parrafo);
-      item.appendChild(textoOverlay);
+      const img = document.createElement('img');
+      img.src = banner;
+      img.alt = titleText || 'Promoción';
+      img.loading = 'lazy';
+
+      img.onerror = () => {
+        console.warn('[PWA] Banner no cargó, fallback a texto:', banner);
+        item.className = 'banner-item banner-item-texto';
+        item.innerHTML = '';
+        const t = document.createElement('h4');
+        t.textContent = titleText || 'Promoción';
+        item.appendChild(t);
+        if (bodyText) {
+          const p = document.createElement('p');
+          p.textContent = bodyText;
+          item.appendChild(p);
+        }
+      };
+
+      item.appendChild(img);
+
+      if (bodyText) {
+        const textoOverlay = document.createElement('div');
+        textoOverlay.className = 'banner-texto-overlay';
+        const titulo = document.createElement('h4');
+        titulo.textContent = titleText;
+        const parrafo = document.createElement('p');
+        parrafo.textContent = bodyText;
+        textoOverlay.appendChild(titulo);
+        textoOverlay.appendChild(parrafo);
+        item.appendChild(textoOverlay);
+      }
+
+    } else {
+      item = document.createElement('div');
+      item.className = 'banner-item-texto';
+      const title = document.createElement('h4');
+      title.textContent = titleText || 'Promoción';
+      item.appendChild(title);
+      if (bodyText) {
+        const description = document.createElement('p');
+        description.textContent = bodyText;
+        item.appendChild(description);
+      }
     }
 
-  } else {
-    // Solo texto (sin imagen)
-    item = document.createElement('div');
-    item.className = 'banner-item-texto';
-    const title = document.createElement('h4');
-    title.textContent = titleText || 'Promoción';
-    item.appendChild(title);
-    if (bodyText) {
-      const description = document.createElement('p');
-      description.textContent = bodyText;
-      item.appendChild(description);
-    }
-  }
+    carrusel.appendChild(item);
 
-  carrusel.appendChild(item);
-
-  // Indicador (puntito)
-  const indicador = document.createElement('span');
-  indicador.className = 'indicador';
-  indicador.dataset.index = index;
-  indicador.addEventListener('click', () => {
-    const x = carrusel.children[index].offsetLeft;
-    carrusel.scrollTo({ left: x, behavior: 'smooth' });
+    const indicador = document.createElement('span');
+    indicador.className = 'indicador';
+    indicador.dataset.index = index;
+    indicador.addEventListener('click', () => {
+      const x = carrusel.children[index].offsetLeft;
+      carrusel.scrollTo({ left: x, behavior: 'smooth' });
+    });
+    indicadoresContainer.appendChild(indicador);
   });
-  indicadoresContainer.appendChild(indicador);
-});
-
 
   const updateActiveIndicator = () => {
     const scrollLeft = carrusel.scrollLeft;
@@ -365,5 +357,3 @@ export function renderRecentHistory(cliente = {}) {
 document.addEventListener('rampet:cliente-updated', (e) => {
   try { renderRecentHistory(e.detail?.cliente || {}); } catch {}
 });
-
-
