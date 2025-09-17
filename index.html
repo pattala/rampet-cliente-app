@@ -79,7 +79,41 @@
 
         <input type="password" id="register-password" placeholder="Crea una Contraseña (mín. 6 caracteres)" autocomplete="new-password" required>
 
-        <div class="terms-container">
+        <!-- Zona opcional en el registro -->
+        <fieldset style="margin-top:14px; padding:12px; border:1px solid #e5e5e5; border-radius:10px;">
+          <legend style="padding:0 6px; font-weight:600;">Tu zona (opcional)</legend>
+          <p class="small-note" style="margin:0 0 10px; color:#666;">Si nos contás tu zona, podremos personalizarte beneficios cerca de tu barrio. Podés completarlo más tarde.</p>
+
+          <div class="grid-2">
+            <input id="reg-calle" placeholder="Calle">
+            <input id="reg-numero" placeholder="Número (puede ser s/n)">
+            <input id="reg-piso" placeholder="Piso">
+            <input id="reg-depto" placeholder="Depto">
+            <input id="reg-barrio" placeholder="Barrio">
+
+            <input id="reg-localidad" list="reg-localidad-list" placeholder="Localidad / Ciudad">
+            <datalist id="reg-localidad-list"></datalist>
+
+            <input id="reg-partido" list="reg-partido-list" placeholder="Partido / Departamento">
+            <datalist id="reg-partido-list"></datalist>
+
+            <select id="reg-provincia">
+              <option value="">Provincia</option>
+              <option>Buenos Aires</option><option>CABA</option><option>Catamarca</option><option>Chaco</option>
+              <option>Chubut</option><option>Córdoba</option><option>Corrientes</option><option>Entre Ríos</option>
+              <option>Formosa</option><option>Jujuy</option><option>La Pampa</option><option>La Rioja</option>
+              <option>Mendoza</option><option>Misiones</option><option>Neuquén</option><option>Río Negro</option>
+              <option>Salta</option><option>San Juan</option><option>San Luis</option><option>Santa Cruz</option>
+              <option>Santa Fe</option><option>Santiago del Estero</option><option>Tierra del Fuego</option><option>Tucumán</option>
+            </select>
+
+            <input id="reg-cp" placeholder="Código Postal">
+            <input id="reg-pais" placeholder="País" value="Argentina">
+            <input id="reg-referencia" placeholder="Referencia (opcional)">
+          </div>
+        </fieldset>
+
+        <div class="terms-container" style="margin-top:12px;">
           <input type="checkbox" id="register-terms" required>
           <label for="register-terms">He leído y acepto los <a href="#" id="show-terms-link">Términos y Condiciones</a>.</label>
         </div>
@@ -104,8 +138,8 @@
         <p>⚠️ Para poder canjear premios, debes aceptar los <a href="#" id="show-terms-link-banner">Términos y Condiciones</a>.</p>
       </div>
 
-      <!-- Banner domicilio (para existentes sin datos) -->
-      <section id="address-banner" class="card info-banner" style="display:none; margin-bottom:12px;">
+      <!-- Banner chico solo si el usuario no cargó domicilio -->
+      <div id="address-banner" class="card info-banner" style="display:none; margin-bottom:12px;">
         <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
           <p style="margin:0;">📍 Sumá tu domicilio para recibir promos en tu zona. Opcional.</p>
           <div style="display:flex; gap:8px;">
@@ -113,29 +147,29 @@
             <button id="address-dismiss" class="secondary-btn" type="button">Luego</button>
           </div>
         </div>
-      </section>
+      </div>
 
-      <!-- Form domicilio (para nuevos y edición) -->
+      <!-- Card de domicilio (formulario), oculta por defecto -->
       <section id="address-card" class="card address-card" style="display:none;">
         <h3>Recibí beneficios cerca tuyo</h3>
         <p class="sub">Contanos tu zona y activamos promos para tu barrio. Opcional, podés hacerlo más tarde.</p>
 
         <div class="grid-2">
-          <input id="dom-calle" placeholder="Calle" autocomplete="address-line1">
-          <input id="dom-numero" placeholder="Número (puede ser s/n)" inputmode="numeric" autocomplete="on">
-          <input id="dom-piso" placeholder="Piso" autocomplete="address-line2">
-          <input id="dom-depto" placeholder="Depto" autocomplete="address-line2">
-          <input id="dom-barrio" placeholder="Barrio" autocomplete="address-level4">
+          <input id="dom-calle" placeholder="Calle">
+          <input id="dom-numero" placeholder="Número (puede ser s/n)">
+          <input id="dom-piso" placeholder="Piso">
+          <input id="dom-depto" placeholder="Depto">
+          <input id="dom-barrio" placeholder="Barrio">
 
           <!-- Localidad y Partido con datalist -->
-          <input id="dom-localidad" list="localidad-list" placeholder="Localidad / Ciudad" autocomplete="address-level2">
+          <input id="dom-localidad" list="localidad-list" placeholder="Localidad / Ciudad">
           <datalist id="localidad-list"></datalist>
 
-          <input id="dom-partido" list="partido-list" placeholder="Partido / Departamento" autocomplete="address-level3">
+          <input id="dom-partido" list="partido-list" placeholder="Partido / Departamento">
           <datalist id="partido-list"></datalist>
 
           <!-- Provincia como select -->
-          <select id="dom-provincia" autocomplete="address-level1">
+          <select id="dom-provincia">
             <option value="">Provincia</option>
             <option>Buenos Aires</option><option>CABA</option><option>Catamarca</option><option>Chaco</option>
             <option>Chubut</option><option>Córdoba</option><option>Corrientes</option><option>Entre Ríos</option>
@@ -145,8 +179,8 @@
             <option>Santa Fe</option><option>Santiago del Estero</option><option>Tierra del Fuego</option><option>Tucumán</option>
           </select>
 
-          <input id="dom-cp" placeholder="Código Postal" autocomplete="postal-code" inputmode="numeric">
-          <input id="dom-pais" placeholder="País" value="Argentina" autocomplete="country-name">
+          <input id="dom-cp" placeholder="Código Postal">
+          <input id="dom-pais" placeholder="País" value="Argentina">
           <input id="dom-referencia" placeholder="Referencia (opcional)">
         </div>
 
