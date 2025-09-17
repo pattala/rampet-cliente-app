@@ -1,12 +1,8 @@
 // modules/data.js (PWA - datos del cliente, vencimientos, saldo, consentimientos persistentes)
 
-// ─────────────────────────────────────────────────────────────
-// ANCLA SUPERIOR (imports)
 import { db } from './firebase.js';
 import * as UI from './ui.js';
 import * as Auth from './auth.js';
-// Nota: Notifications puede despachar eventos; este módulo escucha/actualiza Firestore
-// ─────────────────────────────────────────────────────────────
 
 let clienteData = null;
 let clienteRef = null;
@@ -42,8 +38,7 @@ function startOfTodayMs() {
   return d.getTime();
 }
 
-// Agrupa próximas caducidades por día (asc) con prioridad:
-// (1) vencimientos[], (2) historialPuntos[], (3) campos directos
+// Agrupa próximas caducidades por día (asc)
 function computeUpcomingExpirations(cliente = {}, windowDays = null) {
   const todayStart = startOfTodayMs();
   const untilMs = windowDays ? (todayStart + windowDays * 24 * 60 * 60 * 1000) : null;
@@ -122,7 +117,6 @@ function updateSaldoCard(cliente = {}) {
       card.style.display = 'block';
     } else {
       saldoEl.textContent = '$ 0.00';
-      // Se oculta si no hay saldo
       card.style.display = 'none';
     }
   } catch (e) {
@@ -130,7 +124,7 @@ function updateSaldoCard(cliente = {}) {
   }
 }
 
-// === Fallbacks exportados (por compatibilidad con otros módulos) ===
+// === Fallbacks exportados ===
 export function getFechaProximoVencimiento(cliente = {}) {
   if (cliente?.fechaProximoVencimiento) {
     const dt = parseDateLike(cliente.fechaProximoVencimiento);
@@ -207,7 +201,6 @@ export function updateVencimientoCard(cliente = {}) {
       return;
     }
 
-    // Contenedor lista (crear si falta, colgar del card)
     let listEl = card.querySelector('#vencimiento-list');
     if (!listEl) {
       listEl = document.createElement('ul');
@@ -229,11 +222,9 @@ export function updateVencimientoCard(cliente = {}) {
       return;
     }
 
-    // Primera tanda
     ptsEl.textContent = String(data[0].puntos);
     fechaEl.textContent = fmt(data[0].ts);
 
-    // Siguientes (hasta 2)
     const siguientes = data.slice(1, 3);
     if (siguientes.length) {
       listEl.innerHTML = siguientes
@@ -286,10 +277,8 @@ function renderizarPantallaPrincipal() {
   } catch {}
 }
 
-// ====== CONSENTIMIENTOS / CONFIG (Opt-in persistente) ======
-export function getClienteRef() {
-  return clienteRef;
-}
+// ====== CONSENTIMIENTOS / CONFIG ======
+export function getClienteRef() { return clienteRef; }
 
 async function mergeCliente(data) {
   if (!clienteRef) return;
@@ -297,7 +286,6 @@ async function mergeCliente(data) {
 }
 
 export async function updateConfig(partial = {}) {
-  // Guarda bajo clientes/{id}.config.*
   if (!clienteRef) return;
   const patch = {};
   Object.keys(partial).forEach(k => {
@@ -328,9 +316,8 @@ export async function saveGeoConsent(allowed, extra = {}) {
   });
 }
 
-// Escuchar eventos globales (emiten notifications.js / geoloc.js / app.js)
+// Escucha eventos globales (emitidos por notifications.js)
 function wireConsentEventBridges() {
-  // Notificaciones
   document.addEventListener('rampet:consent:notif-opt-in', async (e) => {
     await saveNotifConsent(true, { notifOptInSource: e?.detail?.source || 'prompt' });
   });
@@ -341,7 +328,6 @@ function wireConsentEventBridges() {
     await saveNotifDismiss();
   });
 
-  // Geolocalización
   document.addEventListener('rampet:geo:enabled', async (e) => {
     await saveGeoConsent(true, { geoMethod: e?.detail?.method || 'prompt' });
   });
@@ -357,10 +343,9 @@ export async function listenToClientData(user) {
   if (unsubscribeCliente) unsubscribeCliente();
   if (unsubscribeCampanas) unsubscribeCampanas();
 
-  // Enlazar una vez los bridges de consentimientos
   try { wireConsentEventBridges(); } catch {}
 
-  // Premios (carga inicial, una sola vez)
+  // Premios (carga inicial)
   if (premiosData.length === 0) {
     try {
       const premiosSnapshot = await db.collection('premios').orderBy('puntos', 'asc').get();
@@ -396,7 +381,6 @@ export async function listenToClientData(user) {
       clienteData = snapshot.docs[0].data();
       clienteRef = snapshot.docs[0].ref;
 
-      // Exponer evento para integraciones (UI, notifications.js)
       try {
         document.dispatchEvent(new CustomEvent('rampet:cliente-updated', { detail: { cliente: clienteData } }));
       } catch {}
@@ -422,6 +406,3 @@ if (typeof window !== 'undefined') {
 
 // Stubs
 export async function acceptTerms() { /* futuro: guardar aceptación */ }
-
-// Exports adicionales si luego agregás más
-export { };
