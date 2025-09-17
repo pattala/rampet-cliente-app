@@ -341,3 +341,45 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 /* ====== Ajustes menores ====== */
 .user-actions{ gap:8px; }
 header h1{ margin-bottom:0; }
+
+/* ====== Dirección (banner + card + grid) ====== */
+#address-banner{
+  background:#FFFACD;
+  border:1px solid #F0E68C;
+  border-radius:12px;
+  padding:12px 14px;
+}
+#address-banner p{ margin:0; color:#5c5c5c; }
+#address-banner .primary-btn{ padding:8px 12px; }
+#address-banner .secondary-btn{ padding:8px 12px; }
+
+/* Card de domicilio ya existe, completo con algunos detalles */
+.card.address-card{
+  background:#fff; border-radius:12px; padding:16px;
+  box-shadow:0 6px 18px rgba(0,0,0,.08); margin:16px 0;
+  border:1px solid var(--border-color);
+}
+.card.address-card h3{ margin:0 0 6px; }
+.card.address-card .sub{ margin:0 0 12px; color:#555; }
+.card.address-card .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+@media (max-width:520px){ .card.address-card .grid-2{ grid-template-columns:1fr; } }
+.card.address-card input, .card.address-card select{
+  width:100%; padding:12px; border:1px solid var(--border-color); border-radius:8px; font:inherit;
+}
+.card.address-card .actions{ display:flex; gap:8px; justify-content:flex-end; }
+
+/* ====== Modal Perfil ====== */
+#profile-modal .modal-content{ max-width:520px; }
+.profile-consent{
+  display:flex; align-items:flex-start; gap:10px;
+  margin:8px 0; font-size:14px; color:var(--text-color);
+}
+.profile-consent input{ margin-top:2px; }
+.profile-address-summary{
+  padding:10px 12px; border:1px solid var(--border-color); border-radius:8px; background:#f8f9fa;
+  font-size:14px; color:#444;
+}
+
+/* ====== Ajustes menores ====== */
+.user-actions{ gap:8px; }
+header h1{ margin-bottom:0; }
