@@ -504,3 +504,96 @@ try {
   });
 } catch {}
 
+function toast(msg, type='info') {
+  try { window.UI?.showToast?.(msg, type); } catch {}
+  if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
+}
+function buildAddressLine(c) {
+  const parts = [];
+  if (c.calle) parts.push(c.calle + (c.numero ? ' ' + c.numero : ''));
+  const pisoDto = [c.piso, c.depto].filter(Boolean).join(' ');
+  if (pisoDto) parts.push(pisoDto);
+  const barrio = c.barrio ? `Barrio ${c.barrio}` : '';
+  if (barrio) parts.push(barrio);
+  if (c.localidad) parts.push(c.localidad);
+  if (c.partido) parts.push(c.partido);
+  if (c.provincia) parts.push(c.provincia);
+  if (c.codigoPostal) parts.push(c.codigoPostal);
+  if (c.pais) parts.push(c.pais);
+  return parts.filter(Boolean).join(', ');
+}
+
+export async function initDomicilioForm() {
+  const card = document.getElementById('address-card');
+  if (!card || card._wired) return; card._wired = true;
+
+  const g = id => document.getElementById(id);
+  const ids = ['dom-calle','dom-numero','dom-piso','dom-depto','dom-barrio','dom-localidad','dom-partido','dom-provincia','dom-cp','dom-pais','dom-referencia'];
+  const getValues = () => ({
+    calle: g('dom-calle')?.value?.trim() || '',
+    numero: g('dom-numero')?.value?.trim() || '',
+    piso: g('dom-piso')?.value?.trim() || '',
+    depto: g('dom-depto')?.value?.trim() || '',
+    barrio: g('dom-barrio')?.value?.trim() || '',
+    localidad: g('dom-localidad')?.value?.trim() || '',
+    partido: g('dom-partido')?.value?.trim() || '',
+    provincia: g('dom-provincia')?.value?.trim() || '',
+    codigoPostal: g('dom-cp')?.value?.trim() || '',
+    pais: g('dom-pais')?.value?.trim() || '',
+    referencia: g('dom-referencia')?.value?.trim() || '',
+  });
+
+  // Precargar si existe
+  try {
+    const uid = firebase.auth().currentUser?.uid;
+    if (uid) {
+      const clienteId = await getClienteDocIdPorUID(uid);
+      if (clienteId) {
+        const snap = await firebase.firestore().collection('clientes').doc(clienteId).get();
+        const dom = snap.data()?.domicilio?.components;
+        if (dom) {
+          g('dom-calle').value = dom.calle || '';
+          g('dom-numero').value = dom.numero || '';
+          g('dom-piso').value = dom.piso || '';
+          g('dom-depto').value = dom.depto || '';
+          g('dom-barrio').value = dom.barrio || '';
+          g('dom-localidad').value = dom.localidad || '';
+          g('dom-partido').value = dom.partido || '';
+          g('dom-provincia').value = dom.provincia || '';
+          g('dom-cp').value = dom.codigoPostal || '';
+          g('dom-pais').value = dom.pais || 'Argentina';
+          g('dom-referencia').value = dom.referencia || '';
+        }
+      }
+    }
+  } catch {}
+
+  g('address-save')?.addEventListener('click', async () => {
+    try {
+      const uid = firebase.auth().currentUser?.uid;
+      if (!uid) return toast('Iniciá sesión para guardar tu domicilio','warning');
+      const clienteId = await getClienteDocIdPorUID(uid);
+      if (!clienteId) return toast('No encontramos tu ficha de cliente','error');
+
+      const components = getValues();
+      const addressLine = buildAddressLine(components);
+      await firebase.firestore().collection('clientes').doc(clienteId).set({
+        domicilio: {
+          addressLine,
+          components,
+          geocoded: { lat: null, lng: null, geohash7: null, provider: null, confidence: null, geocodedAt: null, verified: false }
+        }
+      }, { merge: true });
+
+      toast('Domicilio guardado. ¡Gracias!', 'success');
+    } catch (e) {
+      console.error('save domicilio error', e);
+      toast('No pudimos guardar el domicilio', 'error');
+    }
+  });
+
+  g('address-skip')?.addEventListener('click', () => {
+    toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
+  });
+}
+
