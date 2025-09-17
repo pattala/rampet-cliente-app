@@ -89,35 +89,6 @@
 
       <p class="toggle-link">¿Ya tienes cuenta? <a href="#" id="show-login-link">Ingresa aquí</a></p>
     </div>
-<section id="address-card" class="card">
-  <h3>Recibí beneficios cerca tuyo</h3>
-  <p class="sub">
-    Contanos tu zona y activamos promos para tu barrio. Opcional, podés hacerlo más tarde.
-  </p>
-
-  <div class="grid-2">
-    <input id="dom-calle" placeholder="Calle">
-    <input id="dom-numero" placeholder="Número (puede ser s/n)">
-    <input id="dom-piso" placeholder="Piso">
-    <input id="dom-depto" placeholder="Depto">
-    <input id="dom-barrio" placeholder="Barrio">
-    <input id="dom-localidad" placeholder="Localidad / Ciudad">
-    <input id="dom-partido" placeholder="Partido / Departamento">
-    <input id="dom-provincia" placeholder="Provincia">
-    <input id="dom-cp" placeholder="Código Postal">
-    <input id="dom-pais" placeholder="País" value="Argentina">
-    <input id="dom-referencia" placeholder="Referencia (opcional)">
-  </div>
-
-  <div class="actions" style="margin-top:10px; display:flex; gap:8px; justify-content:flex-end;">
-    <button id="address-skip" class="secondary-btn" type="button">Luego</button>
-    <button id="address-save" class="primary-btn" type="button">Guardar domicilio</button>
-  </div>
-
-  <p class="small-note">
-    Usamos estos datos para personalizar beneficios por zona. Podés borrarlos cuando quieras.
-  </p>
-</section>
 
     <!-- APP -->
     <div id="main-app-screen" class="screen">
@@ -132,6 +103,61 @@
       <div id="terms-banner" class="card terms-banner" style="display:none;">
         <p>⚠️ Para poder canjear premios, debes aceptar los <a href="#" id="show-terms-link-banner">Términos y Condiciones</a>.</p>
       </div>
+<!-- Banner chico solo si el usuario no cargó domicilio -->
+<div id="address-banner" class="card info-banner" style="display:none; margin-bottom:12px;">
+  <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+    <p style="margin:0;">📍 Sumá tu domicilio para recibir promos en tu zona. Opcional.</p>
+    <div style="display:flex; gap:8px;">
+      <button id="address-open-btn" class="primary-btn" type="button">Agregar domicilio</button>
+      <button id="address-dismiss" class="secondary-btn" type="button">Luego</button>
+    </div>
+  </div>
+</div>
+
+<!-- Card de domicilio (formulario), oculta por defecto -->
+<section id="address-card" class="card address-card" style="display:none;">
+  <h3>Recibí beneficios cerca tuyo</h3>
+  <p class="sub">Contanos tu zona y activamos promos para tu barrio. Opcional, podés hacerlo más tarde.</p>
+
+  <div class="grid-2">
+    <input id="dom-calle" placeholder="Calle">
+    <input id="dom-numero" placeholder="Número (puede ser s/n)">
+    <input id="dom-piso" placeholder="Piso">
+    <input id="dom-depto" placeholder="Depto">
+    <input id="dom-barrio" placeholder="Barrio">
+
+    <!-- Localidad y Partido con datalist (autocompletar). Cargaremos opciones luego. -->
+    <input id="dom-localidad" list="localidad-list" placeholder="Localidad / Ciudad">
+    <datalist id="localidad-list"></datalist>
+
+    <input id="dom-partido" list="partido-list" placeholder="Partido / Departamento">
+    <datalist id="partido-list"></datalist>
+
+    <!-- Provincia como select -->
+    <select id="dom-provincia">
+      <option value="">Provincia</option>
+      <option>Buenos Aires</option><option>CABA</option><option>Catamarca</option><option>Chaco</option>
+      <option>Chubut</option><option>Córdoba</option><option>Corrientes</option><option>Entre Ríos</option>
+      <option>Formosa</option><option>Jujuy</option><option>La Pampa</option><option>La Rioja</option>
+      <option>Mendoza</option><option>Misiones</option><option>Neuquén</option><option>Río Negro</option>
+      <option>Salta</option><option>San Juan</option><option>San Luis</option><option>Santa Cruz</option>
+      <option>Santa Fe</option><option>Santiago del Estero</option><option>Tierra del Fuego</option><option>Tucumán</option>
+    </select>
+
+    <input id="dom-cp" placeholder="Código Postal">
+    <input id="dom-pais" placeholder="País" value="Argentina">
+    <input id="dom-referencia" placeholder="Referencia (opcional)">
+  </div>
+
+  <div class="actions" style="margin-top:10px; display:flex; gap:8px; justify-content:flex-end;">
+    <button id="address-skip" class="secondary-btn" type="button">Luego</button>
+    <button id="address-save" class="primary-btn" type="button">Guardar domicilio</button>
+  </div>
+
+  <p class="small-note" style="margin-top:6px;">
+    Usamos estos datos para personalizar beneficios por zona. Podés borrarlos cuando quieras.
+  </p>
+</section>
 
       <!-- Puntos -->
       <div class="card puntos-card">
@@ -349,6 +375,7 @@
   </script>
 </body>
 </html>
+
 
 
 
