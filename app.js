@@ -468,6 +468,71 @@ function setupAuthScreenListeners() {
 function setupMainAppScreenListeners() {
   if (window.__RAMPET__?.mainListenersWired) return;
   (window.__RAMPET__ ||= {}).mainListenersWired = true;
+// Perfil
+on('edit-profile-btn', 'click', UI.openProfileModal);
+on('profile-close', 'click', UI.closeProfileModal);
+on('prof-cancel', 'click', UI.closeProfileModal);
+
+on('prof-edit-address-btn', 'click', () => {
+  UI.closeProfileModal();
+  const card = document.getElementById('address-card');
+  const banner = document.getElementById('address-banner');
+  if (banner) banner.style.display = 'none';
+  if (card) {
+    card.style.display = 'block';
+    try { window.scrollTo({ top: card.offsetTop - 12, behavior: 'smooth' }); } catch {}
+  }
+});
+
+on('prof-save', 'click', async () => {
+  const nombre   = document.getElementById('prof-nombre')?.value?.trim() || '';
+  const telefono = document.getElementById('prof-telefono')?.value?.trim() || '';
+  const fecha    = document.getElementById('prof-fecha')?.value?.trim() || '';
+  const notifOn  = !!document.getElementById('prof-consent-notif')?.checked;
+  const geoOn    = !!document.getElementById('prof-consent-geo')?.checked;
+
+  if (telefono && !/^\d{6,}$/.test(telefono)) {
+    UI.showToast('El teléfono debe tener sólo números (mín. 6).','error'); return;
+  }
+
+  try {
+    await Data.updateProfile({ nombre, telefono, fechaNacimiento: fecha });
+
+    // Notificaciones
+    try {
+      if (typeof Notification !== 'undefined') {
+        if (notifOn) {
+          if (Notification.permission !== 'granted') {
+            await Notifications.handlePermissionRequest();
+          }
+        } else {
+          await Notifications.handlePermissionSwitch({ target:{ checked:false } });
+        }
+      }
+    } catch {}
+
+    // Geolocalización (solicita permiso una vez si hace falta)
+    try {
+      if (geoOn) {
+        await new Promise((ok)=> {
+          if (!navigator.geolocation?.getCurrentPosition) return ok();
+          navigator.geolocation.getCurrentPosition(
+            async ()=>{ try { await Data.saveGeoConsent(true,  { geoMethod:'profile' }); } catch{} ok(); },
+            async ()=>{ try { await Data.saveGeoConsent(false, { geoMethod:'profile-denied' }); } catch{} ok(); }
+          );
+        });
+      } else {
+        await Data.saveGeoConsent(false, { geoMethod:'profile' });
+      }
+    } catch {}
+
+    UI.showToast('Datos guardados.','success');
+    UI.closeProfileModal();
+  } catch (e) {
+    console.warn(e);
+    UI.showToast('No se pudieron guardar los cambios.','error');
+  }
+});
 
   // Logout
   on('logout-btn', 'click', async () => {
@@ -843,3 +908,4 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
