@@ -331,14 +331,18 @@ async function detectGeoPermission() {
  * - Si está BLOQUEADO → mostrar banner de ayuda.
  * - Si está ACTIVO → mostrar texto “Listo…” y sin botón desactivar.
  */
+// Reemplazo de updateGeoUI()
 async function updateGeoUI() {
   const state = await detectGeoPermission();
 
   if (state === 'granted') {
     setGeoMarketingUI(false);
     setGeoRegularUI('granted');
+    startGeoWatch();        // ← inicia captura mientras esté visible
     return;
   }
+  stopGeoWatch();           // ← detiene si no hay permiso
+
   if (state === 'denied') {
     setGeoMarketingUI(false);
     setGeoRegularUI('denied'); // ayuda
@@ -348,6 +352,7 @@ async function updateGeoUI() {
   // prompt/unknown → card marketing (copy “te estás perdiendo promos…”)
   setGeoMarketingUI(true);
 }
+
 
 async function handleGeoEnable() {
   try {
@@ -373,3 +378,129 @@ function wireGeoButtonsOnce() {
 export async function ensureGeoOnStartup(){ wireGeoButtonsOnce(); await updateGeoUI(); }
 export async function maybeRefreshIfStale(){ await updateGeoUI(); }
 try { window.ensureGeoOnStartup = ensureGeoOnStartup; window.maybeRefreshIfStale = maybeRefreshIfStale; } catch {}
+// ─────────────────────────────────────────────────────────────
+// GEO TRACKING “MIENTRAS ESTÉ ABIERTA” (historial con hora)
+// ─────────────────────────────────────────────────────────────
+const GEO_CONF = { THROTTLE_S: 180, DIST_M: 250, DAILY_CAP: 30 };
+const LS_GEO_DAY = 'geoDay';
+const LS_GEO_COUNT = 'geoCount';
+
+let geoWatchId = null;
+let lastSample = { t: 0, lat: null, lng: null }; // última muestra válida
+
+function round3(n){ return Math.round((+n) * 1e3) / 1e3; }
+function haversineMeters(a, b) {
+  if (!a || !b) return Infinity;
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad((b.lat||0) - (a.lat||0));
+  const dLng = toRad((b.lng||0) - (a.lng||0));
+  const la1 = toRad(a.lat||0), la2 = toRad(b.lat||0);
+  const h = Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function incDailyCount() {
+  const day = todayKey();
+  const curDay = localStorage.getItem(LS_GEO_DAY);
+  if (curDay !== day) {
+    localStorage.setItem(LS_GEO_DAY, day);
+    localStorage.setItem(LS_GEO_COUNT, '0');
+  }
+  const c = +localStorage.getItem(LS_GEO_COUNT) || 0;
+  localStorage.setItem(LS_GEO_COUNT, String(c+1));
+  return c+1;
+}
+function canWriteMoreToday() {
+  const day = todayKey();
+  const curDay = localStorage.getItem(LS_GEO_DAY);
+  const c = +localStorage.getItem(LS_GEO_COUNT) || 0;
+  return (curDay !== day) || (c < GEO_CONF.DAILY_CAP);
+}
+
+async function writeGeoSamples(lat, lng) {
+  try {
+    if (!canWriteMoreToday()) return;
+    const uid = firebase.auth().currentUser?.uid;
+    if (!uid) return;
+    const clienteId = await getClienteDocIdPorUID(uid);
+    if (!clienteId) return;
+
+    const db = firebase.firestore();
+    const now = firebase.firestore.FieldValue.serverTimestamp();
+
+    // Privado exacto (solo dueñ@/admin)
+    await db.collection('clientes').doc(clienteId)
+      .collection('geo_raw').doc().set({
+        lat, lng, capturedAt: now, source: 'pwa'
+      }, { merge: false });
+
+    // Público agregado (redondeado ~100m)
+    await db.collection('public_geo').doc(uid)
+      .collection('samples').doc().set({
+        lat3: round3(lat), lng3: round3(lng),
+        capturedAt: now, rounded: true, source: 'pwa'
+      }, { merge: false });
+
+    incDailyCount();
+  } catch (e) {
+    console.warn('[geo] writeGeoSamples error', e?.message || e);
+  }
+}
+
+function shouldRecord(lat, lng) {
+  const nowT = Date.now();
+  const dt = (nowT - (lastSample.t || 0)) / 1000;
+  if (dt >= GEO_CONF.THROTTLE_S) return true;
+  const dist = haversineMeters(
+    (lastSample.lat != null && lastSample.lng != null) ? {lat:lastSample.lat, lng:lastSample.lng} : null,
+    { lat, lng }
+  );
+  return dist >= GEO_CONF.DIST_M;
+}
+
+function onGeoPosSuccess(pos) {
+  try {
+    const lat = pos?.coords?.latitude;
+    const lng = pos?.coords?.longitude;
+    if (lat == null || lng == null) return;
+    if (!shouldRecord(lat, lng)) return;
+    lastSample = { t: Date.now(), lat, lng };
+    writeGeoSamples(lat, lng);
+  } catch (e) {
+    console.warn('[geo] onGeoPosSuccess error', e?.message || e);
+  }
+}
+function onGeoPosError(err) {
+  // Silencioso: permisos denegados o timeout
+  // console.warn('[geo] watch error', err?.message || err);
+}
+
+function startGeoWatch() {
+  if (!navigator.geolocation || geoWatchId != null) return;
+  if (document.visibilityState !== 'visible') return;
+  try {
+    geoWatchId = navigator.geolocation.watchPosition(
+      onGeoPosSuccess, onGeoPosError,
+      { enableHighAccuracy: false, maximumAge: 60000, timeout: 10000 }
+    );
+  } catch (e) { console.warn('[geo] start watch error', e?.message || e); }
+}
+function stopGeoWatch() {
+  try {
+    if (geoWatchId != null) { navigator.geolocation.clearWatch(geoWatchId); }
+  } catch {}
+  geoWatchId = null;
+}
+
+// Reaccionar a foco/segundo plano
+try {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') startGeoWatch();
+    else stopGeoWatch();
+  });
+} catch {}
+
