@@ -103,61 +103,62 @@
       <div id="terms-banner" class="card terms-banner" style="display:none;">
         <p>⚠️ Para poder canjear premios, debes aceptar los <a href="#" id="show-terms-link-banner">Términos y Condiciones</a>.</p>
       </div>
-<!-- Banner chico solo si el usuario no cargó domicilio -->
-<div id="address-banner" class="card info-banner" style="display:none; margin-bottom:12px;">
-  <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
-    <p style="margin:0;">📍 Sumá tu domicilio para recibir promos en tu zona. Opcional.</p>
-    <div style="display:flex; gap:8px;">
-      <button id="address-open-btn" class="primary-btn" type="button">Agregar domicilio</button>
-      <button id="address-dismiss" class="secondary-btn" type="button">Luego</button>
-    </div>
-  </div>
-</div>
 
-<!-- Card de domicilio (formulario), oculta por defecto -->
-<section id="address-card" class="card address-card" style="display:none;">
-  <h3>Recibí beneficios cerca tuyo</h3>
-  <p class="sub">Contanos tu zona y activamos promos para tu barrio. Opcional, podés hacerlo más tarde.</p>
+      <!-- Banner domicilio (para existentes sin datos) -->
+      <section id="address-banner" class="card info-banner" style="display:none; margin-bottom:12px;">
+        <div style="display:flex; gap:10px; align-items:center; justify-content:space-between; flex-wrap:wrap;">
+          <p style="margin:0;">📍 Sumá tu domicilio para recibir promos en tu zona. Opcional.</p>
+          <div style="display:flex; gap:8px;">
+            <button id="address-open-btn" class="primary-btn" type="button">Agregar domicilio</button>
+            <button id="address-dismiss" class="secondary-btn" type="button">Luego</button>
+          </div>
+        </div>
+      </section>
 
-  <div class="grid-2">
-    <input id="dom-calle" placeholder="Calle">
-    <input id="dom-numero" placeholder="Número (puede ser s/n)">
-    <input id="dom-piso" placeholder="Piso">
-    <input id="dom-depto" placeholder="Depto">
-    <input id="dom-barrio" placeholder="Barrio">
+      <!-- Form domicilio (para nuevos y edición) -->
+      <section id="address-card" class="card address-card" style="display:none;">
+        <h3>Recibí beneficios cerca tuyo</h3>
+        <p class="sub">Contanos tu zona y activamos promos para tu barrio. Opcional, podés hacerlo más tarde.</p>
 
-    <!-- Localidad y Partido con datalist (autocompletar). Cargaremos opciones luego. -->
-    <input id="dom-localidad" list="localidad-list" placeholder="Localidad / Ciudad">
-    <datalist id="localidad-list"></datalist>
+        <div class="grid-2">
+          <input id="dom-calle" placeholder="Calle" autocomplete="address-line1">
+          <input id="dom-numero" placeholder="Número (puede ser s/n)" inputmode="numeric" autocomplete="on">
+          <input id="dom-piso" placeholder="Piso" autocomplete="address-line2">
+          <input id="dom-depto" placeholder="Depto" autocomplete="address-line2">
+          <input id="dom-barrio" placeholder="Barrio" autocomplete="address-level4">
 
-    <input id="dom-partido" list="partido-list" placeholder="Partido / Departamento">
-    <datalist id="partido-list"></datalist>
+          <!-- Localidad y Partido con datalist -->
+          <input id="dom-localidad" list="localidad-list" placeholder="Localidad / Ciudad" autocomplete="address-level2">
+          <datalist id="localidad-list"></datalist>
 
-    <!-- Provincia como select -->
-    <select id="dom-provincia">
-      <option value="">Provincia</option>
-      <option>Buenos Aires</option><option>CABA</option><option>Catamarca</option><option>Chaco</option>
-      <option>Chubut</option><option>Córdoba</option><option>Corrientes</option><option>Entre Ríos</option>
-      <option>Formosa</option><option>Jujuy</option><option>La Pampa</option><option>La Rioja</option>
-      <option>Mendoza</option><option>Misiones</option><option>Neuquén</option><option>Río Negro</option>
-      <option>Salta</option><option>San Juan</option><option>San Luis</option><option>Santa Cruz</option>
-      <option>Santa Fe</option><option>Santiago del Estero</option><option>Tierra del Fuego</option><option>Tucumán</option>
-    </select>
+          <input id="dom-partido" list="partido-list" placeholder="Partido / Departamento" autocomplete="address-level3">
+          <datalist id="partido-list"></datalist>
 
-    <input id="dom-cp" placeholder="Código Postal">
-    <input id="dom-pais" placeholder="País" value="Argentina">
-    <input id="dom-referencia" placeholder="Referencia (opcional)">
-  </div>
+          <!-- Provincia como select -->
+          <select id="dom-provincia" autocomplete="address-level1">
+            <option value="">Provincia</option>
+            <option>Buenos Aires</option><option>CABA</option><option>Catamarca</option><option>Chaco</option>
+            <option>Chubut</option><option>Córdoba</option><option>Corrientes</option><option>Entre Ríos</option>
+            <option>Formosa</option><option>Jujuy</option><option>La Pampa</option><option>La Rioja</option>
+            <option>Mendoza</option><option>Misiones</option><option>Neuquén</option><option>Río Negro</option>
+            <option>Salta</option><option>San Juan</option><option>San Luis</option><option>Santa Cruz</option>
+            <option>Santa Fe</option><option>Santiago del Estero</option><option>Tierra del Fuego</option><option>Tucumán</option>
+          </select>
 
-  <div class="actions" style="margin-top:10px; display:flex; gap:8px; justify-content:flex-end;">
-    <button id="address-skip" class="secondary-btn" type="button">Luego</button>
-    <button id="address-save" class="primary-btn" type="button">Guardar domicilio</button>
-  </div>
+          <input id="dom-cp" placeholder="Código Postal" autocomplete="postal-code" inputmode="numeric">
+          <input id="dom-pais" placeholder="País" value="Argentina" autocomplete="country-name">
+          <input id="dom-referencia" placeholder="Referencia (opcional)">
+        </div>
 
-  <p class="small-note" style="margin-top:6px;">
-    Usamos estos datos para personalizar beneficios por zona. Podés borrarlos cuando quieras.
-  </p>
-</section>
+        <div class="actions" style="margin-top:10px; display:flex; gap:8px; justify-content:flex-end;">
+          <button id="address-skip" class="secondary-btn" type="button">Luego</button>
+          <button id="address-save" class="primary-btn" type="button">Guardar domicilio</button>
+        </div>
+
+        <p class="small-note" style="margin-top:6px;">
+          Usamos estos datos para personalizar beneficios por zona. Podés borrarlos cuando quieras.
+        </p>
+      </section>
 
       <!-- Puntos -->
       <div class="card puntos-card">
@@ -189,19 +190,18 @@
 
       <!-- Notificaciones / prompts -->
       <div id="notif-prompt-card" class="card" style="display:none;">
-  <h3>🚀 ¡Activá tus beneficios exclusivos!</h3>
-  <p>Enterate al instante de promos y recompensas pensadas para vos. Activá las notificaciones y no te pierdas nada.</p>
-  <ul style="text-align:left; padding-left:20px; margin:10px 0 15px;">
-    <li>💰 <strong>Puntos al instante</strong></li>
-    <li>🔥 <strong>Ofertas flash</strong></li>
-    <li>🎁 <strong>Recompensas exclusivas</strong></li>
-  </ul>
-  <div class="prompt-actions">
-    <button id="btn-activar-notif-prompt" class="primary-btn">Sí, quiero recibir beneficios</button>
-    <button id="btn-rechazar-notif-prompt" class="secondary-btn">Luego</button>
-  </div>
-</div>
-
+        <h3>🚀 ¡Activá tus beneficios exclusivos!</h3>
+        <p>Enterate al instante de promos y recompensas pensadas para vos. Activá las notificaciones y no te pierdas nada.</p>
+        <ul style="text-align:left; padding-left:20px; margin:10px 0 15px;">
+          <li>💰 <strong>Puntos al instante</strong></li>
+          <li>🔥 <strong>Ofertas flash</strong></li>
+          <li>🎁 <strong>Recompensas exclusivas</strong></li>
+        </ul>
+        <div class="prompt-actions">
+          <button id="btn-activar-notif-prompt" class="primary-btn">Sí, quiero recibir beneficios</button>
+          <button id="btn-rechazar-notif-prompt" class="secondary-btn">Luego</button>
+        </div>
+      </div>
 
       <div id="install-prompt-card" class="card" style="display:none;">
         <h3>📲 ¡Lleva el Club Contigo!</h3>
@@ -225,16 +225,15 @@
 
       <!-- Banner de ubicación -->
       <div id="geo-banner" class="card" style="display:none;">
-  <h3>Beneficios cerca tuyo</h3>
-  <p id="geo-banner-text" style="margin:8px 0 12px;"></p>
-  <div class="prompt-actions" style="display:flex; gap:8px; flex-wrap:wrap;">
-    <button id="geo-enable-btn" class="primary-btn" style="display:none;">Activar ahora</button>
-    <button id="geo-later-btn" class="secondary-btn" style="display:none;">Luego</button>
-    <button id="geo-disable-btn" class="secondary-btn" style="display:none;">Desactivar</button>
-    <button id="geo-help-btn" class="secondary-btn" style="display:none;">Cómo habilitarlo</button>
-  </div>
-</div>
-
+        <h3>Beneficios cerca tuyo</h3>
+        <p id="geo-banner-text" style="margin:8px 0 12px;"></p>
+        <div class="prompt-actions" style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="geo-enable-btn" class="primary-btn" style="display:none;">Activar ahora</button>
+          <button id="geo-later-btn" class="secondary-btn" style="display:none;">Luego</button>
+          <button id="geo-disable-btn" class="secondary-btn" style="display:none;">Desactivar</button>
+          <button id="geo-help-btn" class="secondary-btn" style="display:none;">Cómo habilitarlo</button>
+        </div>
+      </div>
 
       <div id="notif-blocked-warning" class="card warning-banner" style="display:none;">
         <p>⚠️ Has bloqueado las notificaciones. Habilítalas en la configuración de tu navegador.</p>
@@ -267,29 +266,28 @@
     </div>
 
     <!-- Modal cambiar contraseña -->
-<div id="change-password-modal" class="modal-overlay" style="display:none;">
-  <div class="modal-content" style="max-width:460px;">
-    <span id="close-password-modal" class="modal-close-btn">×</span>
-    <h2>Cambiar Contraseña</h2>
+    <div id="change-password-modal" class="modal-overlay" style="display:none;">
+      <div class="modal-content" style="max-width:460px;">
+        <span id="close-password-modal" class="modal-close-btn">×</span>
+        <h2>Cambiar Contraseña</h2>
 
-    <div class="form-group" style="display:flex; flex-direction:column; gap:10px; margin:15px 0;">
-      <input type="password" id="current-password" placeholder="Contraseña actual (si la recordás)" autocomplete="current-password">
-      <input type="password" id="new-password" placeholder="Nueva contraseña (mín. 6)" autocomplete="new-password" required>
-      <input type="password" id="confirm-new-password" placeholder="Repetir nueva contraseña" autocomplete="new-password" required>
+        <div class="form-group" style="display:flex; flex-direction:column; gap:10px; margin:15px 0;">
+          <input type="password" id="current-password" placeholder="Contraseña actual (si la recordás)" autocomplete="current-password">
+          <input type="password" id="new-password" placeholder="Nueva contraseña (mín. 6)" autocomplete="new-password" required>
+          <input type="password" id="confirm-new-password" placeholder="Repetir nueva contraseña" autocomplete="new-password" required>
+        </div>
+
+        <div class="modal-actions" style="display:flex; gap:10px; justify-content:flex-end;">
+          <button id="cancel-change-password" class="secondary-btn" type="button">Cancelar</button>
+          <button id="save-change-password" class="primary-btn" type="button">Guardar</button>
+        </div>
+
+        <p class="small-note" style="margin-top:10px; font-size:0.9rem; color:#666;">
+          Si por seguridad te pide volver a iniciar sesión, intentaremos re-autenticarte con tu contraseña actual. 
+          Si no la recordás, te enviaremos un e-mail para restablecerla.
+        </p>
+      </div>
     </div>
-
-    <div class="modal-actions" style="display:flex; gap:10px; justify-content:flex-end;">
-      <button id="cancel-change-password" class="secondary-btn" type="button">Cancelar</button>
-      <button id="save-change-password" class="primary-btn" type="button">Guardar</button>
-    </div>
-
-    <p class="small-note" style="margin-top:10px; font-size:0.9rem; color:#666;">
-      Si por seguridad te pide volver a iniciar sesión, intentaremos re-autenticarte con tu contraseña actual. 
-      Si no la recordás, te enviaremos un e-mail para restablecerla.
-    </p>
-  </div>
-</div>
-
 
     <!-- Modal ayuda de instalación -->
     <div id="install-help-modal" class="modal-overlay" style="display:none;">
@@ -319,7 +317,6 @@
         <div id="inbox-list" class="terms-text-container"></div>
 
         <div style="margin-top:12px;display:flex;gap:8px;justify-content:flex-end;">
-          <!-- Se eliminó el botón “Marcar todo como leído” -->
           <button id="inbox-close-btn" class="primary-btn">Cerrar</button>
         </div>
       </div>
@@ -348,7 +345,7 @@
   <!-- App -->
   <script src="app.js" type="module"></script>
 
-  <!-- Deep-link del INBOX: abrir modal automáticamente si venimos de una notificación -->
+  <!-- Deep-link del INBOX -->
   <script>
     (function () {
       const u = new URL(location.href);
@@ -375,7 +372,3 @@
   </script>
 </body>
 </html>
-
-
-
-
