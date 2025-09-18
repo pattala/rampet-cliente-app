@@ -503,10 +503,10 @@ on('prof-save', 'click', async () => {
       if (typeof Notification !== 'undefined') {
         if (notifOn) {
           if (Notification.permission !== 'granted') {
-            await Notifications.handlePermissionRequest();
+            await handlePermissionRequest();
           }
         } else {
-          await Notifications.handlePermissionSwitch({ target:{ checked:false } });
+          await handlePermissionSwitch({ target:{ checked:false } });
         }
       }
     } catch {}
@@ -908,4 +908,5 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
