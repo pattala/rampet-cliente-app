@@ -11,6 +11,7 @@
   --muted:#666;
   --card:#fff;
   --border:#e5e7eb;
+  --border-color: var(--border); /* alias para bloques que lo usan */
   --success:#16a34a;
   --warning:#f59e0b;
   --error:#dc2626;
@@ -37,7 +38,7 @@ img{max-width:100%;}
 
 /* ───────── Layout app ───────── */
 .container{
-  max-width:960px;
+  max-width:400px;     /* compacto como el diseño original */
   margin:0 auto;
   padding:16px;
 }
@@ -54,10 +55,7 @@ header{
 }
 header .logo{height:40px;width:auto;}
 header h1{font-size:1.25rem;margin:0;flex:1;}
-
-#install-entrypoint{
-  margin-left:auto;
-}
+#install-entrypoint{ margin-left:auto; }
 
 /* Campanita */
 #btn-notifs{
@@ -81,6 +79,14 @@ header h1{font-size:1.25rem;margin:0;flex:1;}
   padding:2px 6px;
   border:2px solid #fff;
 }
+/* Blink suave cuando hay novedades */
+@keyframes bellBlink {
+  0%,100%{ transform: rotate(0deg);    filter: brightness(1); }
+  25%{    transform: rotate(-12deg);   filter: brightness(1.06); }
+  50%{    transform: rotate(0deg);     filter: brightness(1); }
+  75%{    transform: rotate(12deg);    filter: brightness(1.06); }
+}
+#btn-notifs.blink { animation: bellBlink 1.2s ease-in-out 6; }
 
 /* ───────── Pantallas ───────── */
 .screen{display:none;margin-top:14px;}
@@ -89,7 +95,7 @@ header h1{font-size:1.25rem;margin:0;flex:1;}
 .user-header{
   display:flex;align-items:center;gap:10px;flex-wrap:wrap;
 }
-.user-header h3{margin:0;font-size:1.05rem;}
+.user-header h3{margin:0;font-size:1.05rem;flex:1;}
 .user-actions{margin-left:auto;display:flex;gap:8px;}
 
 /* ───────── Botones ───────── */
@@ -103,12 +109,10 @@ header h1{font-size:1.25rem;margin:0;flex:1;}
 }
 .primary-btn:hover{background:var(--primary-600);}
 .primary-btn:active{transform:translateY(1px);}
-
 .secondary-btn{
   background:#fff; color:#111; border-color:var(--border);
 }
 .secondary-btn:hover{background:#f8f8f8;}
-
 button[disabled]{opacity:.6;cursor:not-allowed}
 
 /* ───────── Formularios ───────── */
@@ -120,7 +124,6 @@ input, select{
 }
 input::placeholder{color:#999;}
 input:focus, select:focus{outline:none; box-shadow:var(--ring); border-color:var(--primary);}
-
 label{font-size:.92rem; color:#333;}
 .toggle-link{font-size:.92rem;color:#444;margin:0;}
 .terms-container{display:flex;gap:8px;align-items:flex-start;font-size:.92rem;color:#444;}
@@ -134,20 +137,30 @@ label{font-size:.92rem; color:#333;}
   padding:14px;
   margin-top:12px;
 }
-
 .info-banner{background:#f0f7ff;border-color:#d7e7ff;}
 .warning-banner{background:#fff7ed;border-color:#fde2c5;}
 .terms-banner{background:#fffbe6;border-color:#f5e9b8;}
-
 .small-note{font-size:.88rem; color:#666;}
 
-/* Puntos */
-.puntos-card h2{font-size:2rem; margin:.2rem 0 0;}
+/* PUNTOS (con color) */
+.puntos-card{
+  text-align:center;
+  background:linear-gradient(45deg, var(--primary), var(--primary-600));
+  color:#fff;
+}
+.puntos-card p{ margin:0 0 5px; font-size:16px; color:rgba(255,255,255,.85); }
+.puntos-card h2{ font-size:3em; margin:0; font-weight:700; }
 
-/* Vencimientos */
-.vencimiento-card h2{margin:.2rem 0 .2rem;}
-.venc-list{margin:.5rem 0 0; padding-left:1rem; color:#444;}
-.venc-empty{color:#777;}
+/* VENCIMIENTOS (rojo) */
+.vencimiento-card{
+  background:var(--error);
+  color:#fff;
+  text-align:center;
+}
+.vencimiento-card p{ color:rgba(255,255,255,.9); margin:0; }
+.vencimiento-card h2{ font-size:2.5em; margin:5px 0; }
+.venc-list{margin:.5rem 0 0; padding-left:1rem; color:#fff;}
+.venc-empty{color:#ffe8e8;}
 
 /* Saldo */
 #saldo-card .info-message{color:#666; font-size:.9rem;}
@@ -158,9 +171,7 @@ label{font-size:.92rem; color:#333;}
   grid-template-columns:1fr;
   gap:10px;
 }
-@media (min-width:560px){
-  .grid-2{grid-template-columns:1fr 1fr;}
-}
+@media (min-width:560px){ .grid-2{grid-template-columns:1fr 1fr;} }
 .address-card h3{margin:0 0 4px;}
 .address-card .sub{margin:0 0 12px; color:#555; font-size:.95rem;}
 .address-card .actions{margin-top:10px;}
@@ -169,13 +180,11 @@ label{font-size:.92rem; color:#333;}
 .switch{position:relative; display:inline-block; width:48px; height:28px;}
 .switch input{opacity:0;width:0;height:0;}
 .slider{
-  position:absolute; inset:0; background:#d1d5db; border-radius:999px;
-  transition:.2s;
+  position:absolute; inset:0; background:#d1d5db; border-radius:999px; transition:.2s;
 }
 .slider:before{
   content:""; position:absolute; height:22px; width:22px; left:3px; top:3px;
-  background:#fff; border-radius:999px; transition:.2s;
-  box-shadow:0 1px 2px rgba(0,0,0,.15);
+  background:#fff; border-radius:999px; transition:.2s; box-shadow:0 1px 2px rgba(0,0,0,.15);
 }
 input:checked + .slider{background:var(--primary);}
 input:checked + .slider:before{transform:translateX(20px);}
@@ -209,7 +218,6 @@ input:checked + .slider:before{transform:translateX(20px);}
 .banner-item-texto{padding:16px; min-height:160px; display:flex; flex-direction:column; justify-content:center;}
 .banner-item-texto h4{margin:0 0 6px;}
 .banner-item-texto p{margin:0; color:#444;}
-
 .banner-texto-overlay{
   position:absolute; left:0; right:0; bottom:0;
   padding:12px;
@@ -218,8 +226,6 @@ input:checked + .slider:before{transform:translateX(20px);}
 }
 .banner-texto-overlay h4{margin:0 0 4px;}
 .banner-texto-overlay p{margin:0; opacity:.95;}
-
-/* Indicadores */
 .carrusel-indicadores{
   display:flex; gap:6px; justify-content:center; margin-top:8px;
 }
@@ -254,24 +260,27 @@ input:checked + .slider:before{transform:translateX(20px);}
 }
 .modal-content{
   background:#fff; color:#111; border-radius:14px; border:1px solid var(--border);
-  box-shadow:var(--shadow); width:100%; max-width:680px; padding:16px 16px 18px;
-  position:relative;
+  box-shadow:var(--shadow); width:100%; max-width:680px; padding:16px 16px 18px; position:relative;
 }
-.modal-close-btn{
-  position:absolute; right:10px; top:6px; font-size:22px; cursor:pointer; line-height:1;
-}
+.modal-close-btn{ position:absolute; right:10px; top:6px; font-size:22px; cursor:pointer; line-height:1; }
 .terms-text-container{
   border:1px solid var(--border); border-radius:10px; padding:12px;
   background:#fafafa; color:#222; max-height:55vh; overflow:auto; margin:10px 0;
 }
 
 /* INBOX */
-.inbox-item{cursor:pointer;}
+.inbox-item{ position:relative; outline:none; cursor:pointer; }
+.inbox-item:focus-visible{ box-shadow:0 0 0 3px rgba(0,123,255,.35); }
 .inbox-item.destacado{
-  border:1px solid #f5e3a3; background:#fffdf2;
+  background:#fffbe6;                 /* amarillo suave */
+  box-shadow:inset 0 0 0 2px #ffe58f; /* borde suave */
+}
+.inbox-item.destacado::before{
+  content:""; position:absolute; left:0; top:0; bottom:0; width:4px; background:#fadb14; border-radius:12px 0 0 12px;
 }
 .chip-destacado{
-  font-weight:600;
+  display:inline-block; font-size:12px; padding:2px 8px; border-radius:999px;
+  background:#fff1b8; color:#613400; border:1px solid #ffe58f;
 }
 .inbox-title{font-size:1rem;}
 .inbox-body{font-size:.95rem;}
@@ -311,7 +320,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 #address-banner .primary-btn{ padding:8px 12px; }
 #address-banner .secondary-btn{ padding:8px 12px; }
 
-/* Card de domicilio ya existe, completo con algunos detalles */
+/* Card domicilio */
 .card.address-card{
   background:#fff; border-radius:12px; padding:16px;
   box-shadow:0 6px 18px rgba(0,0,0,.08); margin:16px 0;
@@ -330,49 +339,7 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 #profile-modal .modal-content{ max-width:520px; }
 .profile-consent{
   display:flex; align-items:flex-start; gap:10px;
-  margin:8px 0; font-size:14px; color:var(--text-color);
-}
-.profile-consent input{ margin-top:2px; }
-.profile-address-summary{
-  padding:10px 12px; border:1px solid var(--border-color); border-radius:8px; background:#f8f9fa;
-  font-size:14px; color:#444;
-}
-
-/* ====== Ajustes menores ====== */
-.user-actions{ gap:8px; }
-header h1{ margin-bottom:0; }
-
-/* ====== Dirección (banner + card + grid) ====== */
-#address-banner{
-  background:#FFFACD;
-  border:1px solid #F0E68C;
-  border-radius:12px;
-  padding:12px 14px;
-}
-#address-banner p{ margin:0; color:#5c5c5c; }
-#address-banner .primary-btn{ padding:8px 12px; }
-#address-banner .secondary-btn{ padding:8px 12px; }
-
-/* Card de domicilio ya existe, completo con algunos detalles */
-.card.address-card{
-  background:#fff; border-radius:12px; padding:16px;
-  box-shadow:0 6px 18px rgba(0,0,0,.08); margin:16px 0;
-  border:1px solid var(--border-color);
-}
-.card.address-card h3{ margin:0 0 6px; }
-.card.address-card .sub{ margin:0 0 12px; color:#555; }
-.card.address-card .grid-2{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
-@media (max-width:520px){ .card.address-card .grid-2{ grid-template-columns:1fr; } }
-.card.address-card input, .card.address-card select{
-  width:100%; padding:12px; border:1px solid var(--border-color); border-radius:8px; font:inherit;
-}
-.card.address-card .actions{ display:flex; gap:8px; justify-content:flex-end; }
-
-/* ====== Modal Perfil ====== */
-#profile-modal .modal-content{ max-width:520px; }
-.profile-consent{
-  display:flex; align-items:flex-start; gap:10px;
-  margin:8px 0; font-size:14px; color:var(--text-color);
+  margin:8px 0; font-size:14px; color:var(--text);
 }
 .profile-consent input{ margin-top:2px; }
 .profile-address-summary{
