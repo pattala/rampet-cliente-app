@@ -347,7 +347,7 @@ async function updateGeoUI() {
     setGeoMarketingUI(false);
     setGeoRegularUI('granted');
     startGeoWatch();
-    emit('rampet:geo:enabled', { method: 'ui' });
+   
     return;
   }
   stopGeoWatch();
@@ -355,7 +355,7 @@ async function updateGeoUI() {
   if (state === 'denied') {
     setGeoMarketingUI(false);
     setGeoRegularUI('denied'); // ayuda
-    emit('rampet:geo:disabled', { method: 'ui' });
+   
     return;
   }
 
@@ -364,13 +364,45 @@ async function updateGeoUI() {
 }
 
 async function handleGeoEnable() {
+  const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
+
+  // feedback inmediato
+  if (txt) txt.textContent = 'Activando ubicación…';
+  showInline(btnOn, false); showInline(btnOff, false); showInline(btnHelp, false);
+
+  let granted = false;
   try {
-    await new Promise((ok,err)=>{ if(!navigator.geolocation?.getCurrentPosition) return err(); navigator.geolocation.getCurrentPosition(()=>ok(true),()=>ok(false)); });
-    try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
-    emit('rampet:geo:enabled', { method: 'ui' });
+    const before = await detectGeoPermission();
+    if (before === 'granted') {
+      granted = true;
+    } else {
+      // Pedimos una lectura rápida con timeout corto
+      granted = await new Promise(res => {
+        let settled = false;
+        const done = ok => { if (settled) return; settled = true; res(!!ok); };
+        if (!navigator.geolocation?.getCurrentPosition) return done(false);
+
+        navigator.geolocation.getCurrentPosition(
+          () => done(true),
+          () => done(false),
+          { timeout: 6000, maximumAge: 0, enableHighAccuracy: false }
+        );
+
+        // Salvaguarda por si el browser no retorna nada
+        setTimeout(() => done(false), 6500);
+      });
+    }
   } catch {}
-  updateGeoUI();
+
+  try { localStorage.setItem(LS_GEO_STATE, granted ? 'accepted' : 'deferred'); } catch {}
+
+  // Emitimos UNA sola vez aquí (no en updateGeoUI)
+  emit(granted ? 'rampet:geo:enabled' : 'rampet:geo:disabled', { method: 'ui' });
+
+  // Repintar el banner según estado final (sin bloquear la UI)
+  await updateGeoUI();
 }
+
 function handleGeoDisable() {
   try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
   emit('rampet:geo:disabled', { method: 'ui' });
@@ -607,3 +639,4 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
+
