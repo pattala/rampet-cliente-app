@@ -358,13 +358,64 @@ document.addEventListener('rampet:cliente-updated', (e) => {
   try { renderRecentHistory(e.detail?.cliente || {}); } catch {}
 });
 // ===== Perfil (modal) =====
+// ===== Perfil (modal) =====
 function setVal(id, v){ const el = document.getElementById(id); if (el) el.value = v ?? ''; }
 function setChecked(id, v){ const el = document.getElementById(id); if (el) el.checked = !!v; }
 function setText(id, v){ const el = document.getElementById(id); if (el) el.textContent = v ?? '—'; }
 
-export function openProfileModal(){
+async function syncProfileTogglesFromRuntime() {
+  const c = (window.clienteData) || {};
+  const cfg = c.config || {};
+  const notifEl = document.getElementById('prof-consent-notif');
+  const geoEl   = document.getElementById('prof-consent-geo');
+
+  // Bloqueamos mientras resolvemos (rápido)
+  if (notifEl) notifEl.disabled = true;
+  if (geoEl)   geoEl.disabled   = true;
+
+  // --- Notificaciones: verdad = permiso del navegador && (config o token presente)
+  try {
+    if ('Notification' in window) {
+      const perm = Notification.permission;            // 'granted' | 'default' | 'denied'
+      const hasToken = !!localStorage.getItem('fcmToken');
+      const realOn = (perm === 'granted') && (cfg.notifEnabled || hasToken);
+      if (notifEl) {
+        notifEl.checked = realOn;
+        notifEl.title = perm === 'denied'
+          ? 'Bloqueado en el navegador'
+          : 'Recibir avisos de descuentos y novedades';
+      }
+    } else if (notifEl) {
+      notifEl.checked = false;
+      notifEl.title = 'Este navegador no soporta notificaciones';
+    }
+  } catch {}
+
+  // --- Geolocalización: verdad = permiso 'granted' && config.geoEnabled
+  try {
+    let state = 'prompt';
+    if (navigator.permissions?.query) {
+      const st = await navigator.permissions.query({ name: 'geolocation' });
+      state = st.state; // 'granted' | 'denied' | 'prompt'
+    }
+    if (geoEl) {
+      const realOn = (state === 'granted') && !!cfg.geoEnabled;
+      geoEl.checked = realOn;
+      geoEl.title = state === 'denied'
+        ? 'Ubicación deshabilitada en el navegador'
+        : 'Activar beneficios en mi zona';
+    }
+  } catch {}
+
+  if (notifEl) notifEl.disabled = false;
+  if (geoEl)   geoEl.disabled   = false;
+}
+
+export async function openProfileModal(){
   const m = document.getElementById('profile-modal');
   if (!m) return;
+
+  // 1) Pintamos con lo que viene de Firestore
   const c = (window.clienteData) || {};
   setVal('prof-nombre',   c.nombre || '');
   setVal('prof-telefono', c.telefono || '');
@@ -375,11 +426,23 @@ export function openProfileModal(){
   setChecked('prof-consent-geo',   !!(c.config && c.config.geoEnabled));
   const addr = c?.domicilio?.addressLine || '—';
   setText('prof-address-summary', addr);
+
+  // 2) Mostramos ya el modal…
   m.style.display = 'flex';
+
+  // 3) …y reconciliamos con el estado REAL del navegador (permiso actual)
+  await syncProfileTogglesFromRuntime();
 }
 
 export function closeProfileModal(){
   const m = document.getElementById('profile-modal');
   if (m) m.style.display = 'none';
 }
+
+// Si cambian config/consentimientos mientras el modal está abierto, refrescamos switches
+document.addEventListener('rampet:config-updated', () => {
+  const m = document.getElementById('profile-modal');
+  if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
+});
+
 
