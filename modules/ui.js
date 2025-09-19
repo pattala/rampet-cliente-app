@@ -366,42 +366,45 @@ function setChecked(id, v){ const el = document.getElementById(id); if (el) el.c
 function setText(id, v){ const el = document.getElementById(id); if (el) el.textContent = v ?? '—'; }
 
 async function syncProfileTogglesFromRuntime() {
-  const c = (window.clienteData) || {};
+  const c   = (window.clienteData) || {};
   const cfg = c.config || {};
-  const m = document.getElementById('profile-modal');
-const notifEl = m?.querySelector('#prof-consent-notif');
-const geoEl   = m?.querySelector('#prof-consent-geo');
+  const notifEl = document.getElementById('prof-consent-notif');
+  const geoEl   = document.getElementById('prof-consent-geo');
 
+  // ===== Notificaciones =====
   if (notifEl) {
-    // ✅ mostrar lo que dice el panel (Firestore)
-    notifEl.checked = !!cfg.notifEnabled;
+    const perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported';
+    const lsOk = (localStorage.getItem('notifState') === 'accepted') || !!localStorage.getItem('fcmToken');
+    const effective = !!cfg.notifEnabled || perm === 'granted' || lsOk;
 
-    // pista de permiso del navegador (no cambia el check)
+    notifEl.checked = effective;
     try {
-      if ('Notification' in window) {
-        const perm = Notification.permission; // 'granted' | 'default' | 'denied'
-        notifEl.title = (perm === 'denied')
-          ? 'Bloqueado en el navegador'
-          : 'Recibir avisos de descuentos y novedades';
-      }
+      notifEl.title = (perm === 'denied')
+        ? 'Bloqueado en el navegador'
+        : 'Recibir avisos de descuentos y novedades';
     } catch {}
   }
 
+  // ===== Geolocalización =====
   if (geoEl) {
-    // ✅ mostrar lo que dice el panel (Firestore)
-    geoEl.checked = !!cfg.geoEnabled;
-
-    // pista de permiso del navegador (no cambia el check)
+    let navState = 'unknown';
     try {
       if (navigator.permissions?.query) {
-        const st = await navigator.permissions.query({ name: 'geolocation' });
-        geoEl.title = (st.state === 'denied')
-          ? 'Ubicación deshabilitada en el navegador'
-          : 'Activar beneficios en mi zona';
+        navState = (await navigator.permissions.query({ name: 'geolocation' })).state; // granted|denied|prompt
       }
+    } catch {}
+    const lsGeoOk = (localStorage.getItem('geoState') === 'accepted');
+    const effective = !!cfg.geoEnabled || navState === 'granted' || lsGeoOk;
+
+    geoEl.checked = effective;
+    try {
+      geoEl.title = (navState === 'denied')
+        ? 'Ubicación deshabilitada en el navegador'
+        : 'Activar beneficios en mi zona';
     } catch {}
   }
 }
+
 
 
 export async function openProfileModal(){
@@ -508,20 +511,11 @@ const geoEl   = m?.querySelector('#prof-consent-geo');
     }
 
    // (3) Refresco OPTIMISTA inmediato (sin esperar Firestore)
+// (3) Refresco OPTIMISTA inmediato (sin esperar Firestore)
 try {
   const notifChecked = !!document.getElementById('prof-consent-notif')?.checked;
   const geoChecked   = !!document.getElementById('prof-consent-geo')?.checked;
-
-  const c = window.clienteData;           // ← usamos la referencia real (getter)
-  if (c) {
-    if (!c.config) c.config = {};
-    c.config.notifEnabled = notifChecked; // ← mutamos el objeto interno
-    c.config.geoEnabled   = geoChecked;
-
-    document.dispatchEvent(new CustomEvent('rampet:config-updated', {
-      detail: { cliente: c, config: c.config }
-    }));
-  }
+  await Data.patchLocalConfig({ notifEnabled: notifChecked, geoEnabled: geoChecked });
 } catch {}
 
 
@@ -553,6 +547,7 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
+
 
 
 
