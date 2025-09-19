@@ -211,8 +211,9 @@ function renderCampanasCarousel(campanasData) {
       }
 
     } else {
-      item = document.createElement('div');
-      item.className = 'banner-item-texto';
+     item = document.createElement('div');
+item.className = 'banner-item banner-item-texto';
+
       const title = document.createElement('h4');
       title.textContent = titleText || 'Promoción';
       item.appendChild(title);
@@ -259,7 +260,8 @@ function renderCampanasCarousel(campanasData) {
       if (carrusel.scrollLeft >= end - 1) {
         carrusel.scrollTo({ left: 0, behavior: 'smooth' });
       } else {
-        const step = (carrusel.firstElementChild?.offsetWidth || 200) + 15;
+       const gap = parseFloat(getComputedStyle(carrusel).gap) || 0;
+const step = (carrusel.firstElementChild?.offsetWidth || 200) + gap;
         carrusel.scrollBy({ left: step, behavior: 'smooth' });
       }
     }, 3000);
@@ -537,6 +539,7 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
+
 
 
 
