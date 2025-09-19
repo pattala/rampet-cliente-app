@@ -9,7 +9,7 @@ import { handlePermissionRequest, handlePermissionSwitch } from './modules/notif
 // Notificaciones (único import desde notifications.js)
 import {
   initNotificationsOnce,
-  handlePermissionRequest,
+  //handlePermissionRequest,
   dismissPermissionRequest,
   handlePermissionSwitch,
   handleBellClick,
@@ -919,6 +919,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
