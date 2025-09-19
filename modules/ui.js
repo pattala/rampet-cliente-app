@@ -368,8 +368,9 @@ function setText(id, v){ const el = document.getElementById(id); if (el) el.text
 async function syncProfileTogglesFromRuntime() {
   const c = (window.clienteData) || {};
   const cfg = c.config || {};
-  const notifEl = document.getElementById('prof-consent-notif');
-  const geoEl   = document.getElementById('prof-consent-geo');
+  const m = document.getElementById('profile-modal');
+const notifEl = m?.querySelector('#prof-consent-notif');
+const geoEl   = m?.querySelector('#prof-consent-geo');
 
   if (notifEl) {
     // ✅ mostrar lo que dice el panel (Firestore)
@@ -447,9 +448,9 @@ async function onSaveProfilePrefs(){
     await Data.updateProfile({ nombre, telefono, fechaNacimiento });
 
     // 2) Preferencias
-    const notifEl = document.getElementById('prof-consent-notif');
-    const geoEl   = document.getElementById('prof-consent-geo');
-
+    const m = document.getElementById('profile-modal');
+const notifEl = m?.querySelector('#prof-consent-notif');
+const geoEl   = m?.querySelector('#prof-consent-geo');
     // --- NOTIFICACIONES ---
     if (notifEl) {
       const wantNotif = !!notifEl.checked;
@@ -506,22 +507,23 @@ async function onSaveProfilePrefs(){
       }
     }
 
-    // (3) Refresco OPTIMISTA inmediato (sin esperar Firestore)
-    try {
-      const notifChecked = !!document.getElementById('prof-consent-notif')?.checked;
-      const geoChecked   = !!document.getElementById('prof-consent-geo')?.checked;
+   // (3) Refresco OPTIMISTA inmediato (sin esperar Firestore)
+try {
+  const notifChecked = !!document.getElementById('prof-consent-notif')?.checked;
+  const geoChecked   = !!document.getElementById('prof-consent-geo')?.checked;
 
-      window.clienteData = window.clienteData || {};
-      window.clienteData.config = {
-        ...(window.clienteData.config || {}),
-        notifEnabled: notifChecked,
-        geoEnabled:   geoChecked
-      };
+  const c = window.clienteData;           // ← usamos la referencia real (getter)
+  if (c) {
+    if (!c.config) c.config = {};
+    c.config.notifEnabled = notifChecked; // ← mutamos el objeto interno
+    c.config.geoEnabled   = geoChecked;
 
-      document.dispatchEvent(new CustomEvent('rampet:config-updated', {
-        detail: { cliente: window.clienteData, config: window.clienteData.config }
-      }));
-    } catch {}
+    document.dispatchEvent(new CustomEvent('rampet:config-updated', {
+      detail: { cliente: c, config: c.config }
+    }));
+  }
+} catch {}
+
 
     // (4) Refresco REAL cuando el navegador esté libre
     await (window.requestIdleCallback
@@ -551,6 +553,7 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
+
 
 
 
