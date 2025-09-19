@@ -457,20 +457,16 @@ async function onSaveProfilePrefs(){
       if ('Notification' in window) {
         if (wantNotif) {
           if (Notification.permission !== 'granted') {
-            // Pide permiso + registra token (usa tu módulo de notifs)
-            await handlePermissionRequest();
+            await handlePermissionRequest();                      // pide permiso + token
           } else {
-            // (Re)registrar token si ya estaba concedido
-            await handlePermissionSwitch({ target: { checked: true } });
+            await handlePermissionSwitch({ target: { checked: true } }); // (re)registra token
           }
           await Data.saveNotifConsent(true);
         } else {
-          // Desactivar: borra token y deja constancia en config
-          await handlePermissionSwitch({ target: { checked: false } });
+          await handlePermissionSwitch({ target: { checked: false } });  // borra token
           await Data.saveNotifConsent(false);
         }
       } else {
-        // Navegador sin soporte → lo guardamos en "off"
         await Data.saveNotifConsent(false);
         notifEl.checked = false;
       }
@@ -479,18 +475,14 @@ async function onSaveProfilePrefs(){
     // --- GEOLOCALIZACIÓN ---
     if (geoEl) {
       const wantGeo = !!geoEl.checked;
-
       if (wantGeo) {
-        // Si no está concedido, provocar el prompt con una lectura rápida
         let granted = false;
-
         try {
           if (navigator.permissions?.query) {
             const st = await navigator.permissions.query({ name: 'geolocation' });
             granted = (st.state === 'granted');
           }
         } catch {}
-
         if (!granted && navigator.geolocation) {
           granted = await new Promise(res => {
             let done = false;
@@ -502,12 +494,11 @@ async function onSaveProfilePrefs(){
             setTimeout(() => { if (!done){ done = true; res(false); } }, 7500);
           });
         }
-
         if (granted) {
           await Data.saveGeoConsent(true);
         } else {
           await Data.saveGeoConsent(false);
-          geoEl.checked = false; // reflejar que no se pudo activar
+          geoEl.checked = false;
           showToast('No pudimos activar ubicación. Revisá los permisos del navegador.', 'warning');
         }
       } else {
@@ -515,9 +506,29 @@ async function onSaveProfilePrefs(){
       }
     }
 
-    // 3) Refrescar switches con lo que quedó en Firestore + pistas del navegador
+    // (3) Refresco OPTIMISTA inmediato (sin esperar Firestore)
+    try {
+      const notifChecked = !!document.getElementById('prof-consent-notif')?.checked;
+      const geoChecked   = !!document.getElementById('prof-consent-geo')?.checked;
+
+      window.clienteData = window.clienteData || {};
+      window.clienteData.config = {
+        ...(window.clienteData.config || {}),
+        notifEnabled: notifChecked,
+        geoEnabled:   geoChecked
+      };
+
+      document.dispatchEvent(new CustomEvent('rampet:config-updated', {
+        detail: { cliente: window.clienteData, config: window.clienteData.config }
+      }));
+    } catch {}
+
+    // (4) Refresco REAL cuando el navegador esté libre
     await (window.requestIdleCallback
-      ? new Promise(r => requestIdleCallback(async () => { await syncProfileTogglesFromRuntime(); r(); }))
+      ? new Promise(resolve => requestIdleCallback(async () => { 
+          await syncProfileTogglesFromRuntime(); 
+          resolve(); 
+        }))
       : syncProfileTogglesFromRuntime());
 
     showToast('Cambios guardados', 'success');
@@ -529,6 +540,7 @@ async function onSaveProfilePrefs(){
   }
 }
 
+
 export function closeProfileModal(){
   const m = document.getElementById('profile-modal');
   if (m) m.style.display = 'none';
@@ -539,6 +551,7 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
+
 
 
 
