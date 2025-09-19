@@ -212,7 +212,7 @@ function renderCampanasCarousel(campanasData) {
 
     } else {
      item = document.createElement('div');
-item.className = 'banner-item banner-item-texto';
+     item.className = 'banner-item banner-item-texto';
 
       const title = document.createElement('h4');
       title.textContent = titleText || 'Promoción';
@@ -539,6 +539,7 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
+
 
 
 
