@@ -280,6 +280,28 @@ function renderizarPantallaPrincipal() {
 // ====== CONSENTIMIENTOS / CONFIG ======
 export function getClienteRef() { return clienteRef; }
 
+// ✅ NUEVO: parchar el cliente localmente y emitir eventos de actualización
+export function patchLocalConfig(partial = {}) {
+  try {
+    clienteData = clienteData || {};
+    clienteData.config = { ...(clienteData.config || {}), ...partial };
+
+    // avisar a quien escuche
+    document.dispatchEvent(new CustomEvent('rampet:cliente-updated', {
+      detail: { cliente: clienteData }
+    }));
+    document.dispatchEvent(new CustomEvent('rampet:config-updated', {
+      detail: { cliente: clienteData, config: clienteData.config }
+    }));
+  } catch (e) {
+    console.warn('[patchLocalConfig]', e);
+  }
+}
+
+
+
+
+
 async function mergeCliente(data) {
   if (!clienteRef) return;
   await clienteRef.set(data, { merge: true });
@@ -414,4 +436,5 @@ if (typeof window !== 'undefined') {
 
 // Stubs
 export async function acceptTerms() { /* futuro: guardar aceptación */ }
+
 
