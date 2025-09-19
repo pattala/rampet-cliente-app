@@ -369,47 +369,37 @@ async function syncProfileTogglesFromRuntime() {
   const notifEl = document.getElementById('prof-consent-notif');
   const geoEl   = document.getElementById('prof-consent-geo');
 
-  // Bloqueamos mientras resolvemos (rápido)
-  if (notifEl) notifEl.disabled = true;
-  if (geoEl)   geoEl.disabled   = true;
+  if (notifEl) {
+    // ✅ mostrar lo que dice el panel (Firestore)
+    notifEl.checked = !!cfg.notifEnabled;
 
-  // --- Notificaciones: verdad = permiso del navegador && (config o token presente)
-  try {
-    if ('Notification' in window) {
-      const perm = Notification.permission;            // 'granted' | 'default' | 'denied'
-      const hasToken = !!localStorage.getItem('fcmToken');
-      const realOn = (perm === 'granted') && (cfg.notifEnabled || hasToken);
-      if (notifEl) {
-        notifEl.checked = realOn;
-        notifEl.title = perm === 'denied'
+    // pista de permiso del navegador (no cambia el check)
+    try {
+      if ('Notification' in window) {
+        const perm = Notification.permission; // 'granted' | 'default' | 'denied'
+        notifEl.title = (perm === 'denied')
           ? 'Bloqueado en el navegador'
           : 'Recibir avisos de descuentos y novedades';
       }
-    } else if (notifEl) {
-      notifEl.checked = false;
-      notifEl.title = 'Este navegador no soporta notificaciones';
-    }
-  } catch {}
+    } catch {}
+  }
 
-  // --- Geolocalización: verdad = permiso 'granted' && config.geoEnabled
-  try {
-    let state = 'prompt';
-    if (navigator.permissions?.query) {
-      const st = await navigator.permissions.query({ name: 'geolocation' });
-      state = st.state; // 'granted' | 'denied' | 'prompt'
-    }
-    if (geoEl) {
-      const realOn = (state === 'granted') && !!cfg.geoEnabled;
-      geoEl.checked = realOn;
-      geoEl.title = state === 'denied'
-        ? 'Ubicación deshabilitada en el navegador'
-        : 'Activar beneficios en mi zona';
-    }
-  } catch {}
+  if (geoEl) {
+    // ✅ mostrar lo que dice el panel (Firestore)
+    geoEl.checked = !!cfg.geoEnabled;
 
-  if (notifEl) notifEl.disabled = false;
-  if (geoEl)   geoEl.disabled   = false;
+    // pista de permiso del navegador (no cambia el check)
+    try {
+      if (navigator.permissions?.query) {
+        const st = await navigator.permissions.query({ name: 'geolocation' });
+        geoEl.title = (st.state === 'denied')
+          ? 'Ubicación deshabilitada en el navegador'
+          : 'Activar beneficios en mi zona';
+      }
+    } catch {}
+  }
 }
+
 
 export async function openProfileModal(){
   const m = document.getElementById('profile-modal');
@@ -444,5 +434,6 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
+
 
 
