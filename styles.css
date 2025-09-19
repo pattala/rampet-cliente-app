@@ -549,3 +549,32 @@ header h1{ margin-bottom:0; }
   margin-top:12px;
   border-top:1px solid var(--border);
 }
+
+/* Perfil → Preferencias (compacto y discreto) */
+.prefs-card{ padding:10px 12px; background:#fff; border:1px dashed var(--border); }
+.prefs-card h3{ margin:0 0 6px; font-size:0.95rem; color:#333; }
+
+.profile-consent{
+  display:grid;
+  grid-template-columns:18px 1fr;   /* check a la izquierda, texto a la derecha */
+  align-items:center;
+  gap:8px;
+  margin:4px 0;
+}
+.profile-consent input[type="checkbox"]{
+  width:16px; height:16px; margin:0;
+  accent-color: var(--primary);     /* colorcito azul del check */
+}
+.profile-consent span{ font-size:0.9rem; color:#444; line-height:1.25; }
+
+.prefs-card .small-note{
+  margin-top:4px; font-size:.8rem; color:#666;
+  opacity:.9;
+}
+
+/* Modal de perfil: que sea desplazable si se pasa de alto */
+#profile-modal .modal-content{
+  max-height:86vh;
+  overflow:auto;
+}
+
