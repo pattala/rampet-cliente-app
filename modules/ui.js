@@ -371,39 +371,33 @@ async function syncProfileTogglesFromRuntime() {
   const notifEl = document.getElementById('prof-consent-notif');
   const geoEl   = document.getElementById('prof-consent-geo');
 
-  // ===== Notificaciones =====
+  // === Notificaciones: reflejar preferencia (no el permiso)
   if (notifEl) {
-    const perm = (typeof Notification !== 'undefined') ? Notification.permission : 'unsupported';
-    const lsOk = (localStorage.getItem('notifState') === 'accepted') || !!localStorage.getItem('fcmToken');
-    const effective = !!cfg.notifEnabled || perm === 'granted' || lsOk;
-
-    notifEl.checked = effective;
+    notifEl.checked = !!cfg.notifEnabled;
     try {
-      notifEl.title = (perm === 'denied')
-        ? 'Bloqueado en el navegador'
-        : 'Recibir avisos de descuentos y novedades';
+      if (typeof Notification !== 'undefined') {
+        const perm = Notification.permission; // granted | default | denied
+        notifEl.title = (perm === 'denied')
+          ? 'Bloqueado en el navegador'
+          : 'Recibir avisos de descuentos y novedades';
+      }
     } catch {}
   }
 
-  // ===== Geolocalización =====
+  // === Geolocalización: reflejar preferencia (no el permiso)
   if (geoEl) {
-    let navState = 'unknown';
+    geoEl.checked = !!cfg.geoEnabled;
     try {
       if (navigator.permissions?.query) {
-        navState = (await navigator.permissions.query({ name: 'geolocation' })).state; // granted|denied|prompt
+        const st = await navigator.permissions.query({ name: 'geolocation' });
+        geoEl.title = (st.state === 'denied')
+          ? 'Ubicación deshabilitada en el navegador'
+          : 'Activar beneficios en mi zona';
       }
-    } catch {}
-    const lsGeoOk = (localStorage.getItem('geoState') === 'accepted');
-    const effective = !!cfg.geoEnabled || navState === 'granted' || lsGeoOk;
-
-    geoEl.checked = effective;
-    try {
-      geoEl.title = (navState === 'denied')
-        ? 'Ubicación deshabilitada en el navegador'
-        : 'Activar beneficios en mi zona';
     } catch {}
   }
 }
+
 
 
 
@@ -526,6 +520,7 @@ try {
           resolve(); 
         }))
       : syncProfileTogglesFromRuntime());
+UI.closeProfileModal();
 
     showToast('Cambios guardados', 'success');
   } catch (err) {
@@ -547,6 +542,7 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
+
 
 
 
