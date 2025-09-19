@@ -573,10 +573,10 @@ on('prof-edit-address-btn', 'click', () => {
   on('notif-switch', 'change', async (e) => { try { await handlePermissionSwitch(e); } catch {} });
 
   // Bridges de consentimientos
-  document.addEventListener('rampet:consent:notif-opt-in', async (ev) => { try { await Data.saveNotifConsent(true,  { notifOptInSource: ev?.detail?.source || 'ui' }); } catch {} });
-  document.addEventListener('rampet:consent:notif-opt-out',async (ev) => { try { await Data.saveNotifConsent(false, { notifOptOutSource: ev?.detail?.source || 'ui' }); } catch {} });
-  document.addEventListener('rampet:geo:enabled', async (ev) => { try { await Data.saveGeoConsent(true,  { geoMethod: ev?.detail?.method || 'ui' }); } catch {} });
-  document.addEventListener('rampet:geo:disabled',async (ev) => { try { await Data.saveGeoConsent(false, { geoMethod: ev?.detail?.method || 'ui' }); } catch {} });
+//  document.addEventListener('rampet:consent:notif-opt-in', async (ev) => { try { await Data.saveNotifConsent(true,  { notifOptInSource: ev?.detail?.source || 'ui' }); } catch {} });
+ // document.addEventListener('rampet:consent:notif-opt-out',async (ev) => { try { await Data.saveNotifConsent(false, { notifOptOutSource: ev?.detail?.source || 'ui' }); } catch {} });
+ // document.addEventListener('rampet:geo:enabled', async (ev) => { try { await Data.saveGeoConsent(true,  { geoMethod: ev?.detail?.method || 'ui' }); } catch {} });
+ // document.addEventListener('rampet:geo:disabled',async (ev) => { try { await Data.saveGeoConsent(false, { geoMethod: ev?.detail?.method || 'ui' }); } catch {} });
 }
 
 function openInboxIfQuery() {
@@ -861,6 +861,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
