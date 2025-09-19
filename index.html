@@ -1,28 +1,23 @@
 <!DOCTYPE html>
 <html lang="es">
- 
- 
-  <link rel="stylesheet" href="styles.css">
-  <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Club RAMPET - Mis Puntos</title>
 
-  <meta name="theme-color" content="#007bff"/>
-  <link rel="manifest" href="manifest.json">
-  <link rel="icon" href="/favicon.ico" sizes="any">
-  <link rel="apple-touch-icon" href="images/mi_logo_192.png">
-
-
+  <meta name="theme-color" content="#007bff" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" href="/favicon.ico" sizes="any" />
+  <link rel="apple-touch-icon" href="images/mi_logo_192.png" />
+  <link rel="stylesheet" href="styles.css" />
 
   <script>
-    /* Exponer VAPID para FCM web */
     window.__RAMPET__ = {
       VAPID_PUBLIC: 'BF-KoL99dP_eOzjYisObou-0jHHayo4QNKAcqRWDAPLYSspsNWvCSyY3H4gJd2hF3g8TRDchT0JrxM-4RGf7Lv4'
     };
   </script>
-
-  <!-- Firebase compat -->
+ 
+ <!-- Firebase compat -->
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-analytics-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
@@ -34,6 +29,11 @@
 </head>
 
   
+
+  
+  
+  <body>
+
   <!-- Modal perfil / editar datos -->
 <div id="profile-modal" class="modal-overlay" style="display:none;">
   <div class="modal-content" style="max-width:520px;">
@@ -96,9 +96,11 @@
   </div>
 </div>
 
-  
-  
-  <body>
+
+
+
+
+   
   <div id="toast-container"></div>
 
   <div class="container">
@@ -484,6 +486,7 @@
   </script>
 </body>
 </html>
+
 
 
 
