@@ -485,65 +485,7 @@ on('prof-edit-address-btn', 'click', () => {
   }
 });
 
-on('prof-save', 'click', async () => {
-  const nombre   = document.getElementById('prof-nombre')?.value?.trim() || '';
-  const telefono = document.getElementById('prof-telefono')?.value?.trim() || '';
-  const fecha    = document.getElementById('prof-fecha')?.value?.trim() || '';
-  const notifOn  = !!document.getElementById('prof-consent-notif')?.checked;
-  const geoOn    = !!document.getElementById('prof-consent-geo')?.checked;
 
-  if (telefono && !/^\d{6,}$/.test(telefono)) {
-    UI.showToast('El teléfono debe tener sólo números (mín. 6).','error'); return;
-  }
-
-  try {
-    await Data.updateProfile({ nombre, telefono, fechaNacimiento: fecha });
-
-    // Notificaciones
-  // Notificaciones
-try {
-  if (typeof Notification !== 'undefined') {
-    if (notifOn) {
-      // Si el usuario quiere notificaciones:
-      if (Notification.permission !== 'granted') {
-        // Pedimos permiso y, si se concede, guardamos token + config
-        await handlePermissionRequest();
-      } else {
-        // Ya estaba concedido → aseguramos (re)registro del token
-        await handlePermissionSwitch({ target: { checked: true } });
-      }
-    } else {
-      // El usuario NO quiere notificaciones → opt-out (borra token y actualiza config)
-      await handlePermissionSwitch({ target: { checked: false } });
-    }
-  }
-} catch (e) {
-  console.warn('[Perfil] Notifs toggle error:', e);
-}
-
-
-    // Geolocalización (solicita permiso una vez si hace falta)
-    try {
-      if (geoOn) {
-        await new Promise((ok)=> {
-          if (!navigator.geolocation?.getCurrentPosition) return ok();
-          navigator.geolocation.getCurrentPosition(
-            async ()=>{ try { await Data.saveGeoConsent(true,  { geoMethod:'profile' }); } catch{} ok(); },
-            async ()=>{ try { await Data.saveGeoConsent(false, { geoMethod:'profile-denied' }); } catch{} ok(); }
-          );
-        });
-      } else {
-        await Data.saveGeoConsent(false, { geoMethod:'profile' });
-      }
-    } catch {}
-
-    UI.showToast('Datos guardados.','success');
-    UI.closeProfileModal();
-  } catch (e) {
-    console.warn(e);
-    UI.showToast('No se pudieron guardar los cambios.','error');
-  }
-});
 
   // Logout
   on('logout-btn', 'click', async () => {
@@ -919,6 +861,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
