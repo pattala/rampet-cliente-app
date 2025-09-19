@@ -499,17 +499,24 @@ on('prof-save', 'click', async () => {
     await Data.updateProfile({ nombre, telefono, fechaNacimiento: fecha });
 
     // Notificaciones
-    try {
-      if (typeof Notification !== 'undefined') {
-        if (notifOn) {
-          if (Notification.permission !== 'granted') {
-            await handlePermissionRequest();
-          }
-        } else {
-          await handlePermissionSwitch({ target:{ checked:false } });
-        }
+  // Notificaciones
+try {
+  if (typeof Notification !== 'undefined') {
+    if (notifOn) {
+      // si no está concedido, pedimos permiso y registramos token
+      if (Notification.permission !== 'granted') {
+        await handlePermissionRequest();   // <— usa la función importada
+      } else {
+        // fuerza (re)registro del token si ya estaba concedido
+        await handlePermissionSwitch({ target:{ checked:true } });
       }
-    } catch {}
+    } else {
+      // opt-out (borra token y actualiza config)
+      await handlePermissionSwitch({ target:{ checked:false } });
+    }
+  }
+} catch {}
+
 
     // Geolocalización (solicita permiso una vez si hace falta)
     try {
@@ -908,5 +915,6 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
