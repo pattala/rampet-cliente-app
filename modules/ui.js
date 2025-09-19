@@ -423,6 +423,109 @@ export async function openProfileModal(){
   // 3) …y reconciliamos con el estado REAL del navegador (permiso actual)
   await syncProfileTogglesFromRuntime();
 }
+// === Guardar perfil y preferencias ===
+document.getElementById('prof-save')?.addEventListener('click', onSaveProfilePrefs);
+document.getElementById('prof-cancel')?.addEventListener('click', () => {
+  closeProfileModal();
+});
+
+// (opcional) asegurar los cierres del modal
+document.getElementById('profile-close')?.addEventListener('click', closeProfileModal);
+
+async function onSaveProfilePrefs(){
+  const btn = document.getElementById('prof-save');
+  if (btn) btn.disabled = true;
+
+  try {
+    // 1) Datos básicos
+    const nombre = document.getElementById('prof-nombre')?.value?.trim() || '';
+    const telefono = document.getElementById('prof-telefono')?.value?.trim() || '';
+    const fechaNacimiento = document.getElementById('prof-fecha')?.value || '';
+
+    await Data.updateProfile({ nombre, telefono, fechaNacimiento });
+
+    // 2) Preferencias
+    const notifEl = document.getElementById('prof-consent-notif');
+    const geoEl   = document.getElementById('prof-consent-geo');
+
+    // --- NOTIFICACIONES ---
+    if (notifEl) {
+      const wantNotif = !!notifEl.checked;
+
+      if ('Notification' in window) {
+        if (wantNotif) {
+          if (Notification.permission !== 'granted') {
+            // Pide permiso + registra token (usa tu módulo de notifs)
+            await handlePermissionRequest();
+          } else {
+            // (Re)registrar token si ya estaba concedido
+            await handlePermissionSwitch({ target: { checked: true } });
+          }
+          await Data.saveNotifConsent(true);
+        } else {
+          // Desactivar: borra token y deja constancia en config
+          await handlePermissionSwitch({ target: { checked: false } });
+          await Data.saveNotifConsent(false);
+        }
+      } else {
+        // Navegador sin soporte → lo guardamos en "off"
+        await Data.saveNotifConsent(false);
+        notifEl.checked = false;
+      }
+    }
+
+    // --- GEOLOCALIZACIÓN ---
+    if (geoEl) {
+      const wantGeo = !!geoEl.checked;
+
+      if (wantGeo) {
+        // Si no está concedido, provocar el prompt con una lectura rápida
+        let granted = false;
+
+        try {
+          if (navigator.permissions?.query) {
+            const st = await navigator.permissions.query({ name: 'geolocation' });
+            granted = (st.state === 'granted');
+          }
+        } catch {}
+
+        if (!granted && navigator.geolocation) {
+          granted = await new Promise(res => {
+            let done = false;
+            navigator.geolocation.getCurrentPosition(
+              () => { if (!done){ done = true; res(true); } },
+              () => { if (!done){ done = true; res(false); } },
+              { timeout: 7000, maximumAge: 0 }
+            );
+            setTimeout(() => { if (!done){ done = true; res(false); } }, 7500);
+          });
+        }
+
+        if (granted) {
+          await Data.saveGeoConsent(true);
+        } else {
+          await Data.saveGeoConsent(false);
+          geoEl.checked = false; // reflejar que no se pudo activar
+          showToast('No pudimos activar ubicación. Revisá los permisos del navegador.', 'warning');
+        }
+      } else {
+        await Data.saveGeoConsent(false);
+      }
+    }
+
+    // 3) Refrescar switches con lo que quedó en Firestore + pistas del navegador
+    await (window.requestIdleCallback
+      ? new Promise(r => requestIdleCallback(async () => { await syncProfileTogglesFromRuntime(); r(); }))
+      : syncProfileTogglesFromRuntime());
+
+    showToast('Cambios guardados', 'success');
+  } catch (err) {
+    console.error(err);
+    showToast('No se pudo guardar', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
 
 export function closeProfileModal(){
   const m = document.getElementById('profile-modal');
@@ -434,6 +537,7 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
+
 
 
 
