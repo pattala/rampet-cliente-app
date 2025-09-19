@@ -4,6 +4,7 @@ import { setupFirebase, checkMessagingSupport, auth, db, firebase } from './modu
 import * as UI from './modules/ui.js';
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
+import { handlePermissionRequest, handlePermissionSwitch } from './modules/notifications.js';
 
 // Notificaciones (único import desde notifications.js)
 import {
@@ -503,19 +504,22 @@ on('prof-save', 'click', async () => {
 try {
   if (typeof Notification !== 'undefined') {
     if (notifOn) {
-      // si no está concedido, pedimos permiso y registramos token
+      // Si el usuario quiere notificaciones:
       if (Notification.permission !== 'granted') {
-        await handlePermissionRequest();   // <— usa la función importada
+        // Pedimos permiso y, si se concede, guardamos token + config
+        await handlePermissionRequest();
       } else {
-        // fuerza (re)registro del token si ya estaba concedido
-        await handlePermissionSwitch({ target:{ checked:true } });
+        // Ya estaba concedido → aseguramos (re)registro del token
+        await handlePermissionSwitch({ target: { checked: true } });
       }
     } else {
-      // opt-out (borra token y actualiza config)
-      await handlePermissionSwitch({ target:{ checked:false } });
+      // El usuario NO quiere notificaciones → opt-out (borra token y actualiza config)
+      await handlePermissionSwitch({ target: { checked: false } });
     }
   }
-} catch {}
+} catch (e) {
+  console.warn('[Perfil] Notifs toggle error:', e);
+}
 
 
     // Geolocalización (solicita permiso una vez si hace falta)
@@ -915,6 +919,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
