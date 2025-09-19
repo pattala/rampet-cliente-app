@@ -182,106 +182,6 @@ input:checked + .slider:before{transform:translateX(20px);}
 .slider.round{border-radius:999px;}
 .slider.round:before{border-radius:999px;}
 
-/* ───────── Carrusel (uniforme) ───────── */
-:root{
-  --slide-h:240px;
-  --slide-w:320px;     /* ancho del slide */
-  --slide-max-w:380px; /* tope en pantallas anchas */
-  --wm-size:68%;
-  --wm-opacity:.12;
-}
-@media (max-width:420px){ :root{ --slide-w:80vw; } }
-
-.carrusel-container{ margin-top:12px; }
-
-/* Carrusel */
-.carrusel{
-  display:flex;
-  gap:12px;
-  overflow-x:auto;
-  padding:8px 10px 12px;
-  scroll-snap-type:x mandatory;
-
-  /* centra el primer y último slide en el viewport */
-  scroll-padding-left:  calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
-  scroll-padding-right: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
-
-  -webkit-overflow-scrolling:touch;
-  scrollbar-width:none;
-  overscroll-behavior-x:contain;
-  touch-action:pan-x;
-}
-
-.carrusel::-webkit-scrollbar{
-  display:none;
-}
-
-
-/* MISMA CAJA para imagen o texto */
-.banner-item,
-.banner-item-texto{
-  display:block;                 /* << clave (también para <a>) */
-  box-sizing:border-box;
-  flex:0 0 var(--slide-w);
-  width:var(--slide-w);
-  max-width:var(--slide-max-w);
-  height:var(--slide-h);
-  border-radius:12px;
-  overflow:hidden;
-  box-shadow:var(--shadow);
-  border:1px solid var(--border);
-  background:#fff;
-  position:relative;
-  scroll-snap-align:center;
-  scroll-snap-stop:always;
-  user-select:none;
-  -webkit-user-drag:none;
-  cursor:grab;
-}
-.carrusel.arrastrando .banner-item,
-.carrusel.arrastrando .banner-item-texto{ cursor:grabbing; }
-
-/* Imagen ajustada a la caja (no recorta) */
-.banner-con-imagen{ position:relative; display:block; height:100%; }
-.banner-con-imagen > img{
-  width:100%; height:100%;
-  object-fit:contain;
-  display:block;
-  background:#f8fafc;
-  pointer-events:none; user-select:none; -webkit-user-drag:none;
-}
-
-/* Overlay de texto opcional en banners con imagen */
-.banner-texto-overlay{
-  position:absolute; left:0; right:0; bottom:0;
-  padding:14px;
-  background:linear-gradient(to top, rgba(0,0,0,.65), rgba(0,0,0,0));
-  color:#fff; text-align:left;
-}
-.banner-texto-overlay h4{ margin:0 0 4px; font-weight:700; }
-.banner-texto-overlay p{ margin:0; opacity:.95; }
-
-/* Slides sólo texto + marca de agua */
-.banner-item-texto{
-  display:flex; align-items:center; justify-content:center;
-  text-align:center; padding:14px; background:#f8fafc; isolation:isolate;
-}
-.banner-item-texto::before{
-  content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
-  background:center / var(--wm-size) no-repeat url("images/mi_logo.png");
-  opacity:var(--wm-opacity); filter:grayscale(1);
-}
-.banner-item-texto > *{ position:relative; z-index:1; }
-.banner-item-texto h4{ margin:0 0 6px; color:var(--primary); }
-.banner-item-texto p{ margin:0; color:#444; }
-
-/* Indicadores */
-.carrusel-indicadores{ display:flex; gap:6px; justify-content:center; margin-top:8px; }
-.carrusel-indicadores .indicador{
-  width:8px; height:8px; border-radius:50%;
-  background:#ccc; margin:0 4px; cursor:pointer; transition:background-color .2s;
-}
-.carrusel-indicadores .indicador.activo{ background: var(--primary); }
 
 /* ───────── Toasts ───────── */
 #toast-container{
@@ -426,5 +326,94 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .prefs-card .small-note{
   margin-top:4px; font-size:.78rem; color:#777; opacity:.9;
 }
+
+/* ───────── Carrusel UNIFORME (FINAL) ───────── */
+:root{
+  --slide-h:240px;
+  --slide-w:320px;
+  --slide-max-w:380px;
+  --wm-size:68%;
+  --wm-opacity:.12;
+}
+@media (max-width:420px){ :root{ --slide-w:80vw; } }
+
+.carrusel{
+  display:flex; gap:12px;
+  overflow-x:auto;
+  padding:8px 10px 12px;
+  scroll-snap-type:x mandatory;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  overscroll-behavior-x:contain;
+  touch-action:pan-x;
+  /* centrado visual del slide activo */
+  scroll-padding-left:  calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
+  scroll-padding-right: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
+}
+.carrusel::-webkit-scrollbar{ display:none; }
+
+/* MISMA CAJA para TODAS las diapositivas */
+.carrusel > .banner-item,
+.carrusel > .banner-item-texto{
+  display:block;
+  flex:0 0 var(--slide-w);
+  width:var(--slide-w);
+  max-width:var(--slide-max-w);
+  height:var(--slide-h);
+  border-radius:12px;
+  overflow:hidden;
+  box-shadow:var(--shadow);
+  border:1px solid var(--border);
+  background:#fff;
+  position:relative;
+  scroll-snap-align:center;
+  scroll-snap-stop:always;
+  user-select:none; -webkit-user-drag:none;
+  cursor:grab;
+}
+.carrusel.arrastrando > .banner-item,
+.carrusel.arrastrando > .banner-item-texto{ cursor:grabbing; }
+
+/* Banners con imagen → la imagen NO recorta, se ajusta */
+.banner-con-imagen{ position:relative; display:block; height:100%; }
+.banner-con-imagen > img{
+  width:100%; height:100%;
+  object-fit:contain; /* clave: no cambia el alto del slide */
+  display:block;
+  background:#f8fafc;
+  pointer-events:none; user-select:none; -webkit-user-drag:none;
+}
+
+/* Diapositiva de solo texto */
+.banner-item-texto{
+  display:flex; align-items:center; justify-content:center;
+  text-align:center; padding:14px; background:#f8fafc; isolation:isolate;
+}
+.banner-item-texto::before{
+  content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
+  background:center / var(--wm-size) no-repeat url("images/mi_logo.png");
+  opacity:var(--wm-opacity); filter:grayscale(1);
+}
+.banner-item-texto > *{ position:relative; z-index:1; }
+.banner-item-texto h4{ margin:0 0 6px; color:var(--primary); }
+.banner-item-texto p{ margin:0; color:#444; }
+
+/* Overlay opcional de texto en banners con imagen */
+.banner-texto-overlay{
+  position:absolute; left:0; right:0; bottom:0;
+  padding:14px;
+  background:linear-gradient(to top, rgba(0,0,0,.65), rgba(0,0,0,0));
+  color:#fff; text-align:left;
+}
+.banner-texto-overlay h4{ margin:0 0 4px; font-weight:700; }
+.banner-texto-overlay p{ margin:0; opacity:.95; }
+
+/* Indicadores */
+.carrusel-indicadores{ display:flex; gap:6px; justify-content:center; margin-top:8px; }
+.carrusel-indicadores .indicador{
+  width:8px; height:8px; border-radius:50%;
+  background:#ccc; margin:0 4px; cursor:pointer; transition:background-color .2s;
+}
+.carrusel-indicadores .indicador.activo{ background: var(--primary); }
 
 
