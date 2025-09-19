@@ -164,7 +164,7 @@ async function initFCMForRampet() {
     console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
     return;
   }
-  await registerFcmSW();
+  // await registerFcmSW();
   await ensureMessagingCompatLoaded();
 
   if ((Notification?.permission || 'default') !== 'granted') {
@@ -861,6 +861,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
