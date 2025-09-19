@@ -2,6 +2,7 @@
 
 import { setupFirebase, checkMessagingSupport, auth, db, firebase } from './modules/firebase.js';
 import * as UI from './modules/ui.js';
+try { window.UI = UI; } catch {}
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
 import { handlePermissionRequest, handlePermissionSwitch } from './modules/notifications.js';
@@ -471,8 +472,8 @@ function setupMainAppScreenListeners() {
   (window.__RAMPET__ ||= {}).mainListenersWired = true;
 // Perfil
 on('edit-profile-btn', 'click', UI.openProfileModal);
-on('profile-close', 'click', UI.closeProfileModal);
-on('prof-cancel', 'click', UI.closeProfileModal);
+//on('profile-close', 'click', UI.closeProfileModal);
+//on('prof-cancel', 'click', UI.closeProfileModal);
 
 on('prof-edit-address-btn', 'click', () => {
   UI.closeProfileModal();
@@ -812,6 +813,9 @@ async function main() {
       setupMainAppScreenListeners();
 
       Data.listenToClientData(user);
+document.addEventListener('rampet:cliente-updated', (e) => {
+  try { window.clienteData = e.detail?.cliente || window.clienteData || {}; } catch {}
+});
 
       try { await window.ensureGeoOnStartup?.(); } catch {}
       document.addEventListener('visibilitychange', async () => { if (document.visibilityState === 'visible') { try { await window.maybeRefreshIfStale?.(); } catch {} } });
@@ -861,6 +865,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
