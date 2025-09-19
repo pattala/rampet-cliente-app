@@ -91,6 +91,14 @@ async function setFcmTokensOnCliente(newTokens) {
   await ref.set({ fcmTokens: merged }, { merge: true });
   return clienteId;
 }
+async function clearFcmTokensOnCliente() {
+  const uid = firebase.auth().currentUser?.uid;
+  if (!uid) throw new Error('No hay usuario logueado.');
+  const clienteId = await getClienteDocIdPorUID(uid);
+  if (!clienteId) throw new Error('No encontré tu doc en clientes (authUID).');
+  const ref = firebase.firestore().collection('clientes').doc(clienteId);
+  await ref.set({ fcmTokens: [] }, { merge: true }); // ← borra la lista
+}
 
 // Guardado / borrado de token
 async function guardarTokenEnMiDoc(token) {
@@ -104,7 +112,7 @@ async function borrarTokenYOptOut() {
   try {
     await ensureMessagingCompatLoaded();
     try { await firebase.messaging().deleteToken(); } catch {}
-    await setFcmTokensOnCliente([]);
+    await clearFcmTokensOnCliente();                      // ← usar este
     try { localStorage.removeItem('fcmToken'); } catch {}
     try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
     emit('rampet:consent:notif-opt-out', { source: 'ui' });
@@ -113,6 +121,7 @@ async function borrarTokenYOptOut() {
     console.warn('[FCM] borrarTokenYOptOut error:', e?.message || e);
   }
 }
+
 async function obtenerYGuardarToken() {
   await ensureMessagingCompatLoaded();
   try { await firebase.messaging().deleteToken(); } catch {}
@@ -650,5 +659,6 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
+
 
 
