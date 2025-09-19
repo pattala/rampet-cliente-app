@@ -1,7 +1,7 @@
 // modules/ui.js (VERSIÓN OK - render principal, carrusel + historial reciente)
 
 import * as Data from './data.js';
-
+import { handlePermissionRequest, handlePermissionSwitch } from './notifications.js'; // usa tu ruta real
 // --- Estado del carrusel ---
 let carouselIntervalId = null;
 let isDragging = false, startX, startScrollLeft;
@@ -357,7 +357,7 @@ export function renderRecentHistory(cliente = {}) {
 document.addEventListener('rampet:cliente-updated', (e) => {
   try { renderRecentHistory(e.detail?.cliente || {}); } catch {}
 });
-// ===== Perfil (modal) =====
+
 // ===== Perfil (modal) =====
 function setVal(id, v){ const el = document.getElementById(id); if (el) el.value = v ?? ''; }
 function setChecked(id, v){ const el = document.getElementById(id); if (el) el.checked = !!v; }
@@ -434,6 +434,7 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
+
 
 
 
