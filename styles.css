@@ -182,35 +182,37 @@ input:checked + .slider:before{transform:translateX(20px);}
 .slider.round{border-radius:999px;}
 .slider.round:before{border-radius:999px;}
 
-/* ───────── Carrusel ───────── */
+/* ───────── Carrusel (uniforme) ───────── */
 :root{
   --slide-h:240px;
-  --slide-w:80vw;
-  --slide-max-w:380px;
+  --slide-w:320px;     /* ancho del slide */
+  --slide-max-w:380px; /* tope en pantallas anchas */
   --wm-size:68%;
   --wm-opacity:.12;
 }
-@media (min-width:480px){ :root{ --slide-w:320px; } }
+@media (max-width:420px){ :root{ --slide-w:80vw; } }
 
-.carrusel-container{margin-top:12px;}
+.carrusel-container{ margin-top:12px; }
 
 .carrusel{
   display:flex; gap:12px;
   overflow-x:auto;
   padding:8px 10px 12px;
   scroll-snap-type:x mandatory;
-  scroll-padding-left:  calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
-  scroll-padding-right: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
   -webkit-overflow-scrolling:touch;
   scrollbar-width:none;
-  overscroll-behavior-x: contain;
-  touch-action: pan-x;
+  overscroll-behavior-x:contain;
+  touch-action:pan-x;
 }
 .carrusel::-webkit-scrollbar{ display:none; }
 
+/* MISMA CAJA para imagen o texto */
 .banner-item,
 .banner-item-texto{
+  display:block;                 /* << clave (también para <a>) */
+  box-sizing:border-box;
   flex:0 0 var(--slide-w);
+  width:var(--slide-w);
   max-width:var(--slide-max-w);
   height:var(--slide-h);
   border-radius:12px;
@@ -228,20 +230,17 @@ input:checked + .slider:before{transform:translateX(20px);}
 .carrusel.arrastrando .banner-item,
 .carrusel.arrastrando .banner-item-texto{ cursor:grabbing; }
 
-/* imágenes más chicas (contain) */
+/* Imagen ajustada a la caja (no recorta) */
 .banner-con-imagen{ position:relative; display:block; height:100%; }
 .banner-con-imagen > img{
   width:100%; height:100%;
-  object-fit: contain;           /* clave: no recorta */
+  object-fit:contain;
   display:block;
-  border-radius:12px;
-  background:#f8fafc;           /* marco suave */
-  pointer-events:none;
-  user-select:none;
-  -webkit-user-drag:none;
+  background:#f8fafc;
+  pointer-events:none; user-select:none; -webkit-user-drag:none;
 }
 
-/* overlay de texto opcional sobre imagen */
+/* Overlay de texto opcional en banners con imagen */
 .banner-texto-overlay{
   position:absolute; left:0; right:0; bottom:0;
   padding:14px;
@@ -251,17 +250,15 @@ input:checked + .slider:before{transform:translateX(20px);}
 .banner-texto-overlay h4{ margin:0 0 4px; font-weight:700; }
 .banner-texto-overlay p{ margin:0; opacity:.95; }
 
-/* diapositivas de sólo texto con marca de agua */
+/* Slides sólo texto + marca de agua */
 .banner-item-texto{
   display:flex; align-items:center; justify-content:center;
-  text-align:center; padding:14px; isolation:isolate;
-  background:#f8fafc;
+  text-align:center; padding:14px; background:#f8fafc; isolation:isolate;
 }
 .banner-item-texto::before{
   content:""; position:absolute; inset:0; z-index:0; pointer-events:none;
   background:center / var(--wm-size) no-repeat url("images/mi_logo.png");
-  opacity:var(--wm-opacity);
-  filter:grayscale(1);
+  opacity:var(--wm-opacity); filter:grayscale(1);
 }
 .banner-item-texto > *{ position:relative; z-index:1; }
 .banner-item-texto h4{ margin:0 0 6px; color:var(--primary); }
@@ -418,3 +415,4 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .prefs-card .small-note{
   margin-top:4px; font-size:.78rem; color:#777; opacity:.9;
 }
+
