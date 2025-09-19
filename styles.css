@@ -194,17 +194,28 @@ input:checked + .slider:before{transform:translateX(20px);}
 
 .carrusel-container{ margin-top:12px; }
 
+/* Carrusel */
 .carrusel{
-  display:flex; gap:12px;
+  display:flex;
+  gap:12px;
   overflow-x:auto;
   padding:8px 10px 12px;
   scroll-snap-type:x mandatory;
+
+  /* centra el primer y último slide en el viewport */
+  scroll-padding-left:  calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
+  scroll-padding-right: calc((100% - min(var(--slide-w), var(--slide-max-w)))/2);
+
   -webkit-overflow-scrolling:touch;
   scrollbar-width:none;
   overscroll-behavior-x:contain;
   touch-action:pan-x;
 }
-.carrusel::-webkit-scrollbar{ display:none; }
+
+.carrusel::-webkit-scrollbar{
+  display:none;
+}
+
 
 /* MISMA CAJA para imagen o texto */
 .banner-item,
@@ -415,4 +426,5 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .prefs-card .small-note{
   margin-top:4px; font-size:.78rem; color:#777; opacity:.9;
 }
+
 
