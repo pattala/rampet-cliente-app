@@ -11,7 +11,7 @@ import {
   initNotificationsOnce,
   //handlePermissionRequest,
   dismissPermissionRequest,
-  handlePermissionSwitch,
+  //handlePermissionSwitch,
   handleBellClick,
   handleSignOutCleanup
 } from './modules/notifications.js';
@@ -919,6 +919,7 @@ async function main() {
 }
 
 document.addEventListener('DOMContentLoaded', main);
+
 
 
 
