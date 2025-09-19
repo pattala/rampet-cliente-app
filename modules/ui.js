@@ -371,7 +371,7 @@ async function syncProfileTogglesFromRuntime() {
   const notifEl = document.getElementById('prof-consent-notif');
   const geoEl   = document.getElementById('prof-consent-geo');
 
-  // === Notificaciones: reflejar preferencia (no el permiso)
+  // Muestra SIEMPRE la preferencia guardada (config.*Enabled)
   if (notifEl) {
     notifEl.checked = !!cfg.notifEnabled;
     try {
@@ -384,7 +384,6 @@ async function syncProfileTogglesFromRuntime() {
     } catch {}
   }
 
-  // === Geolocalización: reflejar preferencia (no el permiso)
   if (geoEl) {
     geoEl.checked = !!cfg.geoEnabled;
     try {
@@ -397,6 +396,7 @@ async function syncProfileTogglesFromRuntime() {
     } catch {}
   }
 }
+
 
 
 
@@ -520,7 +520,8 @@ try {
           resolve(); 
         }))
       : syncProfileTogglesFromRuntime());
-UI.closeProfileModal();
+closeProfileModal();
+
 
     showToast('Cambios guardados', 'success');
   } catch (err) {
@@ -542,6 +543,7 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
+
 
 
 
