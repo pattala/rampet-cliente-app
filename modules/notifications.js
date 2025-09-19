@@ -363,45 +363,56 @@ async function updateGeoUI() {
   setGeoMarketingUI(true);
 }
 
+// Reemplazá por esta versión
 async function handleGeoEnable() {
-  const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
+  const { banner } = geoEls();
 
-  // feedback inmediato
-  if (txt) txt.textContent = 'Activando ubicación…';
-  showInline(btnOn, false); showInline(btnOff, false); showInline(btnHelp, false);
+  // 1) Optimista: activamos ya y ocultamos el banner
+  try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
+  emit('rampet:geo:enabled', { method: 'ui' });
+  show(banner, false);
+  startGeoWatch();
 
-  let granted = false;
+  // 2) Verificación en background (NO bloquea la UI)
   try {
-    const before = await detectGeoPermission();
-    if (before === 'granted') {
-      granted = true;
-    } else {
-      // Pedimos una lectura rápida con timeout corto
-      granted = await new Promise(res => {
-        let settled = false;
-        const done = ok => { if (settled) return; settled = true; res(!!ok); };
-        if (!navigator.geolocation?.getCurrentPosition) return done(false);
+    await new Promise((resolve) => {
+      if (!navigator.geolocation?.getCurrentPosition) return resolve();
 
-        navigator.geolocation.getCurrentPosition(
-          () => done(true),
-          () => done(false),
-          { timeout: 6000, maximumAge: 0, enableHighAccuracy: false }
-        );
+      let settled = false;
+      const done = () => { if (settled) return; settled = true; resolve(); };
 
-        // Salvaguarda por si el browser no retorna nada
-        setTimeout(() => done(false), 6500);
-      });
-    }
+      navigator.geolocation.getCurrentPosition(
+        // onSuccess
+        () => {
+          // todo ok → no tocamos nada
+          done();
+        },
+        // onError  ⬅️  ACÁ va el onError
+        (err) => {
+          // ✔️ Opción A (recomendada): no revertir, solo seguir.
+          //    Si querés avisar:
+          // toast('No pudimos leer tu ubicación ahora. Podés volver a intentar más tarde.', 'info');
+
+          // ❗ Opción B (si preferís revertir cuando falla):
+          // try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
+          // emit('rampet:geo:disabled', { method: 'ui' });
+          // toast('No pudimos activar la ubicación. Revisá los permisos del navegador.', 'warning');
+
+          done();
+        },
+        { timeout: 3000, maximumAge: 120000, enableHighAccuracy: false }
+      );
+
+      // Salvaguarda por si el browser no responde
+      setTimeout(done, 3500);
+    });
   } catch {}
 
-  try { localStorage.setItem(LS_GEO_STATE, granted ? 'accepted' : 'deferred'); } catch {}
-
-  // Emitimos UNA sola vez aquí (no en updateGeoUI)
-  emit(granted ? 'rampet:geo:enabled' : 'rampet:geo:disabled', { method: 'ui' });
-
-  // Repintar el banner según estado final (sin bloquear la UI)
-  await updateGeoUI();
+  // 3) Dejar consistente si luego reabren la vista
+  setTimeout(() => { updateGeoUI(); }, 0);
 }
+
+
 
 function handleGeoDisable() {
   try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
@@ -639,4 +650,5 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
+
 
