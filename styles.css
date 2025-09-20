@@ -480,8 +480,8 @@ header h1 { margin: 0; line-height: 1.1; }
 
 /* checkbox más grande y con color de marca */
 #register-terms {
-  width: 20px;
-  height: 20px;
+  width: 15px;
+  height: 15px;
   transform: scale(1.25);        /* agranda visualmente */
   accent-color: #0d6efd;         /* azul */
   cursor: pointer;
@@ -504,5 +504,6 @@ header h1 { margin: 0; line-height: 1.1; }
   padding: 12px 18px;
   border-radius: 12px;
 }
+
 
 
