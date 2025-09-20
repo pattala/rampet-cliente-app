@@ -863,34 +863,31 @@ document.addEventListener('rampet:cliente-updated', (e) => {
     }
   });
 }
-// Catch-all para abrir el modal de T&C sin navegar
+
+// Catch-all para abrir el modal de T&C sin navegar (top-level)
 document.addEventListener('click', (e) => {
+  // no interceptar clicks modificados o botón del medio
+  if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+
   const trigger = e.target.closest(
     '[data-open-terms], a[href="#terminos"], a[href="#terms"], a[href="/terminos"], a[href*="terminos-y-condiciones"]'
   );
   if (!trigger) return;
+  if (trigger.hasAttribute('data-no-modal')) return; // escape opcional
 
-  // evitar navegación
   e.preventDefault();
   e.stopPropagation();
 
-  // abrir el modal (usa la versión local; si no, intenta la de UI)
+  if (window.__RAMPET_DEBUG) console.debug('[T&C] interceptado → abriendo modal', trigger);
+
+  // Abrir el modal (usa la función local; si falla, intenta la de UI)
   try {
-    openTermsModal();              // tu función en app.js
+    openTermsModal();           // tu función en app.js
+    wireTermsModalBehavior?.(); // por si aún no se cableó
   } catch {
     try { UI.openTermsModal(true); } catch {}
   }
 });
 
+// arranque de la app
 document.addEventListener('DOMContentLoaded', main);
-
-
-
-
-
-
-
-
-
-
-
