@@ -531,30 +531,19 @@ try {
 // FORMULARIO DOMICILIO (clientes/{id}.domicilio)
 // ─────────────────────────────────────────────────────────────
 function buildAddressLine(c) {
-  const calleNum = [c.calle, c.numero].filter(Boolean).join(' ').trim();
-  const prov = (c.provincia || '').trim();
-  const cp   = (c.codigoPostal || '').trim();
-  const loc  = (c.localidad || '').trim();
-  const barrio = (c.barrio || '').trim();
-
-  // CABA
-  if (/^CABA|Capital/i.test(prov)) {
-    const rhs = [ [cp, (loc || barrio)].filter(Boolean).join(' ').trim(), 'CABA' ]
-      .filter(Boolean).join(', ');
-    return [calleNum, rhs].filter(Boolean).join(', ');
+  const parts = [];
+  if (c.calle) parts.push(c.calle + (c.numero ? ' ' + c.numero : ''));
+  const pisoDto = [c.piso, c.depto].filter(Boolean).join(' ');
+  if (pisoDto) parts.push(pisoDto);
+  if (c.codigoPostal || c.localidad) {
+    parts.push([c.codigoPostal, c.localidad].filter(Boolean).join(' '));
   }
-
-  // Buenos Aires
-  if (/^Buenos Aires$/i.test(prov)) {
-    const rhs = [ [cp, loc].filter(Boolean).join(' ').trim(), 'Provincia de Buenos Aires' ]
-      .filter(Boolean).join(', ');
-    return [calleNum, rhs].filter(Boolean).join(', ');
+  if (c.provincia) {
+    parts.push(c.provincia === 'CABA' ? 'CABA' : `Provincia de ${c.provincia}`);
   }
-
-  // Otras provincias
-  const rhs = [ [cp, loc].filter(Boolean).join(' ').trim(), prov ].filter(Boolean).join(', ');
-  return [calleNum, rhs].filter(Boolean).join(', ');
+  return parts.filter(Boolean).join(', ');
 }
+
 
 export async function initDomicilioForm() {
   const card = document.getElementById('address-card');
@@ -628,4 +617,5 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
+
 
