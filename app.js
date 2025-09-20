@@ -17,7 +17,7 @@ import {
 
 // === DEBUG / OBS ===
 window.__RAMPET_DEBUG = true;
-window.__BUILD_ID = 'pwa-2025-09-17-a';
+window.__BUILD_ID = 'pwa-2025-09-17-b';
 function d(tag, ...args){ if (window.__RAMPET_DEBUG) console.log(`[DBG][${window.__BUILD_ID}] ${tag}`, ...args); }
 window.__reportState = async (where='')=>{
   const notifPerm = (window.Notification?.permission)||'n/a';
@@ -432,10 +432,41 @@ function wireTermsModalBehavior(){
 }
 
 // ──────────────────────────────────────────────────────────────
+// PERFIL: reordenar tarjetas (Domicilio arriba / Preferencias último)
+// ──────────────────────────────────────────────────────────────
+function reorderProfileCards(){
+  const modal = document.getElementById('profile-modal');
+  if (!modal) return;
+  const domicilioCard = modal.querySelector('#prof-edit-address-btn')?.closest('.prefs-card');
+  const preferenciasCard = modal.querySelector('#prof-consent-notif')?.closest('.prefs-card');
+  const actions = modal.querySelector('.modal-actions');
+
+  if (!domicilioCard || !preferenciasCard) return;
+  const container = preferenciasCard.parentElement;
+  if (!container) return;
+
+  // 1) Domicilio antes que Preferencias
+  if (domicilioCard.nextSibling !== preferenciasCard) {
+    container.insertBefore(domicilioCard, preferenciasCard);
+  }
+  // 2) Preferencias como última tarjeta, pero antes de los botones
+  if (actions) {
+    container.insertBefore(preferenciasCard, actions);
+  }
+}
+
+// ──────────────────────────────────────────────────────────────
 // LISTENERS Auth/Main
 // ──────────────────────────────────────────────────────────────
 function setupAuthScreenListeners() {
-  on('show-register-link', 'click', (e) => { e.preventDefault(); UI.showScreen('register-screen'); setTimeout(()=> wireAddressDatalists('reg-'), 0); });
+  on('show-register-link', 'click', (e) => { 
+    e.preventDefault(); 
+    UI.showScreen('register-screen'); 
+    setTimeout(()=> { 
+      wireAddressDatalists('reg-'); 
+      reorderAddressFields('reg-'); 
+    }, 0); 
+  });
   on('show-login-link', 'click', (e) => { e.preventDefault(); UI.showScreen('login-screen'); });
   on('login-btn', 'click', Auth.login);
 
@@ -456,6 +487,7 @@ function setupAuthScreenListeners() {
 
   // Preparar datalists del registro aunque aún no esté visible
   wireAddressDatalists('reg-');
+  reorderAddressFields('reg-');
 }
 
 function setupMainAppScreenListeners() {
@@ -463,7 +495,7 @@ function setupMainAppScreenListeners() {
   (window.__RAMPET__ ||= {}).mainListenersWired = true;
 
   // Perfil
-  on('edit-profile-btn', 'click', UI.openProfileModal);
+  on('edit-profile-btn', 'click', () => { reorderProfileCards(); UI.openProfileModal(); });
   on('prof-edit-address-btn', 'click', () => {
     UI.closeProfileModal();
     const card = document.getElementById('address-card');
@@ -571,7 +603,7 @@ function openInboxIfQuery() {
 }
 
 // ————————————————————————————————————————————————
-// Domicilio: catálogo + wiring BA/CABA inteligente (REG y DOM)
+// Domicilio: BA/CABA inteligente + placeholders “Partido/Barrio” y “Localidad/Barrio”
 // ————————————————————————————————————————————————
 const BA_LOCALIDADES_BY_PARTIDO = {
   "San Isidro": ["Béccar","Acassuso","Martínez","San Isidro","Villa Adelina","Boulogne Sur Mer","La Horqueta"],
@@ -631,7 +663,7 @@ const ZONAS_AR = {
     partidos: ['Capital','Tafí Viejo','Yerba Buena','Lules','Cruz Alta','Tafí del Valle','Monteros','Chicligasta'],
     localidades: ['San Miguel de Tucumán','Yerba Buena','Tafí Viejo','Banda del Río Salí','Lules','Monteros','Concepción','Tafí del Valle']
   },
-  // … resto de provincias como tenías
+  // … el resto como venías usando
 };
 
 function setOptionsList(el, values = []) {
@@ -639,16 +671,28 @@ function setOptionsList(el, values = []) {
   el.innerHTML = values.map(v => `<option value="${v}">`).join('');
 }
 
-/** Wiring dependiente por prefijo:
- * prefix: 'dom-' (perfil) | 'reg-' (registro)
- * IDs esperados:
- *   - ${prefix}provincia
- *   - ${prefix}partido
- *   - ${prefix}localidad  // en CABA se usa como “Barrio”
- * Datalists:
- *   - 'partido-list' | 'reg-partido-list'
- *   - 'localidad-list' | 'reg-localidad-list'
- */
+/** Reordenar campos para que PROVINCIA quede tras DEPTO (perfil/registro) */
+function reorderAddressFields(prefix = 'dom-'){
+  const grid = (prefix === 'dom-')
+    ? document.querySelector('#address-card .grid-2')
+    : document.querySelector('#register-form .grid-2') || document.querySelector('#register-screen .grid-2');
+
+  if (!grid) return;
+  const provincia = document.getElementById(`${prefix}provincia`);
+  const depto = document.getElementById(`${prefix}depto`);
+  const barrio = document.getElementById(`${prefix}barrio`);
+  const loc    = document.getElementById(`${prefix}localidad`);
+  const part   = document.getElementById(`${prefix}partido`);
+  if (!provincia || !depto) return;
+
+  // Insertar provincia inmediatamente después de depto
+  const nextRef = barrio || loc || part || depto.nextSibling;
+  if (nextRef && provincia !== nextRef.previousSibling) {
+    try { grid.insertBefore(provincia, nextRef); } catch {}
+  }
+}
+
+/** Wiring dependiente por prefijo con placeholders “Partido/Barrio” y “Localidad/Barrio” */
 function wireAddressDatalists(prefix = 'dom-') {
   const provSel   = document.getElementById(`${prefix}provincia`);
   const locInput  = document.getElementById(`${prefix}localidad`);
@@ -662,13 +706,28 @@ function wireAddressDatalists(prefix = 'dom-') {
 
   if (!provSel) return;
 
+  const setPlaceholders = (prov) => {
+    if (/^CABA|Capital/i.test(prov)) {
+      if (locInput)  locInput.placeholder  = 'Barrio';
+      if (partInput) partInput.placeholder = '—';
+      return;
+    }
+    if (/^Buenos Aires$/i.test(prov)) {
+      if (partInput) partInput.placeholder = 'Partido';
+      if (locInput)  locInput.placeholder  = 'Localidad / Barrio';
+      return;
+    }
+    if (partInput) partInput.placeholder = 'Departamento / Partido (opcional)';
+    if (locInput)  locInput.placeholder  = 'Localidad / Barrio';
+  };
+
   const refreshLocalidades = () => {
     const prov = (provSel.value || '').trim();
+    setPlaceholders(prov);
 
     if (/^CABA|Capital/i.test(prov)) {
       setOptionsList(locList, CABA_BARRIOS);
-      if (partInput) partInput.value = ''; // no se usa partido en CABA
-      if (locInput)  locInput.placeholder = 'Barrio';
+      if (partInput) partInput.value = '';
       return;
     }
 
@@ -676,23 +735,22 @@ function wireAddressDatalists(prefix = 'dom-') {
       const partido = (partInput.value || '').trim();
       const arr = BA_LOCALIDADES_BY_PARTIDO[partido] || [];
       setOptionsList(locList, arr);
-      if (locInput)  locInput.placeholder = 'Localidad';
       return;
     }
 
     const data = ZONAS_AR[prov] || { localidades: [] };
     setOptionsList(locList, data.localidades || []);
-    if (locInput) locInput.placeholder = 'Localidad';
   };
 
   const refreshPartidos = () => {
     const prov = (provSel.value || '').trim();
+    setPlaceholders(prov);
+
     if (/^Buenos Aires$/i.test(prov)) {
       setOptionsList(partList, Object.keys(BA_LOCALIDADES_BY_PARTIDO).sort());
-      partInput && (partInput.placeholder = 'Partido');
     } else {
       setOptionsList(partList, []);
-      if (partInput) { partInput.value = ''; partInput.placeholder = 'Partido'; }
+      if (partInput) partInput.value = '';
     }
     refreshLocalidades();
   };
@@ -702,18 +760,19 @@ function wireAddressDatalists(prefix = 'dom-') {
       refreshPartidos();
       refreshLocalidades();
     });
-    partInput?.addEventListener('input', () => {
-      refreshLocalidades();
-    });
+    partInput?.addEventListener('input', refreshLocalidades);
     provSel.dataset[`wired_${prefix}`] = '1';
   }
 
   // Primera carga
   refreshPartidos();
   refreshLocalidades();
+  // Asegurar orden visual pedido
+  reorderAddressFields(prefix);
 }
 
 // —— Address/banner wiring (usa prefijo dom-) ——
+// (también llama a wireAddressDatalists y reordena campos)
 async function setupAddressSection() {
   const banner = document.getElementById('address-banner');
   const card   = document.getElementById('address-card');
@@ -743,7 +802,7 @@ async function setupAddressSection() {
     }, 600);
   });
 
-  // Datalists dependientes (form dentro de la app)
+  // Datalists + placeholders dependientes (form dentro de la app)
   wireAddressDatalists('dom-');
 
   // Precarga/guardado real (módulo notifications)
@@ -847,6 +906,7 @@ async function main() {
 
       // Prepara datalist del registro por si navegan allí
       wireAddressDatalists('reg-');
+      reorderAddressFields('reg-');
     }
   });
 }
@@ -927,4 +987,11 @@ document.addEventListener('click', (e) => {
 }, true);
 
 // arranque de la app
-document.addEventListener('DOMContentLoaded', main);
+document.addEventListener('DOMContentLoaded', () => {
+  // asegurar reorden del perfil por si abren muy rápido
+  try { reorderProfileCards(); } catch {}
+  // asegurar orden de campos en ambas vistas
+  try { reorderAddressFields('dom-'); } catch {}
+  try { reorderAddressFields('reg-'); } catch {}
+  main();
+});
