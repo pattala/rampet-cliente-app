@@ -1,4 +1,4 @@
-// /modules/notifications.js — FCM + VAPID + Opt-In (card → switch) + Geo banner + domicilio
+// /modules/notifications.js — FCM + VAPID + Opt-In (card → switch) + Geo + Domicilio
 'use strict';
 
 // ─────────────────────────────────────────────────────────────
@@ -112,7 +112,7 @@ async function borrarTokenYOptOut() {
   try {
     await ensureMessagingCompatLoaded();
     try { await firebase.messaging().deleteToken(); } catch {}
-    await clearFcmTokensOnCliente();                      // ← usar este
+    await clearFcmTokensOnCliente();                      // ← borra en Firestore
     try { localStorage.removeItem('fcmToken'); } catch {}
     try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
     emit('rampet:consent:notif-opt-out', { source: 'ui' });
@@ -280,7 +280,6 @@ function geoEls(){
   };
 }
 
-/** Card marketing (primera vez o cuando no está activo) */
 function setGeoMarketingUI(on) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
@@ -305,7 +304,6 @@ function setGeoMarketingUI(on) {
   };
 }
 
-/** Banner/estado regular */
 function setGeoRegularUI(state) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
@@ -318,7 +316,7 @@ function setGeoRegularUI(state) {
     try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
     if (txt) txt.textContent = 'Listo: ya podés recibir ofertas y beneficios cerca tuyo.';
     showInline(btnOn,false);
-    showInline(btnOff,false); // ocultamos “desactivar” cuando está activo
+    showInline(btnOff,false);
     showInline(btnHelp,false);
     return;
   }
@@ -344,11 +342,6 @@ async function detectGeoPermission() {
   return 'unknown';
 }
 
-/** Política:
- * - Si NO está activo al iniciar (prompt/unknown) → mostrar CARD marketing.
- * - Si está BLOQUEADO → mostrar banner de ayuda.
- * - Si está ACTIVO → mostrar texto “Listo…” y sin botón desactivar.
- */
 async function updateGeoUI() {
   const state = await detectGeoPermission();
 
@@ -356,33 +349,28 @@ async function updateGeoUI() {
     setGeoMarketingUI(false);
     setGeoRegularUI('granted');
     startGeoWatch();
-   
     return;
   }
   stopGeoWatch();
 
   if (state === 'denied') {
     setGeoMarketingUI(false);
-    setGeoRegularUI('denied'); // ayuda
-   
+    setGeoRegularUI('denied');
     return;
   }
 
-  // prompt/unknown → card marketing
   setGeoMarketingUI(true);
 }
 
-// Reemplazá por esta versión
+// Activar: optimista y verificación liviana
 async function handleGeoEnable() {
   const { banner } = geoEls();
 
-  // 1) Optimista: activamos ya y ocultamos el banner
   try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
   emit('rampet:geo:enabled', { method: 'ui' });
   show(banner, false);
   startGeoWatch();
 
-  // 2) Verificación en background (NO bloquea la UI)
   try {
     await new Promise((resolve) => {
       if (!navigator.geolocation?.getCurrentPosition) return resolve();
@@ -391,37 +379,17 @@ async function handleGeoEnable() {
       const done = () => { if (settled) return; settled = true; resolve(); };
 
       navigator.geolocation.getCurrentPosition(
-        // onSuccess
-        () => {
-          // todo ok → no tocamos nada
-          done();
-        },
-        // onError  ⬅️  ACÁ va el onError
-        (err) => {
-          // ✔️ Opción A (recomendada): no revertir, solo seguir.
-          //    Si querés avisar:
-          // toast('No pudimos leer tu ubicación ahora. Podés volver a intentar más tarde.', 'info');
-
-          // ❗ Opción B (si preferís revertir cuando falla):
-          // try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
-          // emit('rampet:geo:disabled', { method: 'ui' });
-          // toast('No pudimos activar la ubicación. Revisá los permisos del navegador.', 'warning');
-
-          done();
-        },
+        () => { done(); },
+        () => { done(); },
         { timeout: 3000, maximumAge: 120000, enableHighAccuracy: false }
       );
 
-      // Salvaguarda por si el browser no responde
       setTimeout(done, 3500);
     });
   } catch {}
 
-  // 3) Dejar consistente si luego reabren la vista
   setTimeout(() => { updateGeoUI(); }, 0);
 }
-
-
 
 function handleGeoDisable() {
   try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
@@ -437,20 +405,19 @@ function wireGeoButtonsOnce() {
   btnHelp?.addEventListener('click', handleGeoHelp);
 }
 
-// Export UI geo
 export async function ensureGeoOnStartup(){ wireGeoButtonsOnce(); await updateGeoUI(); }
 export async function maybeRefreshIfStale(){ await updateGeoUI(); }
 try { window.ensureGeoOnStartup = ensureGeoOnStartup; window.maybeRefreshIfStale = maybeRefreshIfStale; } catch {}
 
 // ─────────────────────────────────────────────────────────────
-// GEO TRACKING “MIENTRAS ESTÉ ABIERTA” (historial con hora)
+// GEO TRACKING “MIENTRAS ESTÉ ABIERTA”
 // ─────────────────────────────────────────────────────────────
 const GEO_CONF = { THROTTLE_S: 180, DIST_M: 250, DAILY_CAP: 30 };
 const LS_GEO_DAY = 'geoDay';
 const LS_GEO_COUNT = 'geoCount';
 
 let geoWatchId = null;
-let lastSample = { t: 0, lat: null, lng: null }; // última muestra válida
+let lastSample = { t: 0, lat: null, lng: null };
 
 function round3(n){ return Math.round((+n) * 1e3) / 1e3; }
 function haversineMeters(a, b) {
@@ -496,13 +463,11 @@ async function writeGeoSamples(lat, lng) {
     const db = firebase.firestore();
     const now = firebase.firestore.FieldValue.serverTimestamp();
 
-    // Privado exacto (solo dueñ@/admin)
     await db.collection('clientes').doc(clienteId)
       .collection('geo_raw').doc().set({
         lat, lng, capturedAt: now, source: 'pwa'
       }, { merge: false });
 
-    // Público agregado (redondeado ~100m)
     await db.collection('public_geo').doc(uid)
       .collection('samples').doc().set({
         lat3: round3(lat), lng3: round3(lng),
@@ -538,9 +503,7 @@ function onGeoPosSuccess(pos) {
     console.warn('[geo] onGeoPosSuccess error', e?.message || e);
   }
 }
-function onGeoPosError(_) {
-  // silencioso
-}
+function onGeoPosError(_) {}
 
 function startGeoWatch() {
   if (!navigator.geolocation || geoWatchId != null) return;
@@ -553,13 +516,10 @@ function startGeoWatch() {
   } catch (e) { console.warn('[geo] start watch error', e?.message || e); }
 }
 function stopGeoWatch() {
-  try {
-    if (geoWatchId != null) { navigator.geolocation.clearWatch(geoWatchId); }
-  } catch {}
+  try { if (geoWatchId != null) { navigator.geolocation.clearWatch(geoWatchId); } } catch {}
   geoWatchId = null;
 }
 
-// Reaccionar a foco/segundo plano
 try {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') startGeoWatch();
@@ -568,21 +528,32 @@ try {
 } catch {}
 
 // ─────────────────────────────────────────────────────────────
-// FORMULARIO DOMICILIO (guardar bajo clientes/{id}.domicilio)
+// FORMULARIO DOMICILIO (clientes/{id}.domicilio)
 // ─────────────────────────────────────────────────────────────
 function buildAddressLine(c) {
-  const parts = [];
-  if (c.calle) parts.push(c.calle + (c.numero ? ' ' + c.numero : ''));
-  const pisoDto = [c.piso, c.depto].filter(Boolean).join(' ');
-  if (pisoDto) parts.push(pisoDto);
-  const barrio = c.barrio ? `Barrio ${c.barrio}` : '';
-  if (barrio) parts.push(barrio);
-  if (c.localidad) parts.push(c.localidad);
-  if (c.partido) parts.push(c.partido);
-  if (c.provincia) parts.push(c.provincia);
-  if (c.codigoPostal) parts.push(c.codigoPostal);
-  if (c.pais) parts.push(c.pais);
-  return parts.filter(Boolean).join(', ');
+  const calleNum = [c.calle, c.numero].filter(Boolean).join(' ').trim();
+  const prov = (c.provincia || '').trim();
+  const cp   = (c.codigoPostal || '').trim();
+  const loc  = (c.localidad || '').trim();
+  const barrio = (c.barrio || '').trim();
+
+  // CABA
+  if (/^CABA|Capital/i.test(prov)) {
+    const rhs = [ [cp, (loc || barrio)].filter(Boolean).join(' ').trim(), 'CABA' ]
+      .filter(Boolean).join(', ');
+    return [calleNum, rhs].filter(Boolean).join(', ');
+  }
+
+  // Buenos Aires
+  if (/^Buenos Aires$/i.test(prov)) {
+    const rhs = [ [cp, loc].filter(Boolean).join(' ').trim(), 'Provincia de Buenos Aires' ]
+      .filter(Boolean).join(', ');
+    return [calleNum, rhs].filter(Boolean).join(', ');
+  }
+
+  // Otras provincias
+  const rhs = [ [cp, loc].filter(Boolean).join(' ').trim(), prov ].filter(Boolean).join(', ');
+  return [calleNum, rhs].filter(Boolean).join(', ');
 }
 
 export async function initDomicilioForm() {
@@ -590,7 +561,6 @@ export async function initDomicilioForm() {
   if (!card || card._wired) return; card._wired = true;
 
   const g = id => document.getElementById(id);
-  const ids = ['dom-calle','dom-numero','dom-piso','dom-depto','dom-barrio','dom-localidad','dom-partido','dom-provincia','dom-cp','dom-pais','dom-referencia'];
   const getValues = () => ({
     calle: g('dom-calle')?.value?.trim() || '',
     numero: g('dom-numero')?.value?.trim() || '',
@@ -659,6 +629,3 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
-
-
-
