@@ -863,58 +863,27 @@ document.addEventListener('rampet:cliente-updated', (e) => {
     }
   });
 }
+// Catch-all para abrir el modal de T&C sin navegar
+document.addEventListener('click', (e) => {
+  const trigger = e.target.closest(
+    '[data-open-terms], a[href="#terminos"], a[href="#terms"], a[href="/terminos"], a[href*="terminos-y-condiciones"]'
+  );
+  if (!trigger) return;
+
+  // evitar navegación
+  e.preventDefault();
+  e.stopPropagation();
+
+  // abrir el modal (usa la versión local; si no, intenta la de UI)
+  try {
+    openTermsModal();              // tu función en app.js
+  } catch {
+    try { UI.openTermsModal(true); } catch {}
+  }
+});
 
 document.addEventListener('DOMContentLoaded', main);
 
-// ——— Debug: lectura/escritura del doc de cliente ———
-window.__probeFirestore = async () => {
-  try {
-    const u = firebase?.auth?.()?.currentUser;
-    if (!u) { console.warn('No hay sesión'); return; }
-
-    // localizar mi doc clientes/{id} por authUID
-    const qs = await firebase.firestore()
-      .collection('clientes')
-      .where('authUID', '==', u.uid)
-      .limit(1)
-      .get({ source: 'server' }); // <-- FUERZA SERVIDOR
-
-    if (qs.empty) { console.warn('No existe clientes{authUID==uid}'); return; }
-    const ref = qs.docs[0].ref;
-    console.log('[PROBE] Doc path:', ref.path);
-
-    // READ #1
-    try {
-      const snap = await ref.get({ source: 'server' });
-      console.log('[PROBE] READ OK (config):', snap.data()?.config, 'meta:', snap.metadata);
-    } catch (e) {
-      console.error('[PROBE] READ FAIL:', e.code, e.message);
-    }
-
-    // WRITE: ping de debug
-    try {
-      await ref.set({ _debugPing: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
-      console.log('[PROBE] WRITE OK (_debugPing)');
-    } catch (e) {
-      console.error('[PROBE] WRITE FAIL:', e.code, e.message);
-    }
-
-    // READ #2
-    try {
-      const snap2 = await ref.get({ source: 'server' });
-      console.log('[PROBE] AFTER WRITE:', {
-        _debugPing: snap2.data()?._debugPing,
-        config: snap2.data()?.config,
-        meta: snap2.metadata
-      });
-    } catch (e) {
-      console.error('[PROBE] READ2 FAIL:', e.code, e.message);
-    }
-
-  } catch (e) {
-    console.error('[PROBE] Fatal:', e);
-  }
-};
 
 
 
