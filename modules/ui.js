@@ -379,9 +379,11 @@ async function syncProfileTogglesFromRuntime() {
   const notifEl = document.getElementById('prof-consent-notif');
   const geoEl   = document.getElementById('prof-consent-geo');
 
-  // Muestra SIEMPRE la preferencia guardada (config.*Enabled)
+  // Si Firestore YA tiene el flag, lo usamos; si no, no tocamos el checked.
   if (notifEl) {
-    notifEl.checked = !!cfg.notifEnabled;
+    if (typeof cfg.notifEnabled === 'boolean') {
+      notifEl.checked = !!cfg.notifEnabled;
+    }
     try {
       if (typeof Notification !== 'undefined') {
         const perm = Notification.permission; // granted | default | denied
@@ -393,7 +395,9 @@ async function syncProfileTogglesFromRuntime() {
   }
 
   if (geoEl) {
-    geoEl.checked = !!cfg.geoEnabled;
+    if (typeof cfg.geoEnabled === 'boolean') {
+      geoEl.checked = !!cfg.geoEnabled;
+    }
     try {
       if (navigator.permissions?.query) {
         const st = await navigator.permissions.query({ name: 'geolocation' });
@@ -515,23 +519,13 @@ const geoEl   = m?.querySelector('#prof-consent-geo');
 
 
 // (3) Refresco OPTIMISTA inmediato (sin esperar Firestore)
+// (3) Refresco OPTIMISTA inmediato (sin esperar Firestore)
 try {
   const notifChecked = !!document.getElementById('prof-consent-notif')?.checked;
   const geoChecked   = !!document.getElementById('prof-consent-geo')?.checked;
-
-  // Actualizamos el runtime global que usa el resto de la app
-  window.clienteData = window.clienteData || {};
-  window.clienteData.config = {
-    ...(window.clienteData.config || {}),
-    notifEnabled: notifChecked,
-    geoEnabled:   geoChecked
-  };
-
-  // Notificamos al resto de la UI
-  document.dispatchEvent(new CustomEvent('rampet:config-updated', {
-    detail: { cliente: window.clienteData, config: window.clienteData.config }
-  }));
+  await Data.patchLocalConfig({ notifEnabled: notifChecked, geoEnabled: geoChecked });
 } catch {}
+
 
 
 
@@ -565,6 +559,7 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
+
 
 
 
