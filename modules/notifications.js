@@ -566,7 +566,6 @@ export async function initDomicilioForm() {
     numero: g('dom-numero')?.value?.trim() || '',
     piso: g('dom-piso')?.value?.trim() || '',
     depto: g('dom-depto')?.value?.trim() || '',
-    barrio: g('dom-barrio')?.value?.trim() || '',
     localidad: g('dom-localidad')?.value?.trim() || '',
     partido: g('dom-partido')?.value?.trim() || '',
     provincia: g('dom-provincia')?.value?.trim() || '',
@@ -588,7 +587,7 @@ export async function initDomicilioForm() {
           g('dom-numero').value = dom.numero || '';
           g('dom-piso').value = dom.piso || '';
           g('dom-depto').value = dom.depto || '';
-          g('dom-barrio').value = dom.barrio || '';
+          // g('dom-barrio').value = dom.barrio || '';
           g('dom-localidad').value = dom.localidad || '';
           g('dom-partido').value = dom.partido || '';
           g('dom-provincia').value = dom.provincia || '';
@@ -629,3 +628,4 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
+
