@@ -347,7 +347,11 @@ export async function saveGeoConsent(allowed, extra = {}) {
 }
 
 // Escucha eventos globales (emitidos por notifications.js)
+let __bridgesWired = false;
 function wireConsentEventBridges() {
+  if (__bridgesWired) return;
+  __bridgesWired = true;
+
   document.addEventListener('rampet:consent:notif-opt-in', async (e) => {
     await saveNotifConsent(true, { notifOptInSource: e?.detail?.source || 'prompt' });
   });
@@ -399,32 +403,41 @@ export async function listenToClientData(user) {
   }
 
   // Cliente en tiempo real
-  try {
-    const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
-    unsubscribeCliente = clienteQuery.onSnapshot(snapshot => {
-      if (snapshot.empty) {
-        UI.showToast("Error: Tu cuenta no está vinculada a ninguna ficha de cliente.", "error");
-        Auth.logout();
-        return;
-      }
+try {
+  const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
 
-      clienteData = snapshot.docs[0].data();
-      clienteRef = snapshot.docs[0].ref;
-
-      try {
-        document.dispatchEvent(new CustomEvent('rampet:cliente-updated', { detail: { cliente: clienteData } }));
-      } catch {}
-
-      renderizarPantallaPrincipal();
-    }, (error) => {
-      console.error("[PWA] Error en listener de cliente:", error);
+  unsubscribeCliente = clienteQuery.onSnapshot(snapshot => {
+    if (snapshot.empty) {
+      UI.showToast("Error: Tu cuenta no está vinculada a ninguna ficha de cliente.", "error");
       Auth.logout();
-    });
-  } catch (e) {
-    console.error("[PWA] Error seteando listener de cliente:", e);
+      return;
+    }
+
+    // ⬇️ Normalización de config (clave del fix)
+    const doc = snapshot.docs[0];
+    clienteRef = doc.ref;
+
+    const raw = doc.data() || {};
+    const safeConfig = (raw.config && typeof raw.config === 'object') ? { ...raw.config } : {};
+    clienteData = { ...raw, config: safeConfig }; // <- ¡config nunca es undefined!
+
+    // (opcional) debug
+    // console.log('[DBG] cliente.config =', clienteData.config);
+
+    try {
+      document.dispatchEvent(new CustomEvent('rampet:cliente-updated', { detail: { cliente: clienteData } }));
+    } catch {}
+
+    renderizarPantallaPrincipal();
+  }, (error) => {
+    console.error("[PWA] Error en listener de cliente:", error);
     Auth.logout();
-  }
+  });
+} catch (e) {
+  console.error("[PWA] Error seteando listener de cliente:", e);
+  Auth.logout();
 }
+
 
 // ───────── DEBUG CONSOLE HELPERS (opcional QA) ─────────
 if (typeof window !== 'undefined') {
@@ -436,5 +449,6 @@ if (typeof window !== 'undefined') {
 
 // Stubs
 export async function acceptTerms() { /* futuro: guardar aceptación */ }
+
 
 
