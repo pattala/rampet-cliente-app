@@ -43,6 +43,14 @@ function formatearFecha(iso) {
   const yy = d.getUTCFullYear();
   return `${dd}/${mm}/${yy}`;
 }
+// Fallback: si aún no llegó clienteData.config desde Firestore,
+// usamos lo último que recuerda el navegador.
+function readConsentFallback() {
+  let notif = false, geo = false;
+  try { notif = localStorage.getItem('notifState') === 'accepted'; } catch {}
+  try { geo   = localStorage.getItem('geoState')   === 'accepted'; } catch {}
+  return { notif, geo };
+}
 
 // ─────────────────────────────────────────────────────────────
 // Pantalla principal
@@ -412,8 +420,9 @@ export async function openProfileModal(){
   setVal('prof-fecha',    c.fechaNacimiento || '');
   setVal('prof-dni',      c.dni || '');
   setVal('prof-email',    c.email || '');
-  setChecked('prof-consent-notif', !!(c.config && c.config.notifEnabled));
-  setChecked('prof-consent-geo',   !!(c.config && c.config.geoEnabled));
+  const fb = readConsentFallback();
+ setChecked('prof-consent-notif', c?.config?.notifEnabled ?? fb.notif);
+ setChecked('prof-consent-geo',   c?.config?.geoEnabled   ?? fb.geo);
   const addr = c?.domicilio?.addressLine || '—';
   setText('prof-address-summary', addr);
 
@@ -504,13 +513,26 @@ const geoEl   = m?.querySelector('#prof-consent-geo');
       }
     }
 
-   // (3) Refresco OPTIMISTA inmediato (sin esperar Firestore)
+
 // (3) Refresco OPTIMISTA inmediato (sin esperar Firestore)
 try {
   const notifChecked = !!document.getElementById('prof-consent-notif')?.checked;
   const geoChecked   = !!document.getElementById('prof-consent-geo')?.checked;
-  await Data.patchLocalConfig({ notifEnabled: notifChecked, geoEnabled: geoChecked });
+
+  // Actualizamos el runtime global que usa el resto de la app
+  window.clienteData = window.clienteData || {};
+  window.clienteData.config = {
+    ...(window.clienteData.config || {}),
+    notifEnabled: notifChecked,
+    geoEnabled:   geoChecked
+  };
+
+  // Notificamos al resto de la UI
+  document.dispatchEvent(new CustomEvent('rampet:config-updated', {
+    detail: { cliente: window.clienteData, config: window.clienteData.config }
+  }));
 } catch {}
+
 
 
     // (4) Refresco REAL cuando el navegador esté libre
@@ -543,6 +565,7 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
+
 
 
 
