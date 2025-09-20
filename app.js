@@ -864,30 +864,97 @@ document.addEventListener('rampet:cliente-updated', (e) => {
   });
 }
 
-// Catch-all para abrir el modal de T&C sin navegar (top-level)
+// ──────────────────────────────────────────────────────────────
+// T&C: interceptar clicks en cualquier link y abrir el modal
+// ──────────────────────────────────────────────────────────────
+function ensureTermsModalPresent() {
+  let modal = document.getElementById('terms-modal');
+  if (modal) return modal;
+
+  // Si no existe, creamos un modal mínimo para no fallar silenciosamente
+  console.warn('[T&C] #terms-modal no encontrado. Creando modal básico on-the-fly.');
+  modal = document.createElement('div');
+  modal.id = 'terms-modal';
+  modal.style.cssText = `
+    position:fixed; inset:0; display:none; align-items:center; justify-content:center;
+    background:rgba(0,0,0,.5); z-index:10000; padding:16px;
+  `;
+  modal.innerHTML = `
+    <div style="max-width:720px; width:100%; background:#fff; border-radius:12px; padding:16px; max-height:80vh; overflow:auto;">
+      <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
+        <h3 style="margin:0;">Términos y Condiciones</h3>
+        <button id="close-terms-modal" class="secondary-btn" aria-label="Cerrar">✕</button>
+      </div>
+      <div id="terms-text" style="margin-top:12px;">
+        <p>Cargando…</p>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(modal);
+
+  // Cablear cierre básico
+  modal.addEventListener('click', (ev) => {
+    if (ev.target === modal) modal.style.display = 'none';
+  });
+  document.getElementById('close-terms-modal')?.addEventListener('click', () => {
+    modal.style.display = 'none';
+  });
+
+  // Si tenés una función que inyecta el contenido, llamala
+  try { loadTermsContent?.(); } catch {}
+  try { wireTermsModalBehavior?.(); } catch {}
+
+  return modal;
+}
+
+function openTermsModalCatchAll() {
+  // 1) Garantizar que exista el modal
+  const modal = ensureTermsModalPresent();
+
+  // 2) Preferir tu función local si ya la tenés
+  try {
+    openTermsModal?.();             // tu openTermsModal de app.js
+  } catch {
+    try { UI.openTermsModal?.(true); } catch {
+      // fallback ultra-simple
+      modal.style.display = 'flex';
+    }
+  }
+
+  // 3) Asegurar wiring (por si cayó de una navegación previa)
+  try { wireTermsModalBehavior?.(); } catch {}
+}
+
 document.addEventListener('click', (e) => {
-  // no interceptar clicks modificados o botón del medio
+  // Fase de captura para ganarle a cualquier listener que navegue
+}, true);
+
+document.addEventListener('click', (e) => {
+  // no interceptar clicks modificados / botón medio
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
 
+  // LINKS/elementos que deberían abrir el modal
   const trigger = e.target.closest(
+    // ID/clases específicos que ya tenés:
+    '#show-terms-link, #show-terms-link-banner, #footer-terms-link,' +
+    // y opciones genéricas:
     '[data-open-terms], a[href="#terminos"], a[href="#terms"], a[href="/terminos"], a[href*="terminos-y-condiciones"]'
   );
   if (!trigger) return;
-  if (trigger.hasAttribute('data-no-modal')) return; // escape opcional
 
+  // Log de depuración
+  console.debug('[T&C] click interceptado en:', trigger);
+
+  // Evitar la navegación
   e.preventDefault();
   e.stopPropagation();
 
-  if (window.__RAMPET_DEBUG) console.debug('[T&C] interceptado → abriendo modal', trigger);
+  // Abrir modal
+  openTermsModalCatchAll();
+}, true);
+// ──────────────────────────────────────────────────────────────
 
-  // Abrir el modal (usa la función local; si falla, intenta la de UI)
-  try {
-    openTermsModal();           // tu función en app.js
-    wireTermsModalBehavior?.(); // por si aún no se cableó
-  } catch {
-    try { UI.openTermsModal(true); } catch {}
-  }
-});
 
 // arranque de la app
 document.addEventListener('DOMContentLoaded', main);
+
