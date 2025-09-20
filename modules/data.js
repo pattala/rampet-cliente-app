@@ -371,6 +371,7 @@ function wireConsentEventBridges() {
 }
 
 // === Listeners / flujo principal ===
+// === Listeners / flujo principal ===
 export async function listenToClientData(user) {
   UI.showScreen('loading-screen');
 
@@ -389,7 +390,7 @@ export async function listenToClientData(user) {
     }
   }
 
-  // Campañas en tiempo real
+  // Campañas (tiempo real)
   try {
     const campanasQuery = db.collection('campanas').where('estaActiva', '==', true);
     unsubscribeCampanas = campanasQuery.onSnapshot(snapshot => {
@@ -402,41 +403,41 @@ export async function listenToClientData(user) {
     console.error("[PWA] Error seteando listener de campañas:", e);
   }
 
-  // Cliente en tiempo real
-try {
-  const clienteQuery = db.collection('clientes').where("authUID", "==", user.uid).limit(1);
+  // Cliente (tiempo real) — **normalizamos config** para que nunca sea undefined
+  try {
+    const clienteQuery = db.collection('clientes')
+      .where("authUID", "==", user.uid)
+      .limit(1);
 
-  unsubscribeCliente = clienteQuery.onSnapshot(snapshot => {
-    if (snapshot.empty) {
-      UI.showToast("Error: Tu cuenta no está vinculada a ninguna ficha de cliente.", "error");
+    unsubscribeCliente = clienteQuery.onSnapshot(snapshot => {
+      if (snapshot.empty) {
+        UI.showToast("Error: Tu cuenta no está vinculada a ninguna ficha de cliente.", "error");
+        Auth.logout();
+        return;
+      }
+
+      const doc = snapshot.docs[0];
+      clienteRef = doc.ref;
+
+      const raw = doc.data() || {};
+      const safeConfig = (raw.config && typeof raw.config === 'object') ? { ...raw.config } : {};
+      clienteData = { ...raw, config: safeConfig }; // <- config siempre es objeto
+
+      try {
+        document.dispatchEvent(new CustomEvent('rampet:cliente-updated', { detail: { cliente: clienteData } }));
+      } catch {}
+
+      renderizarPantallaPrincipal();
+    }, (error) => {
+      console.error("[PWA] Error en listener de cliente:", error);
       Auth.logout();
-      return;
-    }
-
-    // ⬇️ Normalización de config (clave del fix)
-    const doc = snapshot.docs[0];
-    clienteRef = doc.ref;
-
-    const raw = doc.data() || {};
-    const safeConfig = (raw.config && typeof raw.config === 'object') ? { ...raw.config } : {};
-    clienteData = { ...raw, config: safeConfig }; // <- ¡config nunca es undefined!
-
-    // (opcional) debug
-    // console.log('[DBG] cliente.config =', clienteData.config);
-
-    try {
-      document.dispatchEvent(new CustomEvent('rampet:cliente-updated', { detail: { cliente: clienteData } }));
-    } catch {}
-
-    renderizarPantallaPrincipal();
-  }, (error) => {
-    console.error("[PWA] Error en listener de cliente:", error);
+    });
+  } catch (e) {
+    console.error("[PWA] Error seteando listener de cliente:", e);
     Auth.logout();
-  });
-} catch (e) {
-  console.error("[PWA] Error seteando listener de cliente:", e);
-  Auth.logout();
+  }
 }
+
 
 
 // ───────── DEBUG CONSOLE HELPERS (opcional QA) ─────────
@@ -449,6 +450,7 @@ if (typeof window !== 'undefined') {
 
 // Stubs
 export async function acceptTerms() { /* futuro: guardar aceptación */ }
+
 
 
 
