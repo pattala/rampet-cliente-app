@@ -505,6 +505,22 @@ header h1 { margin: 0; line-height: 1.1; }
   border-radius: 12px;
 }
 
+/* Estilo específico para el link "Regístrate aquí" del login */
+#login-screen .toggle-link a#show-register-link {
+  color: #000 !important;          /* letra negra */
+  background: #dc26264d;           /* fondo solicitado */
+  padding: 4px 10px;               /* un poco de aire */
+  border-radius: 8px;              /* pastilla */
+  font-weight: 700;                /* más destacado */
+  text-decoration: none;           /* sin subrayado */
+}
+
+#login-screen .toggle-link a#show-register-link:hover,
+#login-screen .toggle-link a#show-register-link:focus {
+  background: #dc262680;           /* un poco más intenso al hover/focus */
+  outline: none;
+  text-decoration: underline;      /* feedback visual accesible */
+}
 
 
 
