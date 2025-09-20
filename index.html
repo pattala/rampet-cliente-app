@@ -67,8 +67,17 @@
       </div>
     </div>
 
-   <div class="card prefs-card" style="margin-top:8px;">
+    <!-- 🔼 Domicilio primero -->
+    <div class="card prefs-card" style="margin-top:8px;">
+      <h3 style="margin-top:0;">Domicilio</h3>
+      <div id="prof-address-summary" class="profile-address-summary">—</div>
+      <div style="display:flex;justify-content:flex-end;">
+        <button id="prof-edit-address-btn" class="secondary-btn" type="button">Editar domicilio</button>
+      </div>
+    </div>
 
+    <!-- 🔽 Preferencias último -->
+    <div class="card prefs-card" style="margin-top:8px;">
       <h3 style="margin-top:0;">Preferencias</h3>
       <label class="profile-consent">
         <input id="prof-consent-notif" type="checkbox">
@@ -81,22 +90,12 @@
       <p class="small-note">Podés cambiar estas opciones cuando quieras.</p>
     </div>
 
-    <div class="card prefs-card" style="margin-top:8px;">
-      <h3 style="margin-top:0;">Domicilio</h3>
-      <div id="prof-address-summary" class="profile-address-summary">—</div>
-      <div style="display:flex;justify-content:flex-end;">
-        <button id="prof-edit-address-btn" class="secondary-btn" type="button">Editar domicilio</button>
-      </div>
-    </div>
-
     <div class="modal-actions" style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px;">
       <button id="prof-cancel" class="secondary-btn" type="button">Cancelar</button>
       <button id="prof-save" class="primary-btn" type="button">Guardar cambios</button>
     </div>
   </div>
 </div>
-
-
 
 
 
@@ -486,6 +485,7 @@
   </script>
 </body>
 </html>
+
 
 
 
