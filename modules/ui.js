@@ -1,7 +1,8 @@
-// modules/ui.js (VERSIÓN OK - render principal, carrusel + historial reciente)
+// modules/ui.js (render principal, carrusel + historial + perfil)
 
 import * as Data from './data.js';
-import { handlePermissionRequest, handlePermissionSwitch } from './notifications.js'; // usa tu ruta real
+import { handlePermissionRequest, handlePermissionSwitch } from './notifications.js';
+
 // --- Estado del carrusel ---
 let carouselIntervalId = null;
 let isDragging = false, startX, startScrollLeft;
@@ -43,8 +44,8 @@ function formatearFecha(iso) {
   const yy = d.getUTCFullYear();
   return `${dd}/${mm}/${yy}`;
 }
-// Fallback: si aún no llegó clienteData.config desde Firestore,
-// usamos lo último que recuerda el navegador.
+
+// Fallback local para switches si aún no cargó Firestore
 function readConsentFallback() {
   let notif = false, geo = false;
   try { notif = localStorage.getItem('notifState') === 'accepted'; } catch {}
@@ -219,8 +220,8 @@ function renderCampanasCarousel(campanasData) {
       }
 
     } else {
-     item = document.createElement('div');
-     item.className = 'banner-item banner-item-texto';
+      item = document.createElement('div');
+      item.className = 'banner-item banner-item-texto';
 
       const title = document.createElement('h4');
       title.textContent = titleText || 'Promoción';
@@ -268,8 +269,8 @@ function renderCampanasCarousel(campanasData) {
       if (carrusel.scrollLeft >= end - 1) {
         carrusel.scrollTo({ left: 0, behavior: 'smooth' });
       } else {
-       const gap = parseFloat(getComputedStyle(carrusel).gap) || 0;
-const step = (carrusel.firstElementChild?.offsetWidth || 200) + gap;
+        const gap = parseFloat(getComputedStyle(carrusel).gap) || 0;
+        const step = (carrusel.firstElementChild?.offsetWidth || 200) + gap;
         carrusel.scrollBy({ left: step, behavior: 'smooth' });
       }
     }, 3000);
@@ -373,13 +374,41 @@ function setVal(id, v){ const el = document.getElementById(id); if (el) el.value
 function setChecked(id, v){ const el = document.getElementById(id); if (el) el.checked = !!v; }
 function setText(id, v){ const el = document.getElementById(id); if (el) el.textContent = v ?? '—'; }
 
+// NUEVO: Reordenar secciones (Domicilio arriba, Preferencias al final)
+function reorderProfileSections() {
+  const modal = document.getElementById('profile-modal');
+  if (!modal) return;
+
+  const prefsSection =
+    modal.querySelector('#profile-prefs-section, .profile-prefs, [data-section="prefs"], #profile-preferences, #prefs-section');
+
+  let addressSection =
+    modal.querySelector('#profile-address-section, .profile-address, [data-section="address"], #address-section');
+
+  if (!addressSection) {
+    const addrSummary = modal.querySelector('#prof-address-summary');
+    if (addrSummary) {
+      addressSection = addrSummary.closest('section, .profile-section, .card, .row, div');
+    }
+  }
+
+  if (!prefsSection || !addressSection) return;
+
+  const container =
+    modal.querySelector('.modal-body, .content, .profile-body') || prefsSection.parentElement || modal;
+
+  // Preferencias al final
+  container.appendChild(prefsSection);
+  // Domicilio inmediatamente antes de Preferencias
+  container.insertBefore(addressSection, prefsSection);
+}
+
 async function syncProfileTogglesFromRuntime() {
   const c   = (window.clienteData) || {};
   const cfg = c.config || {};
   const notifEl = document.getElementById('prof-consent-notif');
   const geoEl   = document.getElementById('prof-consent-geo');
 
-  // Si Firestore YA tiene el flag, lo usamos; si no, no tocamos el checked.
   if (notifEl) {
     if (typeof cfg.notifEnabled === 'boolean') {
       notifEl.checked = !!cfg.notifEnabled;
@@ -409,13 +438,12 @@ async function syncProfileTogglesFromRuntime() {
   }
 }
 
-
-
-
-
 export async function openProfileModal(){
   const m = document.getElementById('profile-modal');
   if (!m) return;
+
+  // Reordenar secciones
+  try { reorderProfileSections(); } catch {}
 
   // 1) Pintamos con lo que viene de Firestore
   const c = (window.clienteData) || {};
@@ -425,8 +453,8 @@ export async function openProfileModal(){
   setVal('prof-dni',      c.dni || '');
   setVal('prof-email',    c.email || '');
   const fb = readConsentFallback();
- setChecked('prof-consent-notif', c?.config?.notifEnabled ?? fb.notif);
- setChecked('prof-consent-geo',   c?.config?.geoEnabled   ?? fb.geo);
+  setChecked('prof-consent-notif', c?.config?.notifEnabled ?? fb.notif);
+  setChecked('prof-consent-geo',   c?.config?.geoEnabled   ?? fb.geo);
   const addr = c?.domicilio?.addressLine || '—';
   setText('prof-address-summary', addr);
 
@@ -436,13 +464,12 @@ export async function openProfileModal(){
   // 3) …y reconciliamos con el estado REAL del navegador (permiso actual)
   await syncProfileTogglesFromRuntime();
 }
+
 // === Guardar perfil y preferencias ===
 document.getElementById('prof-save')?.addEventListener('click', onSaveProfilePrefs);
 document.getElementById('prof-cancel')?.addEventListener('click', () => {
   closeProfileModal();
 });
-
-// (opcional) asegurar los cierres del modal
 document.getElementById('profile-close')?.addEventListener('click', closeProfileModal);
 
 async function onSaveProfilePrefs(){
@@ -459,8 +486,12 @@ async function onSaveProfilePrefs(){
 
     // 2) Preferencias
     const m = document.getElementById('profile-modal');
-const notifEl = m?.querySelector('#prof-consent-notif');
-const geoEl   = m?.querySelector('#prof-consent-geo');
+    const notifEl = m?.querySelector('#prof-consent-notif');
+    const geoEl   = m?.querySelector('#prof-consent-geo');
+
+    // Debug inicial
+    console.debug('[PROFILE/SAVE] wantNotif=', !!notifEl?.checked, ' wantGeo=', !!geoEl?.checked, ' perm=', window.Notification?.permission);
+
     // --- NOTIFICACIONES ---
     if (notifEl) {
       const wantNotif = !!notifEl.checked;
@@ -517,17 +548,13 @@ const geoEl   = m?.querySelector('#prof-consent-geo');
       }
     }
 
-
-// (3) Refresco OPTIMISTA inmediato (sin esperar Firestore)
-// (3) Refresco OPTIMISTA inmediato (sin esperar Firestore)
-try {
-  const notifChecked = !!document.getElementById('prof-consent-notif')?.checked;
-  const geoChecked   = !!document.getElementById('prof-consent-geo')?.checked;
-  await Data.patchLocalConfig({ notifEnabled: notifChecked, geoEnabled: geoChecked });
-} catch {}
-
-
-
+    // (3) Refresco OPTIMISTA + evento
+    try {
+      const notifChecked = !!document.getElementById('prof-consent-notif')?.checked;
+      const geoChecked   = !!document.getElementById('prof-consent-geo')?.checked;
+      console.debug('[PROFILE/SAVE] patchLocalConfig →', { notifEnabled: notifChecked, geoEnabled: geoChecked });
+      await Data.patchLocalConfig({ notifEnabled: notifChecked, geoEnabled: geoChecked });
+    } catch {}
 
     // (4) Refresco REAL cuando el navegador esté libre
     await (window.requestIdleCallback
@@ -536,9 +563,8 @@ try {
           resolve(); 
         }))
       : syncProfileTogglesFromRuntime());
-closeProfileModal();
 
-
+    closeProfileModal();
     showToast('Cambios guardados', 'success');
   } catch (err) {
     console.error(err);
@@ -547,7 +573,6 @@ closeProfileModal();
     if (btn) btn.disabled = false;
   }
 }
-
 
 export function closeProfileModal(){
   const m = document.getElementById('profile-modal');
@@ -559,17 +584,3 @@ document.addEventListener('rampet:config-updated', () => {
   const m = document.getElementById('profile-modal');
   if (m && m.style.display === 'flex') { syncProfileTogglesFromRuntime(); }
 });
-
-
-
-
-
-
-
-
-
-
-
-
-
-
