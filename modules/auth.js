@@ -195,7 +195,7 @@ export async function registerNewAccount() {
     }).catch(err => console.error("Fallo al avisar a la API para asignar N° Socio:", err));
 
     UI.showToast("¡Registro exitoso! Bienvenido/a al Club.", "success");
-  } catch (error) {
+  catch (error) {
     if (error?.code === 'auth/email-already-in-use') {
       UI.showToast("Este email ya ha sido registrado.", "error");
     } else {
@@ -256,5 +256,6 @@ export async function logout() {
     UI.showToast("Error al cerrar sesión.", "error");
   }
 }
+
 
 
