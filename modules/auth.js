@@ -91,15 +91,15 @@ function collectSignupAddress() {
  * - Opcional: consentimientos en registro (#register-optin-notifs, #register-optin-geo)
  */
 export async function registerNewAccount() {
-  const nombre           = gv('register-nombre');
-  const dni              = gv('register-dni');
-  const email            = (gv('register-email') || '').toLowerCase();
-  const telefono         = gv('register-telefono');
-  const fechaNacimiento  = gv('register-fecha-nacimiento');
-  const password         = gv('register-password');
-  const termsAccepted    = gc('register-terms');
+  const nombre          = gv('register-nombre');
+  const dni             = gv('register-dni');
+  const email           = (gv('register-email') || '').toLowerCase();
+  const telefono        = gv('register-telefono');
+  const fechaNacimiento = gv('register-fecha-nacimiento');
+  const password        = gv('register-password');
+  const termsAccepted   = gc('register-terms');
 
-  // Validaciones primero
+  // Validaciones
   if (!nombre || !dni || !email || !password || !fechaNacimiento) {
     return UI.showToast("Completa todos los campos obligatorios.", "error");
   }
@@ -120,28 +120,28 @@ export async function registerNewAccount() {
     return UI.showToast("Debes aceptar los Términos y Condiciones.", "error");
   }
 
-  // Domicilio opcional del formulario de registro
-  const dom    = collectSignupAddress();
-  const hasAny = Object.values(dom.components).some(v => v && String(v).trim() !== '');
+  // Domicilio del registro
+  const dom = collectSignupAddress();
+  const hasAny = Object.values(dom.components).some(v => v && String(v).trim() !== "");
 
-  // (Opcional) consentimientos si algún día agregás checkboxes en el registro
-  const regOptinNotifs = !!gc('register-optin-notifs'); // puede no existir
-  const regOptinGeo    = !!gc('register-optin-geo');    // puede no existir
+  // (Opcional) consentimientos si existen
+  const regOptinNotifs = !!gc('register-optin-notifs');
+  const regOptinGeo    = !!gc('register-optin-geo');
 
   const btn = g('register-btn');
   btn.disabled = true; btn.textContent = 'Creando...';
 
   try {
-    // 1) Crear usuario
+    // 1) crear usuario
     const cred = await auth.createUserWithEmailAndPassword(email, password);
     const uid  = cred.user.uid;
 
-    // 2) Armar documento base
+    // 2) documento base
     const baseDoc = {
       authUID: uid,
       numeroSocio: null,
       nombre, dni, email, telefono, fechaNacimiento,
-      fechaInscripcion: new Date().toISOString(), // ISO completo
+      fechaInscripcion: new Date().toISOString(),
       puntos: 0, saldoAcumulado: 0, totalGastado: 0,
       historialPuntos: [], historialCanjes: [],
       fcmTokens: [],
@@ -156,17 +156,17 @@ export async function registerNewAccount() {
       ...(hasAny ? { domicilio: dom } : {})
     };
 
-    // 3) Guardar con ID = uid (no .add)
+    // 3) guardar en clientes/{uid}
     await db.collection('clientes').doc(uid).set(baseDoc, { merge: true });
 
-    // 4) (Opcional) pedir # de socio al backend
+    // 4) pedir N° de socio (no bloqueante)
     fetch('https://rampet-notification-server-three.vercel.app/api/assign-socio-number', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ docId: uid })
-    }).catch(err => console.error("assign-socio-number fallo:", err));
+    }).catch(() => {});
 
-    // 5) UX flags locales
+    // 5) flags UX
     try { localStorage.setItem('justSignedUp', '1'); } catch {}
     try { localStorage.setItem('addressProvidedAtSignup', hasAny ? '1' : '0'); } catch {}
 
@@ -182,6 +182,7 @@ export async function registerNewAccount() {
     btn.disabled = false; btn.textContent = 'Crear Cuenta';
   }
 }
+
 
 
     const clienteDocRef = await db.collection('clientes').add(baseDoc);
@@ -255,4 +256,5 @@ export async function logout() {
     UI.showToast("Error al cerrar sesión.", "error");
   }
 }
+
 
