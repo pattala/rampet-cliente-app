@@ -9,6 +9,9 @@ function g(id){ return document.getElementById(id); }
 function gv(id){ return g(id)?.value?.trim() || ''; }
 function gc(id){ return !!g(id)?.checked; }
 
+// ──────────────────────────────────────────────────────────────
+// LOGIN
+// ──────────────────────────────────────────────────────────────
 export async function login() {
   const email = gv('login-email').toLowerCase();
   const password = gv('login-password');
@@ -30,6 +33,9 @@ export async function login() {
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// RESET PASSWORD (desde login)
+// ──────────────────────────────────────────────────────────────
 export async function sendPasswordResetFromLogin() {
   const email = prompt("Por favor, ingresa tu dirección de email para enviarte el enlace de recuperación:");
   if (!email) return;
@@ -41,6 +47,11 @@ export async function sendPasswordResetFromLogin() {
     console.error("Error en sendPasswordResetFromLogin:", error);
   }
 }
+
+// ──────────────────────────────────────────────────────────────
+// Construcción de DOMICILIO desde el formulario de registro
+// (usa los ids del <index.html> que pasaste: reg-...)
+// ──────────────────────────────────────────────────────────────
 function collectSignupAddress() {
   const get = (id) => document.getElementById(id)?.value?.trim() || '';
 
@@ -55,7 +66,6 @@ function collectSignupAddress() {
   const pais        = get('reg-pais') || 'Argentina';
   const referencia  = get('reg-referencia');
 
-  // addressLine legible
   const seg1 = [calle, numero].filter(Boolean).join(' ');
   const seg2 = [piso, depto].filter(Boolean).join(' ');
   const seg3 = provincia === 'CABA'
@@ -64,7 +74,6 @@ function collectSignupAddress() {
   const seg4 = [codigoPostal, pais].filter(Boolean).join(', ');
   const addressLine = [seg1, seg2, seg3, seg4].filter(Boolean).join(' — ');
 
-  // estado del domicilio según completitud
   const filled = [calle, numero, localidad || partido || provincia, pais].some(Boolean);
   const status = filled ? (calle && numero && (localidad || partido) && provincia ? 'COMPLETE' : 'PARTIAL') : 'NONE';
 
@@ -74,8 +83,8 @@ function collectSignupAddress() {
     components: {
       calle, numero, piso, depto,
       provincia,
-      partido: provincia === 'Buenos Aires' ? partido : '',
-      barrio:   provincia === 'CABA' ? localidad : '',
+      partido:   provincia === 'Buenos Aires' ? partido : '',
+      barrio:    provincia === 'CABA' ? localidad : '',
       localidad: provincia === 'CABA' ? '' : localidad,
       codigoPostal,
       pais,
@@ -84,11 +93,13 @@ function collectSignupAddress() {
   };
 }
 
+// ──────────────────────────────────────────────────────────────
+// REGISTRO DE CUENTA
+// ──────────────────────────────────────────────────────────────
 /**
- * Registro:
- * - Requisitos mínimos (nombre, dni, email, tel, fecha, pass, términos)
- * - Opcional: domicilio si agregás campos en el registro (IDs con prefijo reg-dom-* o dom-*)
- * - Opcional: consentimientos en registro (#register-optin-notifs, #register-optin-geo)
+ * - Requisitos mínimos: nombre, dni, email, tel, fecha, pass, términos
+ * - Domicilio opcional (usa IDs reg-*)
+ * - Consentimientos opcionales (#register-optin-notifs, #register-optin-geo si existen)
  */
 export async function registerNewAccount() {
   const nombre          = gv('register-nombre');
@@ -146,6 +157,7 @@ export async function registerNewAccount() {
       historialPuntos: [], historialCanjes: [],
       fcmTokens: [],
       terminosAceptados: true,
+      terminosAceptadosAt: new Date().toISOString(),
       passwordPersonalizada: true,
       config: {
         notifEnabled: regOptinNotifs,
@@ -159,14 +171,14 @@ export async function registerNewAccount() {
     // 3) guardar en clientes/{uid}
     await db.collection('clientes').doc(uid).set(baseDoc, { merge: true });
 
-    // 4) pedir N° de socio (no bloqueante)
+    // 4) pedir N° de socio (no bloqueante) — usa UID
     fetch('https://rampet-notification-server-three.vercel.app/api/assign-socio-number', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ docId: uid })
     }).catch(() => {});
 
-    // 5) flags UX
+    // 5) flags UX para la PWA
     try { localStorage.setItem('justSignedUp', '1'); } catch {}
     try { localStorage.setItem('addressProvidedAtSignup', hasAny ? '1' : '0'); } catch {}
 
@@ -183,29 +195,9 @@ export async function registerNewAccount() {
   }
 }
 
-
-
-    const clienteDocRef = await db.collection('clientes').add(baseDoc);
-
-    // Avisar a API externa para asignar # de socio
-    fetch('https://rampet-notification-server-three.vercel.app/api/assign-socio-number', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ docId: clienteDocRef.id })
-    }).catch(err => console.error("Fallo al avisar a la API para asignar N° Socio:", err));
-
-    UI.showToast("¡Registro exitoso! Bienvenido/a al Club.", "success");
-  catch (error) {
-    if (error?.code === 'auth/email-already-in-use') {
-      UI.showToast("Este email ya ha sido registrado.", "error");
-    } else {
-      UI.showToast("No se pudo crear la cuenta.", "error");
-    }
-  } finally {
-    boton.disabled = false; boton.textContent = 'Crear Cuenta';
-  }
-}
-
+// ──────────────────────────────────────────────────────────────
+// CAMBIAR CONTRASEÑA
+// ──────────────────────────────────────────────────────────────
 export async function changePassword() {
   const curr  = gv('current-password');
   const pass1 = gv('new-password');
@@ -230,7 +222,7 @@ export async function changePassword() {
 
     await user.updatePassword(pass1);
     UI.showToast("¡Contraseña actualizada con éxito!", "success");
-    try { UI.closeChangePasswordModal(); } catch {}
+    try { UI.closeChangePasswordModal?.(); } catch {}
   } catch (error) {
     if (error?.code === 'auth/requires-recent-login') {
       try {
@@ -248,14 +240,14 @@ export async function changePassword() {
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// LOGOUT
+// ──────────────────────────────────────────────────────────────
 export async function logout() {
   try {
-    cleanupListener();
+    cleanupListener?.();
     await auth.signOut();
   } catch (error) {
     UI.showToast("Error al cerrar sesión.", "error");
   }
 }
-
-
-
