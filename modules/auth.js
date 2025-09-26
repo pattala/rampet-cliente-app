@@ -41,6 +41,48 @@ export async function sendPasswordResetFromLogin() {
     console.error("Error en sendPasswordResetFromLogin:", error);
   }
 }
+function collectSignupAddress() {
+  const get = (id) => document.getElementById(id)?.value?.trim() || '';
+
+  const calle       = get('reg-calle');
+  const numero      = get('reg-numero');
+  const piso        = get('reg-piso');
+  const depto       = get('reg-depto');
+  const provincia   = get('reg-provincia');
+  const partido     = get('reg-partido');   // para BA
+  const localidad   = get('reg-localidad'); // barrio/localidad
+  const codigoPostal= get('reg-cp');
+  const pais        = get('reg-pais') || 'Argentina';
+  const referencia  = get('reg-referencia');
+
+  // addressLine legible
+  const seg1 = [calle, numero].filter(Boolean).join(' ');
+  const seg2 = [piso, depto].filter(Boolean).join(' ');
+  const seg3 = provincia === 'CABA'
+    ? [localidad, 'CABA'].filter(Boolean).join(', ')
+    : [localidad, partido, provincia].filter(Boolean).join(', ');
+  const seg4 = [codigoPostal, pais].filter(Boolean).join(', ');
+  const addressLine = [seg1, seg2, seg3, seg4].filter(Boolean).join(' — ');
+
+  // estado del domicilio según completitud
+  const filled = [calle, numero, localidad || partido || provincia, pais].some(Boolean);
+  const status = filled ? (calle && numero && (localidad || partido) && provincia ? 'COMPLETE' : 'PARTIAL') : 'NONE';
+
+  return {
+    status,                  // 'COMPLETE' | 'PARTIAL' | 'NONE'
+    addressLine: filled ? addressLine : '—',
+    components: {
+      calle, numero, piso, depto,
+      provincia,
+      partido: provincia === 'Buenos Aires' ? partido : '',
+      barrio:   provincia === 'CABA' ? localidad : '',
+      localidad: provincia === 'CABA' ? '' : localidad,
+      codigoPostal,
+      pais,
+      referencia
+    }
+  };
+}
 
 /**
  * Registro:
@@ -49,26 +91,27 @@ export async function sendPasswordResetFromLogin() {
  * - Opcional: consentimientos en registro (#register-optin-notifs, #register-optin-geo)
  */
 export async function registerNewAccount() {
-  const nombre = gv('register-nombre');
-  const dni = gv('register-dni');
-  const email = gv('register-email').toLowerCase();
-  const telefono = gv('register-telefono');
-  const fechaNacimiento = gv('register-fecha-nacimiento');
-  const password = gv('register-password');
-  const termsAccepted = gc('register-terms');
+  const nombre           = gv('register-nombre');
+  const dni              = gv('register-dni');
+  const email            = (gv('register-email') || '').toLowerCase();
+  const telefono         = gv('register-telefono');
+  const fechaNacimiento  = gv('register-fecha-nacimiento');
+  const password         = gv('register-password');
+  const termsAccepted    = gc('register-terms');
 
+  // Validaciones primero
   if (!nombre || !dni || !email || !password || !fechaNacimiento) {
     return UI.showToast("Completa todos los campos obligatorios.", "error");
   }
   if (!/^[0-9]+$/.test(dni) || dni.length < 6) {
-    return UI.showToast("El DNI debe tener al menos 6 números y no debe contener letras ni símbolos.", "error");
+    return UI.showToast("El DNI debe tener al menos 6 números y sin símbolos.", "error");
   }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
-    return UI.showToast("Por favor, ingresa una dirección de email válida.", "error");
+    return UI.showToast("Ingresa un email válido.", "error");
   }
   if (telefono && (!/^[0-9]+$/.test(telefono) || telefono.length < 10)) {
-    return UI.showToast("El teléfono debe contener solo números y tener al menos 10 dígitos (con código de área).", "error");
+    return UI.showToast("El teléfono debe tener solo números y al menos 10 dígitos.", "error");
   }
   if (password.length < 6) {
     return UI.showToast("La contraseña debe tener al menos 6 caracteres.", "error");
@@ -77,79 +120,69 @@ export async function registerNewAccount() {
     return UI.showToast("Debes aceptar los Términos y Condiciones.", "error");
   }
 
-  // Lectura opcional de consentimientos pre-tildados (marketing)
-  const regOptinNotifs = gc('register-optin-notifs'); // opcional
-  const regOptinGeo    = gc('register-optin-geo');    // opcional
+  // Domicilio opcional del formulario de registro
+  const dom    = collectSignupAddress();
+  const hasAny = Object.values(dom.components).some(v => v && String(v).trim() !== '');
 
-  // Intentar tomar domicilio del registro, si agregaste esos campos
-  // Preferencia: IDs con prefijo "reg-dom-", si no existen, usa los "dom-"
-  const pick = (a, b) => gv(a) || gv(b);
-  const domicilioComponents = {
-    calle:        pick('reg-dom-calle','dom-calle'),
-    numero:       pick('reg-dom-numero','dom-numero'),
-    piso:         pick('reg-dom-piso','dom-piso'),
-    depto:        pick('reg-dom-depto','dom-depto'),
-    barrio:       pick('reg-dom-barrio','dom-barrio'),
-    localidad:    pick('reg-dom-localidad','dom-localidad'),
-    partido:      pick('reg-dom-partido','dom-partido'),
-    provincia:    pick('reg-dom-provincia','dom-provincia'),
-    codigoPostal: pick('reg-dom-cp','dom-cp'),
-    pais:         pick('reg-dom-pais','dom-pais') || 'Argentina',
-    referencia:   pick('reg-dom-referencia','dom-referencia')
-  };
-  const hasAnyAddress = Object.entries(domicilioComponents).some(([k,v]) => !!v && k!=='pais');
+  // (Opcional) consentimientos si algún día agregás checkboxes en el registro
+  const regOptinNotifs = !!gc('register-optin-notifs'); // puede no existir
+  const regOptinGeo    = !!gc('register-optin-geo');    // puede no existir
 
-  const boton = g('register-btn');
-  boton.disabled = true; boton.textContent = 'Creando...';
+  const btn = g('register-btn');
+  btn.disabled = true; btn.textContent = 'Creando...';
 
   try {
-    const userCredential = await auth.createUserWithEmailAndPassword(email, password);
+    // 1) Crear usuario
+    const cred = await auth.createUserWithEmailAndPassword(email, password);
+    const uid  = cred.user.uid;
 
-    // Doc base del cliente
+    // 2) Armar documento base
     const baseDoc = {
-      authUID: userCredential.user.uid,
+      authUID: uid,
       numeroSocio: null,
       nombre, dni, email, telefono, fechaNacimiento,
-      fechaInscripcion: new Date().toISOString().split('T')[0],
+      fechaInscripcion: new Date().toISOString(), // ISO completo
       puntos: 0, saldoAcumulado: 0, totalGastado: 0,
-      historialPuntos: [], historialCanjes: [], fcmTokens: [],
-      terminosAceptados: !!termsAccepted,
-      passwordPersonalizada: true
+      historialPuntos: [], historialCanjes: [],
+      fcmTokens: [],
+      terminosAceptados: true,
+      passwordPersonalizada: true,
+      config: {
+        notifEnabled: regOptinNotifs,
+        geoEnabled:   regOptinGeo,
+        notifUpdatedAt: new Date().toISOString(),
+        geoUpdatedAt:   new Date().toISOString()
+      },
+      ...(hasAny ? { domicilio: dom } : {})
     };
 
-    // Config + consentimientos desde registro (opcional)
-    baseDoc.config = {
-      notifEnabled: !!regOptinNotifs,
-      geoEnabled:   !!regOptinGeo,
-      notifUpdatedAt: new Date().toISOString(),
-      geoUpdatedAt:   new Date().toISOString()
-    };
+    // 3) Guardar con ID = uid (no .add)
+    await db.collection('clientes').doc(uid).set(baseDoc, { merge: true });
 
-    // Domicilio opcional si se cargó algo
-    if (hasAnyAddress) {
-      const parts = [];
-      if (domicilioComponents.calle) {
-        parts.push(domicilioComponents.calle + (domicilioComponents.numero ? ' ' + domicilioComponents.numero : ''));
-      }
-      const pisoDto = [domicilioComponents.piso, domicilioComponents.depto].filter(Boolean).join(' ');
-      if (pisoDto) parts.push(pisoDto);
-      if (domicilioComponents.barrio) parts.push(`Barrio ${domicilioComponents.barrio}`);
-      if (domicilioComponents.localidad) parts.push(domicilioComponents.localidad);
-      if (domicilioComponents.partido) parts.push(domicilioComponents.partido);
-      if (domicilioComponents.provincia) parts.push(domicilioComponents.provincia);
-      if (domicilioComponents.codigoPostal) parts.push(domicilioComponents.codigoPostal);
-      if (domicilioComponents.pais) parts.push(domicilioComponents.pais);
+    // 4) (Opcional) pedir # de socio al backend
+    fetch('https://rampet-notification-server-three.vercel.app/api/assign-socio-number', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ docId: uid })
+    }).catch(err => console.error("assign-socio-number fallo:", err));
 
-      baseDoc.domicilio = {
-        addressLine: parts.filter(Boolean).join(', '),
-        components: domicilioComponents,
-        geocoded: {
-          lat: null, lng: null, geohash7: null,
-          provider: null, confidence: null,
-          geocodedAt: null, verified: false
-        }
-      };
+    // 5) UX flags locales
+    try { localStorage.setItem('justSignedUp', '1'); } catch {}
+    try { localStorage.setItem('addressProvidedAtSignup', hasAny ? '1' : '0'); } catch {}
+
+    UI.showToast("¡Registro exitoso! Bienvenido/a al Club.", "success");
+  } catch (error) {
+    console.error('registerNewAccount error:', error?.code || error);
+    if (error?.code === 'auth/email-already-in-use') {
+      UI.showToast("Este email ya está registrado.", "error");
+    } else {
+      UI.showToast("No se pudo crear la cuenta.", "error");
     }
+  } finally {
+    btn.disabled = false; btn.textContent = 'Crear Cuenta';
+  }
+}
+
 
     const clienteDocRef = await db.collection('clientes').add(baseDoc);
 
@@ -222,3 +255,4 @@ export async function logout() {
     UI.showToast("Error al cerrar sesión.", "error");
   }
 }
+
