@@ -72,10 +72,19 @@ function dedupeTokens(arr = []) {
 async function setFcmTokensOnCliente(newTokens) {
   const uid = firebase.auth().currentUser?.uid;
   if (!uid) throw new Error('No hay usuario logueado.');
-  const clienteId = await getClienteDocIdPorUID(uid);
-  if (!clienteId) throw new Error('No encontré tu doc en clientes (authUID).');
 
-  const ref = firebase.firestore().collection('clientes').doc(clienteId);
+  let clienteId = await getClienteDocIdPorUID(uid);
+  let ref;
+
+  if (clienteId) {
+    ref = firebase.firestore().collection('clientes').doc(clienteId);
+  } else {
+    // Fallback: usar uid como docId y crear el doc con authUID si no existe
+    clienteId = uid;
+    ref = firebase.firestore().collection('clientes').doc(clienteId);
+    await ref.set({ authUID: uid, creadoDesde: 'pwa' }, { merge: true });
+    console.warn('[FCM] Cliente no existía por authUID; creado fallback clientes/{uid}.');
+  }
 
   // Leer tokens actuales
   let current = [];
@@ -85,12 +94,11 @@ async function setFcmTokensOnCliente(newTokens) {
     current = Array.isArray(data?.fcmTokens) ? data.fcmTokens : [];
   } catch {}
 
-  // Merge → nuevo primero, luego los existentes; dedupe y cap
   const merged = dedupeTokens([...(newTokens || []), ...current]).slice(0, MAX_TOKENS);
-
   await ref.set({ fcmTokens: merged }, { merge: true });
   return clienteId;
 }
+
 async function clearFcmTokensOnCliente() {
   const uid = firebase.auth().currentUser?.uid;
   if (!uid) throw new Error('No hay usuario logueado.');
@@ -125,7 +133,10 @@ async function borrarTokenYOptOut() {
 async function obtenerYGuardarToken() {
   await ensureMessagingCompatLoaded();
   try { await firebase.messaging().deleteToken(); } catch {}
-  const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
+  const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
+if (!reg) throw new Error('SW FCM no está registrado.');
+const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC, serviceWorkerRegistration: reg });
+
   if (!tok) throw new Error('getToken devolvió vacío.');
   await guardarTokenEnMiDoc(tok);
   return tok;
@@ -617,5 +628,6 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
+
 
 
