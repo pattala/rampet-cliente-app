@@ -10,7 +10,7 @@ function gv(id){ return g(id)?.value?.trim() || ''; }
 function gc(id){ return !!g(id)?.checked; }
 
 // ──────────────────────────────────────────────────────────────
-// CONFIG NOTIF SERVER (nuevo, toma de window.__RAMPET__ si existe)
+// CONFIG NOTIF SERVER (toma de window.__RAMPET__ si existe)
 // ──────────────────────────────────────────────────────────────
 const NOTIF_BASE = (window.__RAMPET__ && window.__RAMPET__.NOTIF_BASE)
   || 'https://rampet-notification-server-three.vercel.app';
@@ -42,8 +42,6 @@ export async function login() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// RESET PASSWORD (desde login)
-// ──────────────────────────────────────────────────────────────
 export async function sendPasswordResetFromLogin() {
   const email = prompt("Por favor, ingresa tu dirección de email para enviarte el enlace de recuperación:");
   if (!email) return;
@@ -58,7 +56,6 @@ export async function sendPasswordResetFromLogin() {
 
 // ──────────────────────────────────────────────────────────────
 // Construcción de DOMICILIO desde el formulario de registro
-// (usa los ids del <index.html> que pasaste: reg-...)
 // ──────────────────────────────────────────────────────────────
 function collectSignupAddress() {
   const get = (id) => document.getElementById(id)?.value?.trim() || '';
@@ -104,11 +101,6 @@ function collectSignupAddress() {
 // ──────────────────────────────────────────────────────────────
 // REGISTRO DE CUENTA
 // ──────────────────────────────────────────────────────────────
-/**
- * - Requisitos mínimos: nombre, dni, email, tel, fecha, pass, términos
- * - Domicilio opcional (usa IDs reg-*)
- * - Consentimientos opcionales (#register-optin-notifs, #register-optin-geo si existen)
- */
 export async function registerNewAccount() {
   const nombre          = gv('register-nombre');
   const dni             = gv('register-dni');
@@ -174,7 +166,7 @@ export async function registerNewAccount() {
         geoUpdatedAt:   new Date().toISOString()
       },
       ...(hasAny ? { domicilio: dom } : {}),
-      // ⬇️ NUEVO: para que el Panel identifique el origen
+      // Origen para el Panel
       source: 'pwa',
       creadoDesde: 'pwa',
       metadata: {
@@ -185,65 +177,77 @@ export async function registerNewAccount() {
         acceptedAt: new Date().toISOString(),
         version: null,
         url: null,
-        source: 'pwa'     // el Panel ya mira tyc.source
+        source: 'pwa'
       }
     };
 
     // 3) guardar en clientes/{uid}
     await db.collection('clientes').doc(uid).set(baseDoc, { merge: true });
 
-   // 4) pedir N° de socio al server (esperamos respuesta, logueamos y
-//    si viene el número lo reflejamos por las dudas)
-try {
-  const r = await fetch(`${NOTIF_BASE}/api/assign-socio-number`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY
-    },
-    body: JSON.stringify({ docId: uid, sendWelcome: false })
-  });
-
-  const j = await r.json().catch(() => ({}));
-  console.log('[assign-socio-number][PWA]', r.status, j);
-
-  // El server *debería* setearlo en Firestore, pero si vino en la respuesta
-  // lo grabamos también localmente (merge) para no depender sólo del server.
-  if (r.ok && (j?.numeroSocio ?? null) !== null) {
+    // 4) pedir N° de socio al server (esperamos respuesta y reflejamos si vino)
     try {
-      await db.collection('clientes').doc(uid).set(
-        { numeroSocio: j.numeroSocio },
-        { merge: true }
-      );
-    } catch (e) {
-      console.warn('[assign-socio-number][PWA] no pude reflejar numeroSocio en merge local:', e);
+      const r = await fetch(`${NOTIF_BASE}/api/assign-socio-number`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': API_KEY
+        },
+        body: JSON.stringify({ docId: uid, sendWelcome: false })
+      });
+
+      const j = await r.json().catch(() => ({}));
+      console.log('[assign-socio-number][PWA]', r.status, j);
+
+      if (r.ok && (j?.numeroSocio ?? null) !== null) {
+        try {
+          await db.collection('clientes').doc(uid).set(
+            { numeroSocio: j.numeroSocio },
+            { merge: true }
+          );
+        } catch (e) {
+          console.warn('[assign-socio-number][PWA] no pude reflejar numeroSocio en merge local:', e);
+        }
+      } else {
+        UI.showToast('No se pudo asignar el N° de socio en el alta. Se intentará luego.', 'warning', 6000);
+      }
+    } catch (err) {
+      console.warn('[assign-socio-number][PWA] error de red u otra falla:', err);
+      UI.showToast('No se pudo contactar al asignador de N° de socio.', 'warning', 6000);
     }
-  } else {
-    UI.showToast('No se pudo asignar el N° de socio en el alta. Se intentará luego.', 'warning', 6000);
-  }
-} catch (err) {
-  console.warn('[assign-socio-number][PWA] error de red u otra falla:', err);
-  UI.showToast('No se pudo contactar al asignador de N° de socio.', 'warning', 6000);
-}
-async function waitSocioNumberOnce(uid, { tries = 3, delayMs = 800 } = {}) {
-  for (let i = 0; i < tries; i++) {
-    try {
-      const snap = await db.collection('clientes').doc(uid).get();
-      const n = snap?.data()?.numeroSocio ?? null;
-      if (n !== null && !Number.isNaN(n)) return n;
-    } catch {}
-    await new Promise(r => setTimeout(r, delayMs));
-  }
-  return null;
-}
 
-// Intento corto de leerlo si el server lo grabó asíncronamente
-try {
-  const n = await waitSocioNumberOnce(uid, { tries: 3, delayMs: 700 });
-  if (n !== null) {
-    console.log('[assign-socio-number][PWA] numeroSocio confirmado en Firestore:', n);
+    // 4b) intento corto de leer si el server lo grabó asíncronamente
+    async function waitSocioNumberOnce(theUid, { tries = 3, delayMs = 700 } = {}) {
+      for (let i = 0; i < tries; i++) {
+        try {
+          const snap = await db.collection('clientes').doc(theUid).get();
+          const n = snap?.data()?.numeroSocio ?? null;
+          if (n !== null && !Number.isNaN(n)) return n;
+        } catch {}
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+      return null;
+    }
+    try {
+      const n = await waitSocioNumberOnce(uid, { tries: 3, delayMs: 700 });
+      if (n !== null) console.log('[assign-socio-number][PWA] numeroSocio confirmado en Firestore:', n);
+    } catch {}
+
+    // 5) UX flags locales
+    try { localStorage.setItem('justSignedUp', '1'); } catch {}
+    try { localStorage.setItem('addressProvidedAtSignup', hasAny ? '1' : '0'); } catch {}
+
+    UI.showToast("¡Registro exitoso! Bienvenido/a al Club.", "success");
+  } catch (error) {
+    console.error('registerNewAccount error:', error?.code || error);
+    if (error?.code === 'auth/email-already-in-use') {
+      UI.showToast("Este email ya está registrado.", "error");
+    } else {
+      UI.showToast("No se pudo crear la cuenta.", "error");
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = 'Crear Cuenta';
   }
-} catch {}
+}
 
 // ──────────────────────────────────────────────────────────────
 // CAMBIAR CONTRASEÑA
@@ -301,5 +305,3 @@ export async function logout() {
     UI.showToast("Error al cerrar sesión.", "error");
   }
 }
-
-
