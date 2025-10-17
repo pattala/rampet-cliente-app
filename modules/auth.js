@@ -225,7 +225,25 @@ try {
   console.warn('[assign-socio-number][PWA] error de red u otra falla:', err);
   UI.showToast('No se pudo contactar al asignador de N° de socio.', 'warning', 6000);
 }
+async function waitSocioNumberOnce(uid, { tries = 3, delayMs = 800 } = {}) {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const snap = await db.collection('clientes').doc(uid).get();
+      const n = snap?.data()?.numeroSocio ?? null;
+      if (n !== null && !Number.isNaN(n)) return n;
+    } catch {}
+    await new Promise(r => setTimeout(r, delayMs));
+  }
+  return null;
+}
 
+// Intento corto de leerlo si el server lo grabó asíncronamente
+try {
+  const n = await waitSocioNumberOnce(uid, { tries: 3, delayMs: 700 });
+  if (n !== null) {
+    console.log('[assign-socio-number][PWA] numeroSocio confirmado en Firestore:', n);
+  }
+} catch {}
 
 // ──────────────────────────────────────────────────────────────
 // CAMBIAR CONTRASEÑA
@@ -283,4 +301,5 @@ export async function logout() {
     UI.showToast("Error al cerrar sesión.", "error");
   }
 }
+
 
