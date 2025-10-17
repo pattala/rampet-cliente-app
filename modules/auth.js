@@ -165,7 +165,20 @@ export async function registerNewAccount() {
         notifUpdatedAt: new Date().toISOString(),
         geoUpdatedAt:   new Date().toISOString()
       },
-      ...(hasAny ? { domicilio: dom } : {})
+      ...(hasAny ? { domicilio: dom } : {}),
+// ⬇️ NUEVO: para que el Panel identifique el origen
+  source: 'pwa',
+  creadoDesde: 'pwa',
+  metadata: {
+    createdFrom: 'pwa',
+    sourceVersion: 'pwa@1.0.0'
+  },
+  tyc: {
+    acceptedAt: new Date().toISOString(),
+    version: null,
+    url: null,
+    source: 'pwa'     // el Panel ya mira tyc.source
+  }
     };
 
     // 3) guardar en clientes/{uid}
@@ -251,3 +264,4 @@ export async function logout() {
     UI.showToast("Error al cerrar sesión.", "error");
   }
 }
+
