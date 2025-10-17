@@ -10,6 +10,14 @@ function gv(id){ return g(id)?.value?.trim() || ''; }
 function gc(id){ return !!g(id)?.checked; }
 
 // ──────────────────────────────────────────────────────────────
+// CONFIG NOTIF SERVER (nuevo, toma de window.__RAMPET__ si existe)
+// ──────────────────────────────────────────────────────────────
+const NOTIF_BASE = (window.__RAMPET__ && window.__RAMPET__.NOTIF_BASE)
+  || 'https://rampet-notification-server-three.vercel.app';
+const API_KEY = (window.__RAMPET__ && window.__RAMPET__.API_KEY)
+  || 'Felipe01';
+
+// ──────────────────────────────────────────────────────────────
 // LOGIN
 // ──────────────────────────────────────────────────────────────
 export async function login() {
@@ -166,28 +174,32 @@ export async function registerNewAccount() {
         geoUpdatedAt:   new Date().toISOString()
       },
       ...(hasAny ? { domicilio: dom } : {}),
-// ⬇️ NUEVO: para que el Panel identifique el origen
-  source: 'pwa',
-  creadoDesde: 'pwa',
-  metadata: {
-    createdFrom: 'pwa',
-    sourceVersion: 'pwa@1.0.0'
-  },
-  tyc: {
-    acceptedAt: new Date().toISOString(),
-    version: null,
-    url: null,
-    source: 'pwa'     // el Panel ya mira tyc.source
-  }
+      // ⬇️ NUEVO: para que el Panel identifique el origen
+      source: 'pwa',
+      creadoDesde: 'pwa',
+      metadata: {
+        createdFrom: 'pwa',
+        sourceVersion: 'pwa@1.0.0'
+      },
+      tyc: {
+        acceptedAt: new Date().toISOString(),
+        version: null,
+        url: null,
+        source: 'pwa'     // el Panel ya mira tyc.source
+      }
     };
 
     // 3) guardar en clientes/{uid}
     await db.collection('clientes').doc(uid).set(baseDoc, { merge: true });
 
     // 4) pedir N° de socio (no bloqueante) — usa UID
-    fetch('https://rampet-notification-server-three.vercel.app/api/assign-socio-number', {
+    //    (MOD: usamos NOTIF_BASE y agregamos 'x-api-key')
+    fetch(`${NOTIF_BASE}/api/assign-socio-number`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY
+      },
       body: JSON.stringify({ docId: uid })
     }).catch(() => {});
 
@@ -264,4 +276,3 @@ export async function logout() {
     UI.showToast("Error al cerrar sesión.", "error");
   }
 }
-
