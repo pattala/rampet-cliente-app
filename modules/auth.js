@@ -192,33 +192,40 @@ export async function registerNewAccount() {
     // 3) guardar en clientes/{uid}
     await db.collection('clientes').doc(uid).set(baseDoc, { merge: true });
 
-    // 4) pedir N° de socio (no bloqueante) — usa UID
-    //    (MOD: usamos NOTIF_BASE y agregamos 'x-api-key')
-    fetch(`${NOTIF_BASE}/api/assign-socio-number`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': API_KEY
-      },
-      body: JSON.stringify({ docId: uid })
-    }).catch(() => {});
+   // 4) pedir N° de socio al server (esperamos respuesta, logueamos y
+//    si viene el número lo reflejamos por las dudas)
+try {
+  const r = await fetch(`${NOTIF_BASE}/api/assign-socio-number`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY
+    },
+    body: JSON.stringify({ docId: uid, sendWelcome: false })
+  });
 
-    // 5) flags UX para la PWA
-    try { localStorage.setItem('justSignedUp', '1'); } catch {}
-    try { localStorage.setItem('addressProvidedAtSignup', hasAny ? '1' : '0'); } catch {}
+  const j = await r.json().catch(() => ({}));
+  console.log('[assign-socio-number][PWA]', r.status, j);
 
-    UI.showToast("¡Registro exitoso! Bienvenido/a al Club.", "success");
-  } catch (error) {
-    console.error('registerNewAccount error:', error?.code || error);
-    if (error?.code === 'auth/email-already-in-use') {
-      UI.showToast("Este email ya está registrado.", "error");
-    } else {
-      UI.showToast("No se pudo crear la cuenta.", "error");
+  // El server *debería* setearlo en Firestore, pero si vino en la respuesta
+  // lo grabamos también localmente (merge) para no depender sólo del server.
+  if (r.ok && (j?.numeroSocio ?? null) !== null) {
+    try {
+      await db.collection('clientes').doc(uid).set(
+        { numeroSocio: j.numeroSocio },
+        { merge: true }
+      );
+    } catch (e) {
+      console.warn('[assign-socio-number][PWA] no pude reflejar numeroSocio en merge local:', e);
     }
-  } finally {
-    btn.disabled = false; btn.textContent = 'Crear Cuenta';
+  } else {
+    UI.showToast('No se pudo asignar el N° de socio en el alta. Se intentará luego.', 'warning', 6000);
   }
+} catch (err) {
+  console.warn('[assign-socio-number][PWA] error de red u otra falla:', err);
+  UI.showToast('No se pudo contactar al asignador de N° de socio.', 'warning', 6000);
 }
+
 
 // ──────────────────────────────────────────────────────────────
 // CAMBIAR CONTRASEÑA
@@ -276,3 +283,4 @@ export async function logout() {
     UI.showToast("Error al cerrar sesión.", "error");
   }
 }
+
