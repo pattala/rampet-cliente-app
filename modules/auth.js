@@ -188,15 +188,14 @@ export async function registerNewAccount() {
 
     // 4) pedir N° de socio al server (mismo backend del panel)
     try {
-      const r = await fetch(`${NOTIF_BASE}/api/assign-socio-number`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': API_KEY
-        },
-        body: JSON.stringify({ docId: uid, sendWelcome: false })
-      });
-
+     const r = await fetch(`${NOTIF_BASE}/api/assign-socio-number`, {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'x-api-key': API_KEY
+  },
+  body: JSON.stringify({ docId: uid }) // ← sin sendWelcome
+});
       const j = await r.json().catch(() => ({}));
       console.log('[assign-socio-number][PWA]', r.status, j);
 
@@ -303,3 +302,4 @@ export async function logout() {
     UI.showToast("Error al cerrar sesión.", "error");
   }
 }
+
