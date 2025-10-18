@@ -17,31 +17,6 @@ const NOTIF_BASE = (window.__RAMPET__ && window.__RAMPET__.NOTIF_BASE)
 const API_KEY = (window.__RAMPET__ && window.__RAMPET__.API_KEY)
   || 'Felipe01';
 
-/* ─────────────────────────────────────────────────────────────
-   ASIGNACIÓN LOCAL DE N° DE SOCIO (sin API, vía transacción)
-   - Usa/crea counters/socios { last: <n> }
-   - Si el cliente ya tiene numeroSocio, no hace nada
-   - Atómico → sin duplicados en alta concurrente
-   ──────────────────────────────────────────────────────────── */
-async function assignSocioNumberLocally(uid) {
-  const counterRef = db.collection('counters').doc('socios');
-  const clienteRef = db.collection('clientes').doc(uid);
-
-  return db.runTransaction(async (tx) => {
-    const cliSnap = await tx.get(clienteRef);
-    const ya = cliSnap.exists ? (cliSnap.data()?.numeroSocio ?? null) : null;
-    if (ya !== null && !Number.isNaN(ya)) return ya;
-
-    const cSnap = await tx.get(counterRef);
-    const last = (cSnap.exists ? (cSnap.data()?.last ?? 0) : 0) | 0;
-    const next = last + 1;
-
-    tx.set(counterRef, { last: next }, { merge: true });
-    tx.set(clienteRef, { numeroSocio: next }, { merge: true });
-    return next;
-  });
-}
-
 // ──────────────────────────────────────────────────────────────
 // LOGIN
 // ──────────────────────────────────────────────────────────────
@@ -66,6 +41,8 @@ export async function login() {
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// RESET PASSWORD (desde login)
 // ──────────────────────────────────────────────────────────────
 export async function sendPasswordResetFromLogin() {
   const email = prompt("Por favor, ingresa tu dirección de email para enviarte el enlace de recuperación:");
@@ -124,7 +101,7 @@ function collectSignupAddress() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// REGISTRO DE CUENTA
+// REGISTRO DE CUENTA (Opción A: asignación del N° via API del server)
 // ──────────────────────────────────────────────────────────────
 export async function registerNewAccount() {
   const nombre          = gv('register-nombre');
@@ -162,7 +139,7 @@ export async function registerNewAccount() {
 
   // (Opcional) consentimientos si existen
   const regOptinNotifs = !!gc('register-optin-notifs');
-  const regOptinGeo    = !!gc('register-geo');
+  const regOptinGeo    = !!gc('register-optin-geo');
 
   const btn = g('register-btn');
   btn.disabled = true; btn.textContent = 'Creando...';
@@ -209,15 +186,7 @@ export async function registerNewAccount() {
     // 3) guardar en clientes/{uid}
     await db.collection('clientes').doc(uid).set(baseDoc, { merge: true });
 
-    // 3.b) asignación local inmediata (sin API, transacción)
-    try {
-      const n = await assignSocioNumberLocally(uid);
-      console.log('[PWA] numeroSocio asignado localmente =', n);
-    } catch (e) {
-      console.warn('[PWA] no se pudo asignar localmente el numeroSocio:', e);
-    }
-
-    // 4) (opcional) intentar API — si CORS falla, no rompe el alta
+    // 4) pedir N° de socio al server (mismo backend del panel)
     try {
       const r = await fetch(`${NOTIF_BASE}/api/assign-socio-number`, {
         method: 'POST',
@@ -231,20 +200,35 @@ export async function registerNewAccount() {
       const j = await r.json().catch(() => ({}));
       console.log('[assign-socio-number][PWA]', r.status, j);
 
-      if (r.ok && (j?.numeroSocio ?? null) !== null) {
-        try {
-          await db.collection('clientes').doc(uid).set(
-            { numeroSocio: j.numeroSocio },
-            { merge: true }
-          );
-        } catch (e) {
-          console.warn('[assign-socio-number][PWA] no pude reflejar numeroSocio en merge local:', e);
-        }
+      // Si el server devuelve el número, lo reflejamos por las dudas
+      if (r.ok && Number.isInteger(j?.numeroSocio)) {
+        await db.collection('clientes').doc(uid).set(
+          { numeroSocio: j.numeroSocio },
+          { merge: true }
+        );
+      } else {
+        console.warn('[assign-socio-number][PWA] respuesta sin numeroSocio');
       }
     } catch (err) {
-      // CORS u otros errores: ignoramos, ya asignamos localmente
+      // Si CORS u otro error, no bloquea el alta
       console.warn('[assign-socio-number][PWA] API no disponible:', err);
     }
+
+    // 4.b) intento corto por si el server lo escribió directo en Firestore
+    async function waitSocioNumberOnce(theUid, { tries = 3, delayMs = 700 } = {}) {
+      for (let i = 0; i < tries; i++) {
+        try {
+          const snap = await db.collection('clientes').doc(theUid).get();
+          const n = snap?.data()?.numeroSocio ?? null;
+          if (Number.isInteger(n)) return n;
+        } catch {}
+        await new Promise(r => setTimeout(r, delayMs));
+      }
+      return null;
+    }
+    try {
+      await waitSocioNumberOnce(uid);
+    } catch {}
 
     // 5) UX flags locales
     try { localStorage.setItem('justSignedUp', '1'); } catch {}
@@ -319,4 +303,3 @@ export async function logout() {
     UI.showToast("Error al cerrar sesión.", "error");
   }
 }
-
