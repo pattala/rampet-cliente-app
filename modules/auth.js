@@ -4,6 +4,41 @@
 import { auth, db, firebase } from './firebase.js';
 import * as UI from './ui.js';
 import { cleanupListener } from './data.js';
+// ──────────────────────────────────────────────────────────────
+// FIX re-registro: mutex + reseteo duro de cachés Firebase
+// ──────────────────────────────────────────────────────────────
+let __signupLock = false;
+
+async function hardResetFirebaseCaches() {
+  // Cierra sesión si hubiera alguien logueado
+  try { if (auth.currentUser) await auth.signOut(); } catch {}
+
+  // Borra IndexedDBs comunes de Firebase (si no existen, ignora el error)
+  const toDelete = [
+    'firebaseLocalStorageDb',
+    'firebase-installations-database',
+    'firebase-messaging-database',
+    'firebase-messaging-database-worker',
+    // Firestore (nombres típicos; si alguno no existe, no pasa nada)
+    'firestore/[DEFAULT]/sistema-fidelizacion/main',
+    'firestore/[DEFAULT]/main'
+  ];
+  await Promise.allSettled(
+    toDelete.map(name => new Promise(res => {
+      const req = indexedDB.deleteDatabase(name);
+      req.onsuccess = req.onerror = req.onblocked = () => res();
+    }))
+  );
+
+  // Limpia flags locales de la PWA si los usás
+  try { localStorage.removeItem('justSignedUp'); } catch {}
+  try { localStorage.removeItem('addressProvidedAtSignup'); } catch {}
+}
+
+async function ensureCleanAuthSession() {
+  // Antes de cada alta, forzamos estado “limpio”
+  await hardResetFirebaseCaches();
+}
 
 function g(id){ return document.getElementById(id); }
 function gv(id){ return g(id)?.value?.trim() || ''; }
@@ -104,6 +139,10 @@ function collectSignupAddress() {
 // REGISTRO DE CUENTA (Opción A: asignación del N° via API del server)
 // ──────────────────────────────────────────────────────────────
 export async function registerNewAccount() {
+
+  // ⬇️ Anti-doble envío
+  if (__signupLock) return UI.showToast("Estamos creando tu cuenta…", "info");
+  __signupLock = true;
   const nombre          = gv('register-nombre');
   const dni             = gv('register-dni');
   const email           = (gv('register-email') || '').toLowerCase();
@@ -146,6 +185,8 @@ export async function registerNewAccount() {
 
   try {
     // 1) crear usuario
+     // ⬇️ Sesión/cachés limpias ANTES del alta
+    await ensureCleanAuthSession();
     const cred = await auth.createUserWithEmailAndPassword(email, password);
     const uid  = cred.user.uid;
 
@@ -243,6 +284,7 @@ export async function registerNewAccount() {
     }
   } finally {
     btn.disabled = false; btn.textContent = 'Crear Cuenta';
+     __signupLock = false;   // ⬅️ importante soltar el mutex SIEMPRE
   }
 }
 
@@ -302,4 +344,5 @@ export async function logout() {
     UI.showToast("Error al cerrar sesión.", "error");
   }
 }
+
 
