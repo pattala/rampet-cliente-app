@@ -395,18 +395,37 @@ async function updateGeoUI() {
     setGeoMarketingUI(false);
     setGeoRegularUI('granted');
     startGeoWatch();
+
+    // ⬇️ NUEVO: si el navegador ya tenía permiso, reflejamos en Firestore
+    await setClienteConfigPatch({
+      geoEnabled: true,
+      geoOptInSource: 'permission',
+      geoUpdatedAt: new Date().toISOString()
+    });
+
     return;
   }
+
+  // Sin permiso → frenamos el watch y reflejamos desactivado
   stopGeoWatch();
 
   if (state === 'denied') {
     setGeoMarketingUI(false);
     setGeoRegularUI('denied');
+
+    // ⬇️ NUEVO: guardamos que está deshabilitado
+    await setClienteConfigPatch({
+      geoEnabled: false,
+      geoUpdatedAt: new Date().toISOString()
+    });
+
     return;
   }
 
+  // Estado "prompt"/desconocido: mostramos marketing y no tocamos config
   setGeoMarketingUI(true);
 }
+
 
 // Activar: optimista y verificación liviana
 async function handleGeoEnable() {
@@ -676,3 +695,4 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
+
