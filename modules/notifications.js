@@ -55,6 +55,19 @@ async function getClienteDocIdPorUID(uid) {
   return snap.empty ? null : snap.docs[0].id;
 }
 
+// ---- PATCH: escribir flags en clientes/{id}.config ----
+async function setClienteConfigPatch(partial) {
+  try {
+    const uid = firebase.auth().currentUser?.uid;
+    if (!uid) return;
+    const clienteId = await getClienteDocIdPorUID(uid) || uid; // fallback uid
+    const ref = firebase.firestore().collection('clientes').doc(clienteId);
+    await ref.set({ config: partial }, { merge: true });
+  } catch (e) {
+    console.warn('[config] setClienteConfigPatch error:', e?.message || e);
+  }
+}
+
 // ───────── PATCH: merge & cap de fcmTokens (máx. 5, sin duplicados) ─────────
 const MAX_TOKENS = 5;
 
@@ -111,6 +124,14 @@ async function clearFcmTokensOnCliente() {
 // Guardado / borrado de token
 async function guardarTokenEnMiDoc(token) {
   const clienteId = await setFcmTokensOnCliente([token]);
+
+  // ← marcar opt-in en config
+  await setClienteConfigPatch({
+    notifEnabled: true,
+    notifOptInSource: 'ui',
+    notifUpdatedAt: new Date().toISOString()
+  });
+
   try { localStorage.setItem('fcmToken', token); } catch {}
   try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
   emit('rampet:consent:notif-opt-in', { source: 'ui' });
@@ -123,6 +144,13 @@ async function borrarTokenYOptOut() {
     await clearFcmTokensOnCliente();                      // ← borra en Firestore
     try { localStorage.removeItem('fcmToken'); } catch {}
     try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+
+    // ← marcar opt-out en config
+    await setClienteConfigPatch({
+      notifEnabled: false,
+      notifUpdatedAt: new Date().toISOString()
+    });
+
     emit('rampet:consent:notif-opt-out', { source: 'ui' });
     console.log('🔕 Opt-out FCM aplicado.');
   } catch (e) {
@@ -134,8 +162,8 @@ async function obtenerYGuardarToken() {
   await ensureMessagingCompatLoaded();
   try { await firebase.messaging().deleteToken(); } catch {}
   const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
-if (!reg) throw new Error('SW FCM no está registrado.');
-const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC, serviceWorkerRegistration: reg });
+  if (!reg) throw new Error('SW FCM no está registrado.');
+  const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC, serviceWorkerRegistration: reg });
 
   if (!tok) throw new Error('getToken devolvió vacío.');
   await guardarTokenEnMiDoc(tok);
@@ -268,7 +296,14 @@ async function hookOnMessage() {
 export async function initNotificationsOnce() {
   await registerSW();
   if ('Notification' in window && Notification.permission === 'granted') {
-    try { await obtenerYGuardarToken(); } catch {}
+    try {
+      await obtenerYGuardarToken();
+      // refuerza el flag por si ya existía token
+      await setClienteConfigPatch({
+        notifEnabled: true,
+        notifUpdatedAt: new Date().toISOString()
+      });
+    } catch {}
   }
   await hookOnMessage();
   refreshNotifUIFromPermission();
@@ -382,6 +417,13 @@ async function handleGeoEnable() {
   show(banner, false);
   startGeoWatch();
 
+  // ← marcar geoEnabled en config
+  await setClienteConfigPatch({
+    geoEnabled: true,
+    geoOptInSource: 'ui',
+    geoUpdatedAt: new Date().toISOString()
+  });
+
   try {
     await new Promise((resolve) => {
       if (!navigator.geolocation?.getCurrentPosition) return resolve();
@@ -405,6 +447,13 @@ async function handleGeoEnable() {
 function handleGeoDisable() {
   try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
   emit('rampet:geo:disabled', { method: 'ui' });
+
+  // ← marcar geo deshabilitado en config
+  setClienteConfigPatch({
+    geoEnabled: false,
+    geoUpdatedAt: new Date().toISOString()
+  }).catch(() => {});
+
   updateGeoUI();
 }
 function handleGeoHelp() { alert('Para activarlo:\n\n1) Abrí configuración del navegador.\n2) Permisos → Activar ubicación.\n3) Recargá la página.'); }
@@ -555,7 +604,6 @@ function buildAddressLine(c) {
   return parts.filter(Boolean).join(', ');
 }
 
-
 export async function initDomicilioForm() {
   const card = document.getElementById('address-card');
   if (!card || card._wired) return; card._wired = true;
@@ -628,6 +676,3 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
-
-
-
