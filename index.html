@@ -437,24 +437,7 @@
     </div>
   </div>
 
-  <!-- Registro del Service Worker -->
-  <script>
-    (function () {
-      if (!('serviceWorker' in navigator)) return;
-      window.addEventListener('load', async () => {
-        try {
-          const existing = await navigator.serviceWorker.getRegistration('/');
-          const reg = existing || await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-          console.log('✅ SW FCM registrado:', reg.scope);
-          if (!navigator.serviceWorker.controller) {
-            navigator.serviceWorker.addEventListener('controllerchange', () => location.reload());
-          }
-        } catch (err) {
-          console.error('❌ Error registrando el SW FCM:', err);
-        }
-      });
-    })();
-  </script>
+
 
   <!-- App -->
  
@@ -486,6 +469,7 @@
   </script>
 </body>
 </html>
+
 
 
 
