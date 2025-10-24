@@ -1,22 +1,25 @@
 {
   "short_name": "Club RAMPET",
   "name": "Club de Fidelización RAMPET",
+  "description": "Programa de fidelización de RAMPET",
+  "start_url": ".",
+  "scope": "/",
+  "display": "standalone",
+  "theme_color": "#007bff",
+  "background_color": "#f0f2f5",
   "icons": [
     {
       "src": "images/mi_logo_192.png",
       "type": "image/png",
-      "sizes": "192x192"
+      "sizes": "192x192",
+      "purpose": "any maskable"
     },
     {
       "src": "images/mi_logo_512.png",
       "type": "image/png",
-      "sizes": "512x512"
+      "sizes": "512x512",
+      "purpose": "any maskable"
     }
   ],
-  "start_url": ".",
-  "background_color": "#f0f2f5",
-  "display": "standalone",
-  "scope": "/",
-  "theme_color": "#007bff",
   "gcm_sender_id": "103953800507"
 }
