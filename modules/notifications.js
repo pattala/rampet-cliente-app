@@ -333,6 +333,37 @@ async function hookOnMessage() {
     console.warn('[notifications] hookOnMessage error:', e?.message || e);
   }
 }
+// === Cableado de botones/controles de notificaciones (UI) ===
+function wirePushButtonsOnce() {
+  // Botón del card marketing (activar notificaciones)
+  const allow = document.getElementById('btn-activar-notif-prompt');
+  if (allow && !allow._wired) {
+    allow._wired = true;
+    allow.addEventListener('click', () => {
+      // Debe ejecutarse por gesto del usuario para que el prompt salga
+      handlePermissionRequest();
+    });
+  }
+
+  // Botón "Luego" del card marketing
+  const later = document.getElementById('btn-rechazar-notif-prompt');
+  if (later && !later._wired) {
+    later._wired = true;
+    later.addEventListener('click', () => {
+      dismissPermissionRequest();
+    });
+  }
+
+  // Switch del card de ajustes
+  const sw = document.getElementById('notif-switch');
+  if (sw && !sw._wired) {
+    sw._wired = true;
+    sw.addEventListener('change', handlePermissionSwitch);
+  }
+}
+
+// (opc) lo dejo en window por si querés llamarlo desde consola o HTML
+try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
 
 // ─────────────────────────────────────────────────────────────
 // INIT
@@ -349,9 +380,14 @@ export async function initNotificationsOnce() {
       });
     } catch {}
   }
-  await hookOnMessage();
-  refreshNotifUIFromPermission();
-  return true;
+ await hookOnMessage();
+refreshNotifUIFromPermission();
+
+// ⬇️ NUEVO: asegura que los botones del index.html llamen a los handlers correctos
+wirePushButtonsOnce();
+
+return true;
+
 }
 export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
 export function handleBellClick() { return Promise.resolve(); }
@@ -739,5 +775,6 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
+
 
 
