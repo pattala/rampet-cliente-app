@@ -187,23 +187,50 @@ async function borrarTokenYOptOut() {
 
 async function obtenerYGuardarToken() {
   await ensureMessagingCompatLoaded();
-  const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
-  if (!reg) throw new Error('SW FCM no está registrado (verificá que el archivo exista en la raíz pública).');
 
-  let tok;
+  // 1) intentar por ruta exacta
+  let reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
+
+  // 2) si no, cualquiera
+  if (!reg) reg = await navigator.serviceWorker.getRegistration();
+
+  // 3) si aún no, esperar a que haya uno listo
+  if (!reg) {
+    try {
+      reg = await navigator.serviceWorker.ready;
+    } catch {}
+  }
+
+  if (!reg) {
+    console.warn('[FCM] No encontré un ServiceWorker registration activo.');
+    toast('No se pudo activar notificaciones (SW no activo).', 'error');
+    throw new Error('SW no activo');
+  }
+
+  let tok = null;
   try {
-    tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC, serviceWorkerRegistration: reg });
+    tok = await firebase.messaging().getToken({
+      vapidKey: VAPID_PUBLIC,
+      serviceWorkerRegistration: reg
+    });
   } catch (e) {
     console.warn('[FCM] getToken() falló:', e?.message || e);
-    // Errores típicos: "messaging/permission-blocked", "messaging/unsupported-browser", VAPID inválida, etc.
+    toast('No se pudo activar notificaciones (getToken).', 'error');
     throw e;
   }
 
-  if (!tok) throw new Error('getToken() devolvió vacío (¿VAPID_PUBLIC incorrecta? ¿Permiso denegado/quieter UI?)');
-  console.log('[FCM] Token obtenido OK (recortado):', tok.slice(0, 12) + '…');
+  if (!tok) {
+    console.warn('[FCM] getToken() devolvió vacío. Revisar VAPID o permiso del navegador.');
+    toast('No se pudo activar notificaciones (token vacío).', 'warning');
+    throw new Error('token vacío');
+  }
+
+  console.log('[FCM] Token OK:', tok.slice(0, 12) + '…');
   await guardarTokenEnMiDoc(tok);
+  toast('Notificaciones activadas ✅', 'success');
   return tok;
 }
+
 
 // ─────────────────────────────────────────────────────────────
 // NOTIFICACIONES — UI
@@ -290,20 +317,35 @@ export function dismissPermissionRequest() {
 }
 export async function handlePermissionSwitch(e) {
   const checked = !!e?.target?.checked;
-  const perm = ('Notification' in window) ? Notification.permission : 'unsupported';
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
 
+  const before = Notification.permission;
+
   if (checked) {
-    if (perm === 'granted') {
-      try { await obtenerYGuardarToken(); } catch (err) {}
-    } else if (perm === 'default') {
-      await handlePermissionRequest();
-    } else {
-      if ($('notif-switch')) $('notif-switch').checked = false;
+    if (before === 'granted') {
+      try { await obtenerYGuardarToken(); } catch {}
+    } else if (before === 'default') {
+      // pedimos permiso y si pasa a granted, obtenemos token YA
+      const status = await Notification.requestPermission();
+      if (status === 'granted') {
+        try { await obtenerYGuardarToken(); } catch {}
+      } else if (status === 'denied') {
+        try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
+        toast('Notificaciones bloqueadas en el navegador.', 'warning');
+        const sw = $('notif-switch'); if (sw) sw.checked = false;
+      } else {
+        try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+        const sw = $('notif-switch'); if (sw) sw.checked = false;
+      }
+    } else { // 'denied'
+      toast('Tenés bloqueadas las notificaciones en el navegador.', 'warning');
+      const sw = $('notif-switch'); if (sw) sw.checked = false;
     }
   } else {
     await borrarTokenYOptOut();
+    toast('Notificaciones desactivadas.', 'info');
   }
+
   refreshNotifUIFromPermission();
 }
 
@@ -779,5 +821,6 @@ export async function initDomicilioForm() {
 // Exponer handlers para poder invocarlos directo desde el HTML
 try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
 try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catch {}
+
 
 
