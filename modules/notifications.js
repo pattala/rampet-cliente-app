@@ -7,6 +7,20 @@
 const VAPID_PUBLIC = (window.__RAMPET__ && window.__RAMPET__.VAPID_PUBLIC) || '';
 if (!VAPID_PUBLIC) console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
 
+// ⬇️ NUEVO: Edge/Chrome bloquean permisos si no hay contexto seguro
+if (!window.isSecureContext) {
+  console.warn('[FCM] El sitio NO está en contexto seguro (https o localhost). Notificaciones serán bloqueadas.');
+}
+
+// ⬇️ NUEVO: log de estado del permiso al cargar
+try {
+  if ('Notification' in window) {
+    console.log('[FCM] Permission actual:', Notification.permission);
+  } else {
+    console.warn('[FCM] API Notification no soportada en este navegador.');
+  }
+} catch {}
+
 function $(id){ return document.getElementById(id); }
 function show(el, on){ if (el) el.style.display = on ? 'block' : 'none'; }
 function showInline(el, on){ if (el) el.style.display = on ? 'inline-block' : 'none'; }
@@ -701,3 +715,4 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
+
