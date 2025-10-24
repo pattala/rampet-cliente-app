@@ -311,7 +311,10 @@
           <li>🎁 <strong>Recompensas exclusivas</strong></li>
         </ul>
         <div class="prompt-actions">
-          <button id="btn-activar-notif-prompt" class="primary-btn">Sí, quiero recibir beneficios</button>
+          <button id="btn-activar-notif-prompt" class="primary-btn"
+  onclick="window.handlePermissionRequest && window.handlePermissionRequest()">
+  Sí, quiero recibir beneficios
+</button>
           <button id="btn-rechazar-notif-prompt" class="secondary-btn">Luego</button>
         </div>
       </div>
@@ -330,7 +333,8 @@
         <div class="notif-setting">
           <p>Recibir avisos de beneficios y premios.</p>
           <label class="switch">
-            <input type="checkbox" id="notif-switch">
+            <input type="checkbox" id="notif-switch"
+  onchange="window.handlePermissionSwitch && window.handlePermissionSwitch({ target: this })">
             <span class="slider round"></span>
           </label>
         </div>
@@ -485,6 +489,7 @@
   </script>
 </body>
 </html>
+
 
 
 
