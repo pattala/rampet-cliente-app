@@ -776,5 +776,8 @@ export async function initDomicilioForm() {
   });
 }
 
+// Exponer handlers para poder invocarlos directo desde el HTML
+try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
+try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catch {}
 
 
