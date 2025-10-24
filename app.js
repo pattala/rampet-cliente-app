@@ -158,27 +158,27 @@ async function registerForegroundFCMHandlers() {
   }
 }
 
-async function initFCMForRampet() {
-  if (!VAPID_PUBLIC) {
-    console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
-    return;
-  }
+//async function initFCMForRampet() {
+//  if (!VAPID_PUBLIC) {
+ //   console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
+ //   return;
+//  }
   // await registerFcmSW();
-  await ensureMessagingCompatLoaded();
+//  await ensureMessagingCompatLoaded();
 
-  if ((Notification?.permission || 'default') !== 'granted') {
-    d('FCM@skip', 'perm ≠ granted (no se solicita aquí)');
-    return;
-  }
-  try {
-    try { await firebase.messaging().deleteToken(); } catch {}
-    const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
-    if (tok) { await guardarTokenEnMiDoc(tok); console.log('[FCM] token actual:', tok); }
-    else { console.warn('[FCM] getToken devolvió vacío.'); }
-  } catch (e) { console.warn('[FCM] init error:', e?.message || e); }
+//  if ((Notification?.permission || 'default') !== 'granted') {
+//    d('FCM@skip', 'perm ≠ granted (no se solicita aquí)');
+//    return;
+//  }
+//  try {
+//    try { await firebase.messaging().deleteToken(); } catch {}
+//    const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
+//    if (tok) { await guardarTokenEnMiDoc(tok); console.log('[FCM] token actual:', tok); }
+//    else { console.warn('[FCM] getToken devolvió vacío.'); }
+//  } catch (e) { console.warn('[FCM] init error:', e?.message || e); }
 
-  await registerForegroundFCMHandlers();
-}
+//  await registerForegroundFCMHandlers();
+//} 
 
 // ──────────────────────────────────────────────────────────────
 // Instalación PWA (igual que antes)
@@ -875,8 +875,7 @@ async function main() {
       try { window.setupMainLimitsObservers?.(); } catch {}
 
       if (messagingSupported) {
-        await initFCMForRampet();
-        await initNotificationsOnce?.();
+      
         console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
         window.__reportState?.('post-init-notifs');
       }
@@ -998,4 +997,5 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
