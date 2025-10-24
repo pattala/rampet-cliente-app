@@ -861,6 +861,9 @@ async function main() {
       if (bell) bell.style.display = 'inline-block';
       setupMainAppScreenListeners();
 
+// 🔹 Registrar SW de FCM y, si ya hay permiso, asegurar token
+  try { await initNotificationsOnce(); } catch (e) { console.warn('[PWA] initNotificationsOnce error:', e); }
+      
       Data.listenToClientData(user);
       document.addEventListener('rampet:cliente-updated', (e) => {
         try { window.clienteData = e.detail?.cliente || window.clienteData || {}; } catch {}
@@ -995,3 +998,4 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
