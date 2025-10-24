@@ -21,6 +21,9 @@ function toast(msg, type='info') {
 const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
 
+// Ruta del Service Worker (RELATIVA para que funcione en subcarpetas también)
+const SW_PATH = './firebase-messaging-sw.js';
+
 // ───────────────── Firebase compat helpers ─────────────────
 async function ensureMessagingCompatLoaded() {
   if (typeof firebase?.messaging === 'function') return;
@@ -35,9 +38,9 @@ async function ensureMessagingCompatLoaded() {
 async function registerSW() {
   if (!('serviceWorker' in navigator)) return false;
   try {
-    const existing = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
+    const existing = await navigator.serviceWorker.getRegistration(SW_PATH);
     if (existing) { console.log('✅ SW FCM ya registrado:', existing.scope); return true; }
-    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    const reg = await navigator.serviceWorker.register(SW_PATH);
     console.log('✅ SW FCM registrado:', reg.scope || (location.origin + '/'));
     return true;
   } catch (e) {
@@ -161,7 +164,9 @@ async function borrarTokenYOptOut() {
 async function obtenerYGuardarToken() {
   await ensureMessagingCompatLoaded();
   try { await firebase.messaging().deleteToken(); } catch {}
-  const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
+  // ⚠️ buscar el SW por ruta relativa; si no, intentar cualquiera activo
+  const reg = await navigator.serviceWorker.getRegistration(SW_PATH)
+           || await navigator.serviceWorker.getRegistration();
   if (!reg) throw new Error('SW FCM no está registrado.');
   const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC, serviceWorkerRegistration: reg });
 
@@ -273,7 +278,8 @@ async function hookOnMessage() {
     messaging.onMessage(async (payload) => {
       const d = payload?.data || {};
       try {
-        const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js')
+        // Usar la misma estrategia: primero el SW por ruta relativa, si no hay, cualquiera.
+        const reg = await navigator.serviceWorker.getRegistration(SW_PATH)
                  || await navigator.serviceWorker.getRegistration();
         if (reg?.showNotification) {
           await reg.showNotification(d.title || 'RAMPET', {
@@ -695,4 +701,3 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
-
