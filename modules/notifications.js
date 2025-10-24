@@ -50,11 +50,20 @@ async function ensureMessagingCompatLoaded() {
 }
 
 async function registerSW() {
-  if (!('serviceWorker' in navigator)) return false;
+  if (!('serviceWorker' in navigator)) { console.warn('[FCM] SW no soportado'); return false; }
   try {
-    const existing = await navigator.serviceWorker.getRegistration(SW_PATH);
+    // Verifica que el archivo exista (fetch HEAD rápido)
+    try {
+      const head = await fetch('/firebase-messaging-sw.js', { method: 'HEAD' });
+      if (!head.ok) console.warn('[FCM] /firebase-messaging-sw.js no accesible (HTTP', head.status, ')');
+    } catch (e) {
+      console.warn('[FCM] No se pudo verificar /firebase-messaging-sw.js:', e?.message || e);
+    }
+
+    const existing = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
     if (existing) { console.log('✅ SW FCM ya registrado:', existing.scope); return true; }
-    const reg = await navigator.serviceWorker.register(SW_PATH);
+
+    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
     console.log('✅ SW FCM registrado:', reg.scope || (location.origin + '/'));
     return true;
   } catch (e) {
@@ -62,6 +71,7 @@ async function registerSW() {
     return false;
   }
 }
+
 
 async function getClienteDocIdPorUID(uid) {
   const snap = await firebase.firestore()
@@ -177,14 +187,20 @@ async function borrarTokenYOptOut() {
 
 async function obtenerYGuardarToken() {
   await ensureMessagingCompatLoaded();
-  try { await firebase.messaging().deleteToken(); } catch {}
-  // ⚠️ buscar el SW por ruta relativa; si no, intentar cualquiera activo
-  const reg = await navigator.serviceWorker.getRegistration(SW_PATH)
-           || await navigator.serviceWorker.getRegistration();
-  if (!reg) throw new Error('SW FCM no está registrado.');
-  const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC, serviceWorkerRegistration: reg });
+  const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
+  if (!reg) throw new Error('SW FCM no está registrado (verificá que el archivo exista en la raíz pública).');
 
-  if (!tok) throw new Error('getToken devolvió vacío.');
+  let tok;
+  try {
+    tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC, serviceWorkerRegistration: reg });
+  } catch (e) {
+    console.warn('[FCM] getToken() falló:', e?.message || e);
+    // Errores típicos: "messaging/permission-blocked", "messaging/unsupported-browser", VAPID inválida, etc.
+    throw e;
+  }
+
+  if (!tok) throw new Error('getToken() devolvió vacío (¿VAPID_PUBLIC incorrecta? ¿Permiso denegado/quieter UI?)');
+  console.log('[FCM] Token obtenido OK (recortado):', tok.slice(0, 12) + '…');
   await guardarTokenEnMiDoc(tok);
   return tok;
 }
@@ -233,16 +249,23 @@ export async function handlePermissionRequest() {
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
   try {
     const current = Notification.permission;
+    console.log('[FCM] Estado previo a requestPermission():', current);
+
     if (current === 'granted') {
       await obtenerYGuardarToken();
       refreshNotifUIFromPermission();
       return;
     }
     if (current === 'denied') {
+      console.warn('[FCM] Permiso de notificaciones está DENEGADO a nivel navegador.');
       refreshNotifUIFromPermission();
       return;
     }
+
+    // IMPORTANTE: que esta función sea llamada por un gesto del usuario (click).
     const status = await Notification.requestPermission();
+    console.log('[FCM] Resultado requestPermission():', status);
+
     if (status === 'granted') {
       await obtenerYGuardarToken();
     } else if (status === 'denied') {
@@ -258,6 +281,7 @@ export async function handlePermissionRequest() {
     refreshNotifUIFromPermission();
   }
 }
+
 export function dismissPermissionRequest() {
   try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
   const el = $('notif-prompt-card');
@@ -715,4 +739,5 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
+
 
