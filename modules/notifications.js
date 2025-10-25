@@ -1,5 +1,40 @@
 // /modules/notifications.js — FCM + VAPID + Opt-In (card → switch) + Geo + Domicilio
 'use strict';
+// === WATCHER DE PERMISO DE NOTIFICACIONES (detecta cuando el usuario habilita desde el candado) ===
+let __notifPermWatcherStarted = false;
+
+function startNotifPermissionWatcher() {
+  if (__notifPermWatcherStarted) return;
+  __notifPermWatcherStarted = true;
+
+  try {
+    if (!('permissions' in navigator) || !navigator.permissions?.query) return;
+
+    navigator.permissions.query({ name: 'notifications' }).then((permStatus) => {
+      // Dispara ahora si ya estaba granted (por si llegamos tarde)
+      if (permStatus.state === 'granted') {
+        try { localStorage.setItem('notifState', 'accepted'); } catch {}
+        obtenerYGuardarToken().catch(()=>{}).finally(refreshNotifUIFromPermission);
+      }
+
+      // Y escucha cambios futuros
+      permStatus.onchange = () => {
+        // values: 'granted' | 'denied' | 'prompt'
+        if (permStatus.state === 'granted') {
+          try { localStorage.setItem('notifState', 'accepted'); } catch {}
+          obtenerYGuardarToken().catch(()=>{}).finally(refreshNotifUIFromPermission);
+        } else if (permStatus.state === 'denied') {
+          try { localStorage.setItem('notifState', 'blocked'); } catch {}
+          refreshNotifUIFromPermission();
+        } else {
+          // 'prompt' → UI marketing/switch
+          try { localStorage.setItem('notifState', 'deferred'); } catch {}
+          refreshNotifUIFromPermission();
+        }
+      };
+    }).catch(()=>{});
+  } catch {}
+}
 
 // ─────────────────────────────────────────────────────────────
 // CONFIG / HELPERS
@@ -332,6 +367,9 @@ function refreshNotifUIFromPermission() {
 }
 
 export async function handlePermissionRequest() {
+
+  // ⬇️ NUEVO: por si el usuario habilita desde el candado luego del click
+  startNotifPermissionWatcher();   // <——— AGREGAR ESTA LÍNEA
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
 
   // Debounce: si ya hay un request en curso, no dispares otro
@@ -497,6 +535,8 @@ try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
 // ─────────────────────────────────────────────────────────────
 export async function initNotificationsOnce() {
   await registerSW();
+   // ⬇️ NUEVO: empezar a observar el permiso apenas inicia la app
+  startNotifPermissionWatcher();   // <——— AGREGAR ESTA LÍNEA
   if ('Notification' in window && Notification.permission === 'granted') {
     try {
       await obtenerYGuardarToken();
@@ -906,6 +946,7 @@ export async function initDomicilioForm() {
 // Exponer handlers para poder invocarlos directo desde el HTML
 try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
 try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catch {}
+
 
 
 
