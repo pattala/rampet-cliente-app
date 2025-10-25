@@ -5,12 +5,13 @@ import * as UI from './modules/ui.js';
 try { window.UI = UI; } catch {}
 import * as Data from './modules/data.js';
 import * as Auth from './modules/auth.js';
-import { handlePermissionRequest, handlePermissionSwitch } from './modules/notifications.js';
 
 // Notificaciones (único import desde notifications.js)
 import {
   initNotificationsOnce,
   dismissPermissionRequest,
+  handlePermissionRequest,
+  handlePermissionSwitch,
   handleBellClick,
   handleSignOutCleanup
 } from './modules/notifications.js';
@@ -30,67 +31,8 @@ window.__reportState = async (where='')=>{
 };
 
 // ──────────────────────────────────────────────────────────────
-// FCM helpers (igual que antes)
+// Badge campanita (se usa con mensajes del SW)
 // ──────────────────────────────────────────────────────────────
-const VAPID_PUBLIC = (window.__RAMPET__ && window.__RAMPET__.VAPID_PUBLIC) || '';
-
-async function ensureMessagingCompatLoaded() {
-  if (typeof firebase?.messaging === 'function') return;
-  await new Promise((ok, err) => {
-    const s = document.createElement('script');
-    s.src = 'https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js';
-    s.onload = ok; s.onerror = err;
-    document.head.appendChild(s);
-  });
-}
-
-async function registerFcmSW() {
-  if (!('serviceWorker' in navigator)) return false;
-  try {
-    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
-    console.log('✅ SW FCM registrado:', reg.scope || (location.origin + '/'));
-    return true;
-  } catch (e) {
-    console.warn('[FCM] No se pudo registrar SW:', e?.message || e);
-    return false;
-  }
-}
-
-async function resolveClienteRefByAuthUID() {
-  const u = auth.currentUser;
-  if (!u) return null;
-  const qs = await db.collection('clientes').where('authUID','==', u.uid).limit(1).get();
-  if (qs.empty) return null;
-  return qs.docs[0].ref;
-}
-async function guardarTokenEnMiDoc(token) {
-  const ref = await resolveClienteRefByAuthUID();
-  if (!ref) throw new Error('No encontré tu doc en clientes (authUID).');
-  await ref.set({ fcmTokens: [token] }, { merge: true }); // reemplazo total
-  try { localStorage.setItem('fcmToken', token); } catch {}
-  console.log('✅ Token FCM guardado en', ref.path);
-}
-
-/** Foreground: notificación del sistema aunque la PWA esté abierta */
-async function showForegroundNotification(data) {
-  try {
-    if (!('Notification' in window) || Notification.permission !== 'granted') return;
-    const reg = await navigator.serviceWorker.getRegistration();
-    if (!reg) return;
-    const opts = {
-      body: data.body || '',
-      icon: data.icon || 'https://rampet.vercel.app/images/mi_logo_192.png',
-      data: { id: data.id, url: data.url || '/?inbox=1' }
-    };
-    if (data.tag) { opts.tag = data.tag; opts.renotify = true; }
-    if (data.badge) opts.badge = data.badge;
-    await reg.showNotification(data.title || 'RAMPET', opts);
-  } catch (e) {
-    console.warn('[FCM] showForegroundNotification error:', e?.message || e);
-  }
-}
-
-/** Badge campanita */
 function ensureBellBlinkStyle(){
   if (document.getElementById('__bell_blink_css__')) return;
   const css = `
@@ -121,137 +63,22 @@ function setBadgeCount(n){
 function bumpBadge(){ setBadgeCount(getBadgeCount() + 1); }
 function resetBadge(){ setBadgeCount(0); }
 
-/** onMessage foreground */
-async function registerForegroundFCMHandlers() {
-  await ensureMessagingCompatLoaded();
-  const messaging = firebase.messaging();
-  messaging.onMessage(async (payload) => {
-    const dd = payload?.data || {};
-    const id  = dd.id ? String(dd.id) : undefined;
-    const tag = dd.tag ? String(dd.tag) : (id ? `push-${id}` : undefined);
-    const d = {
-      id,
-      title: String(dd.title || dd.titulo || 'RAMPET'),
-      body:  String(dd.body  || dd.cuerpo || ''),
-      icon:  String(dd.icon  || 'https://rampet.vercel.app/images/mi_logo_192.png'),
-      badge: dd.badge ? String(dd.badge) : undefined,
-      url:   String(dd.url   || dd.click_action || '/?inbox=1'),
-      tag
-    };
-    await showForegroundNotification(d);
-    bumpBadge();
-    try {
-      const modal = document.getElementById('inbox-modal');
-      if (modal && modal.style.display === 'flex') {
-        await fetchInboxBatchUnified?.();
-      }
-    } catch {}
+// Canal SW → APP: solo para contar/botón (no registramos otro onMessage)
+function wireSwMessageChannel(){
+  if (!('serviceWorker' in navigator)) return;
+  if (window.__wiredSwMsg) return;
+  window.__wiredSwMsg = true;
+  navigator.serviceWorker.addEventListener('message', async (ev) => {
+    const t = ev?.data?.type;
+    if (t === 'PUSH_DELIVERED') bumpBadge();
+    else if (t === 'OPEN_INBOX') {
+      try { await openInboxModal(); } catch {}
+    }
   });
-
-  // Canal SW → APP
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.addEventListener('message', async (ev) => {
-      const t = ev?.data?.type;
-      if (t === 'PUSH_DELIVERED') bumpBadge();
-      else if (t === 'OPEN_INBOX') await openInboxModal();
-    });
-  }
 }
-
-//async function initFCMForRampet() {
-//  if (!VAPID_PUBLIC) {
- //   console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
- //   return;
-//  }
-  // await registerFcmSW();
-//  await ensureMessagingCompatLoaded();
-
-//  if ((Notification?.permission || 'default') !== 'granted') {
-//    d('FCM@skip', 'perm ≠ granted (no se solicita aquí)');
-//    return;
-//  }
-//  try {
-//    try { await firebase.messaging().deleteToken(); } catch {}
-//    const tok = await firebase.messaging().getToken({ vapidKey: VAPID_PUBLIC });
-//    if (tok) { await guardarTokenEnMiDoc(tok); console.log('[FCM] token actual:', tok); }
-//    else { console.warn('[FCM] getToken devolvió vacío.'); }
-//  } catch (e) { console.warn('[FCM] init error:', e?.message || e); }
-
-//  await registerForegroundFCMHandlers();
-//} 
 
 // ──────────────────────────────────────────────────────────────
-// Instalación PWA (igual que antes)
-// ──────────────────────────────────────────────────────────────
-let deferredInstallPrompt = null;
-window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredInstallPrompt = e; console.log('✅ beforeinstallprompt'); });
-window.addEventListener('appinstalled', async () => {
-  console.log('✅ App instalada');
-  localStorage.removeItem('installDismissed');
-  deferredInstallPrompt = null;
-  document.getElementById('install-prompt-card')?.style?.setProperty('display','none');
-  document.getElementById('install-entrypoint')?.style?.setProperty('display','none');
-  document.getElementById('install-help-modal')?.style?.setProperty('display','none');
-  localStorage.setItem('pwaInstalled', 'true');
-
-  const u = auth.currentUser;
-  if (!u) return;
-  try {
-    const snap = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
-    if (snap.empty) return;
-    const ref = snap.docs[0].ref;
-    const ua = navigator.userAgent || '';
-    const isIOS = /iPhone|iPad|iPod/i.test(ua);
-    const isAndroid = /Android/i.test(ua);
-    const platform = isIOS ? 'iOS' : isAndroid ? 'Android' : 'Desktop';
-    await ref.set({ pwaInstalled: true, pwaInstalledAt: new Date().toISOString(), pwaInstallPlatform: platform }, { merge: true });
-  } catch (e) { console.warn('No se pudo registrar la instalación en Firestore:', e); }
-});
-function isStandalone() {
-  const displayModeStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
-  const iosStandalone = window.navigator.standalone === true;
-  return displayModeStandalone || iosStandalone;
-}
-function showInstallPromptIfAvailable() {
-  if (deferredInstallPrompt && !localStorage.getItem('installDismissed')) {
-    const card = document.getElementById('install-prompt-card');
-    if (card) card.style.display = 'block';
-  }
-}
-async function handleInstallPrompt() {
-  if (!deferredInstallPrompt) return;
-  deferredInstallPrompt.prompt();
-  const { outcome } = await deferredInstallPrompt.userChoice;
-  console.log(`El usuario eligió: ${outcome}`);
-  deferredInstallPrompt = null;
-  const card = document.getElementById('install-prompt-card');
-  if (card) card.style.display = 'none';
-}
-async function handleDismissInstall() {
-  localStorage.setItem('installDismissed', 'true');
-  const card = document.getElementById('install-prompt-card');
-  if (card) card.style.display = 'none';
-  console.log('El usuario descartó la instalación.');
-  const u = auth.currentUser;
-  if (!u) return;
-  try {
-    const snap = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
-    if (snap.empty) return;
-    await snap.docs[0].ref.set({ pwaInstallDismissedAt: new Date().toISOString() }, { merge: true });
-  } catch (e) { console.warn('No se pudo registrar el dismiss en Firestore:', e); }
-}
-function getInstallInstructions() {
-  const ua = navigator.userAgent.toLowerCase();
-  const isIOS = /iphone|ipad|ipod/.test(ua);
-  const isAndroid = /android/.test(ua);
-  if (isIOS) return `<p>En iPhone/iPad:</p><ol><li>Tocá el botón <strong>Compartir</strong>.</li><li><strong>Añadir a pantalla de inicio</strong>.</li><li>Confirmá con <strong>Añadir</strong>.</li></ol>`;
-  if (isAndroid) return `<p>En Android (Chrome/Edge):</p><ol><li>Menú <strong>⋮</strong> del navegador.</li><li><strong>Instalar app</strong> o <strong>Añadir a pantalla principal</strong>.</li><li>Confirmá.</li></ol>`;
-  return `<p>En escritorio (Chrome/Edge):</p><ol><li>Icono <strong>Instalar</strong> en la barra de direcciones.</li><li><strong>Instalar app</strong>.</li><li>Confirmá.</li></ol>`;
-}
-function on(id, event, handler) { const el = document.getElementById(id); if (el) el.addEventListener(event, handler); }
-
-// ──────────────────────────────────────────────────────────────
-// INBOX (igual que antes; se mantiene)
+// INBOX (igual que antes)
 // ──────────────────────────────────────────────────────────────
 let inboxFilter = 'all';
 let inboxLastSnapshot = [];
@@ -384,13 +211,13 @@ function wireInboxModal(){
     });
   };
 
-  on('inbox-tab-todos','click', async ()=>{ inboxFilter='all';   setActive('inbox-tab-todos');  renderInboxList(inboxLastSnapshot); });
-  on('inbox-tab-promos','click',async ()=>{ inboxFilter='promos'; setActive('inbox-tab-promos'); renderInboxList(inboxLastSnapshot); });
-  on('inbox-tab-puntos','click',async ()=>{ inboxFilter='puntos'; setActive('inbox-tab-puntos'); renderInboxList(inboxLastSnapshot); });
-  on('inbox-tab-otros','click', async ()=>{ inboxFilter='otros';  setActive('inbox-tab-otros');  renderInboxList(inboxLastSnapshot); });
+  document.getElementById('inbox-tab-todos')?.addEventListener('click', async ()=>{ inboxFilter='all';   setActive('inbox-tab-todos');  renderInboxList(inboxLastSnapshot); });
+  document.getElementById('inbox-tab-promos')?.addEventListener('click',async ()=>{ inboxFilter='promos'; setActive('inbox-tab-promos'); renderInboxList(inboxLastSnapshot); });
+  document.getElementById('inbox-tab-puntos')?.addEventListener('click',async ()=>{ inboxFilter='puntos'; setActive('inbox-tab-puntos'); renderInboxList(inboxLastSnapshot); });
+  document.getElementById('inbox-tab-otros')?.addEventListener('click', async ()=>{ inboxFilter='otros';  setActive('inbox-tab-otros');  renderInboxList(inboxLastSnapshot); });
 
-  on('close-inbox-modal','click', ()=> modal.style.display='none');
-  on('inbox-close-btn','click', ()=> modal.style.display='none');
+  document.getElementById('close-inbox-modal')?.addEventListener('click', ()=> modal.style.display='none');
+  document.getElementById('inbox-close-btn')?.addEventListener('click', ()=> modal.style.display='none');
   modal.addEventListener('click',(e)=>{ if(e.target===modal) modal.style.display='none'; });
 }
 async function openInboxModal() {
@@ -459,6 +286,8 @@ function reorderProfileCards(){
 // LISTENERS Auth/Main
 // ──────────────────────────────────────────────────────────────
 function setupAuthScreenListeners() {
+  const on = (id, event, handler) => { const el = document.getElementById(id); if (el) el.addEventListener(event, handler); };
+
   on('show-register-link', 'click', (e) => { 
     e.preventDefault(); 
     UI.showScreen('register-screen'); 
@@ -491,6 +320,7 @@ function setupAuthScreenListeners() {
 }
 
 function setupMainAppScreenListeners() {
+  const on = (id, event, handler) => { const el = document.getElementById(id); if (el) el.addEventListener(event, handler); };
   if (window.__RAMPET__?.mainListenersWired) return;
   (window.__RAMPET__ ||= {}).mainListenersWired = true;
 
@@ -575,19 +405,8 @@ function setupMainAppScreenListeners() {
   on('btn-install-pwa', 'click', handleInstallPrompt);
   on('btn-dismiss-install', 'click', handleDismissInstall);
 
-  // Notificaciones
+  // Notificaciones UI
   on('btn-notifs', 'click', async () => { try { await openInboxModal(); } catch {} try { await handleBellClick(); } catch {} });
-
-  on('install-entrypoint', 'click', async () => {
-    if (deferredInstallPrompt) { try { await handleInstallPrompt(); return; } catch (e) { console.warn('Error prompt nativo:', e); } }
-    const modal = document.getElementById('install-help-modal');
-    const instructions = document.getElementById('install-instructions');
-    if (instructions) instructions.innerHTML = getInstallInstructions();
-    if (modal) modal.style.display = 'block';
-  });
-  on('close-install-help', 'click', () => { const modal = document.getElementById('install-help-modal'); if (modal) modal.style.display = 'none'; });
-
-  // Permisos de notificaciones (tarjeta)
   on('btn-activar-notif-prompt', 'click', async () => { try { await handlePermissionRequest(); } catch {} });
   on('btn-rechazar-notif-prompt', 'click', async () => { try { await Data.saveNotifDismiss(); } catch {} try { await dismissPermissionRequest(); } catch {} });
   on('notif-switch', 'change', async (e) => { try { await handlePermissionSwitch(e); } catch {} });
@@ -603,7 +422,7 @@ function openInboxIfQuery() {
 }
 
 // ————————————————————————————————————————————————
-// Domicilio: BA/CABA inteligente + placeholders “Partido/Barrio” y “Localidad/Barrio”
+// Domicilio: BA/CABA inteligente + placeholders
 // ————————————————————————————————————————————————
 const BA_LOCALIDADES_BY_PARTIDO = {
   "San Isidro": ["Béccar","Acassuso","Martínez","San Isidro","Villa Adelina","Boulogne Sur Mer","La Horqueta"],
@@ -642,8 +461,6 @@ const CABA_BARRIOS = [
   "Floresta","Villa Urquiza","Villa Devoto","Villa del Parque","Chacarita","Colegiales","Núñez","Saavedra",
   "Boedo","Parque Patricios","Barracas","La Boca","Mataderos","Liniers","Parque Chacabuco","Villa Crespo"
 ];
-
-// (fallback general para otras provincias)
 const ZONAS_AR = {
   'Buenos Aires': { partidos: Object.keys(BA_LOCALIDADES_BY_PARTIDO).sort(), localidades: [] },
   'CABA': { partidos: [], localidades: CABA_BARRIOS },
@@ -662,21 +479,17 @@ const ZONAS_AR = {
   'Tucumán': {
     partidos: ['Capital','Tafí Viejo','Yerba Buena','Lules','Cruz Alta','Tafí del Valle','Monteros','Chicligasta'],
     localidades: ['San Miguel de Tucumán','Yerba Buena','Tafí Viejo','Banda del Río Salí','Lules','Monteros','Concepción','Tafí del Valle']
-  },
-  // … el resto como venías usando
+  }
 };
 
 function setOptionsList(el, values = []) {
   if (!el) return;
   el.innerHTML = values.map(v => `<option value="${v}">`).join('');
 }
-
-/** Reordenar campos para que PROVINCIA quede tras DEPTO (perfil/registro) */
 function reorderAddressFields(prefix = 'dom-'){
   const grid = (prefix === 'dom-')
     ? document.querySelector('#address-card .grid-2')
     : document.querySelector('#register-form .grid-2') || document.querySelector('#register-screen .grid-2');
-
   if (!grid) return;
   const provincia = document.getElementById(`${prefix}provincia`);
   const depto = document.getElementById(`${prefix}depto`);
@@ -684,15 +497,11 @@ function reorderAddressFields(prefix = 'dom-'){
   const loc    = document.getElementById(`${prefix}localidad`);
   const part   = document.getElementById(`${prefix}partido`);
   if (!provincia || !depto) return;
-
-  // Insertar provincia inmediatamente después de depto
   const nextRef = barrio || loc || part || depto.nextSibling;
   if (nextRef && provincia !== nextRef.previousSibling) {
     try { grid.insertBefore(provincia, nextRef); } catch {}
   }
 }
-
-/** Wiring dependiente por prefijo con placeholders “Partido/Barrio” y “Localidad/Barrio” */
 function wireAddressDatalists(prefix = 'dom-') {
   const provSel   = document.getElementById(`${prefix}provincia`);
   const locInput  = document.getElementById(`${prefix}localidad`);
@@ -764,15 +573,12 @@ function wireAddressDatalists(prefix = 'dom-') {
     provSel.dataset[`wired_${prefix}`] = '1';
   }
 
-  // Primera carga
   refreshPartidos();
   refreshLocalidades();
-  // Asegurar orden visual pedido
   reorderAddressFields(prefix);
 }
 
-// —— Address/banner wiring (usa prefijo dom-) ——
-// (también llama a wireAddressDatalists y reordena campos)
+// —— Address/banner wiring
 async function setupAddressSection() {
   const banner = document.getElementById('address-banner');
   const card   = document.getElementById('address-card');
@@ -802,13 +608,10 @@ async function setupAddressSection() {
     }, 600);
   });
 
-  // Datalists + placeholders dependientes (form dentro de la app)
   wireAddressDatalists('dom-');
 
-  // Precarga/guardado real (módulo notifications)
   try { await import('./modules/notifications.js').then(m => m.initDomicilioForm?.()); } catch {}
 
-  // Lógica de primer ingreso
   const justSignedUp = localStorage.getItem('justSignedUp') === '1';
   const addrProvidedAtSignup = localStorage.getItem('addressProvidedAtSignup') === '1';
 
@@ -820,14 +623,16 @@ async function setupAddressSection() {
   }
   try { localStorage.removeItem('addressProvidedAtSignup'); } catch {}
 
-  // ¿Tiene domicilio ya?
   let hasAddress = false;
   try {
-    const ref = await resolveClienteRefByAuthUID();
-    if (ref) {
-      const snap = await ref.get();
-      const comp = snap.data()?.domicilio?.components;
-      hasAddress = !!(comp && (comp.calle || comp.localidad || comp.partido || comp.provincia || comp.codigoPostal));
+    const u = auth.currentUser;
+    if (u) {
+      const qs = await db.collection('clientes').where('authUID','==', u.uid).limit(1).get();
+      if (!qs.empty) {
+        const snap = await qs.docs[0].ref.get();
+        const comp = snap.data()?.domicilio?.components;
+        hasAddress = !!(comp && (comp.calle || comp.localidad || comp.partido || comp.provincia || comp.codigoPostal));
+      }
     }
   } catch {}
 
@@ -842,8 +647,6 @@ async function setupAddressSection() {
   }
 }
 
-// ──────────────────────────────────────────────────────────────
-// Main
 // ──────────────────────────────────────────────────────────────
 async function main() {
   setupFirebase();
@@ -861,33 +664,34 @@ async function main() {
       if (bell) bell.style.display = 'inline-block';
       setupMainAppScreenListeners();
 
-// 🔹 Registrar SW de FCM y, si ya hay permiso, asegurar token
-  try { await initNotificationsOnce(); } catch (e) { console.warn('[PWA] initNotificationsOnce error:', e); }
-      
+      // 🔹 Registrar SW + token si ya hay permiso (solo una vez, desde notifications.js)
+      try { await initNotificationsOnce(); } catch (e) { console.warn('[PWA] initNotificationsOnce error:', e); }
+
+      // ⚡ escuchar mensajes del SW para badge (sin duplicar onMessage)
+      wireSwMessageChannel();
+
       Data.listenToClientData(user);
       document.addEventListener('rampet:cliente-updated', (e) => {
         try { window.clienteData = e.detail?.cliente || window.clienteData || {}; } catch {}
       });
 
       try { await window.ensureGeoOnStartup?.(); } catch {}
-      document.addEventListener('visibilitychange', async () => { if (document.visibilityState === 'visible') { try { await window.maybeRefreshIfStale?.(); } catch {} } });
+      document.addEventListener('visibilitychange', async () => {
+        if (document.visibilityState === 'visible') { try { await window.maybeRefreshIfStale?.(); } catch {} }
+      });
 
       try { window.setupMainLimitsObservers?.(); } catch {}
 
       if (messagingSupported) {
-      
         console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
         window.__reportState?.('post-init-notifs');
       }
 
       setBadgeCount(getBadgeCount());
-      showInstallPromptIfAvailable();
       const installBtn = document.getElementById('install-entrypoint');
-      if (installBtn) installBtn.style.display = isStandalone() ? 'none' : 'inline-block';
+      if (installBtn) installBtn.style.display = (window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone) ? 'none' : 'inline-block';
 
-      // 👉 Domicilio (banner/form)
       await setupAddressSection();
-
       openInboxIfQuery();
 
       try {
@@ -906,7 +710,6 @@ async function main() {
       inboxLastSnapshot = [];
       resetBadge();
 
-      // Prepara datalist del registro por si navegan allí
       wireAddressDatalists('reg-');
       reorderAddressFields('reg-');
     }
@@ -914,13 +717,11 @@ async function main() {
 }
 
 // ──────────────────────────────────────────────────────────────
-// T&C: interceptar clicks en cualquier link y abrir el modal
+// T&C: interceptar links y abrir modal
 // ──────────────────────────────────────────────────────────────
 function ensureTermsModalPresent() {
   let modal = document.getElementById('terms-modal');
   if (modal) return modal;
-
-  // Si no existe, creamos un modal mínimo para no fallar silenciosamente
   console.warn('[T&C] #terms-modal no encontrado. Creando modal básico on-the-fly.');
   modal = document.createElement('div');
   modal.id = 'terms-modal';
@@ -941,61 +742,39 @@ function ensureTermsModalPresent() {
   `;
   document.body.appendChild(modal);
 
-  // Cablear cierre básico
-  modal.addEventListener('click', (ev) => {
-    if (ev.target === modal) modal.style.display = 'none';
-  });
-  document.getElementById('close-terms-modal')?.addEventListener('click', () => {
-    modal.style.display = 'none';
-  });
+  modal.addEventListener('click', (ev) => { if (ev.target === modal) modal.style.display = 'none'; });
+  document.getElementById('close-terms-modal')?.addEventListener('click', () => { modal.style.display = 'none'; });
 
   try { loadTermsContent?.(); } catch {}
   try { wireTermsModalBehavior?.(); } catch {}
 
   return modal;
 }
-
 function openTermsModalCatchAll() {
   const modal = ensureTermsModalPresent();
-
-  try {
-    openTermsModal?.();
-  } catch {
-    try { UI.openTermsModal?.(true); } catch {
-      modal.style.display = 'flex';
-    }
+  try { openTermsModal?.(); }
+  catch {
+    try { UI.openTermsModal?.(true); } catch { modal.style.display = 'flex'; }
   }
-
   try { wireTermsModalBehavior?.(); } catch {}
 }
-
 document.addEventListener('click', (e) => {}, true);
-
 document.addEventListener('click', (e) => {
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-
   const trigger = e.target.closest(
     '#show-terms-link, #show-terms-link-banner, #footer-terms-link,' +
     '[data-open-terms], a[href="#terminos"], a[href="#terms"], a[href="/terminos"], a[href*="terminos-y-condiciones"]'
   );
   if (!trigger) return;
-
-  console.debug('[T&C] click interceptado en:', trigger);
-
   e.preventDefault();
   e.stopPropagation();
-
   openTermsModalCatchAll();
 }, true);
 
 // arranque de la app
 document.addEventListener('DOMContentLoaded', () => {
-  // asegurar reorden del perfil por si abren muy rápido
   try { reorderProfileCards(); } catch {}
-  // asegurar orden de campos en ambas vistas
   try { reorderAddressFields('dom-'); } catch {}
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
-
-
