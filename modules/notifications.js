@@ -31,6 +31,45 @@ function toast(msg, type='info') {
   if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
 }
 
+function showNotifHelpOverlay() {
+  // Reutiliza tu card de advertencia si querés. Si no existe, muestro un overlay mínimo.
+  const warned = document.getElementById('notif-blocked-warning');
+  if (warned) {
+    warned.style.display = 'block';
+    warned.innerHTML = `
+      <p>⚠️ Es posible que el navegador esté bloqueando el pedido de permiso (“modo silencioso”).</p>
+      <p><strong>Cómo habilitar:</strong> hacé clic en el ícono de candado (🔒) de la barra de direcciones → <em>Notificaciones</em> → <strong>Permitir</strong>, y luego recargá la página.</p>
+    `;
+    return;
+  }
+
+  // Overlay liviano si no está el banner
+  const id = '__notif_help_overlay__';
+  if (document.getElementById(id)) return;
+  const div = document.createElement('div');
+  div.id = id;
+  div.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px;';
+  div.innerHTML = `
+    <div style="max-width:520px;width:100%;background:#fff;border-radius:12px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.2)">
+      <h3 style="margin-top:0">Habilitar notificaciones</h3>
+      <p>Es posible que tu navegador esté usando el <em>modo silencioso</em> para permisos.</p>
+      <ol style="margin:8px 0 12px 20px;">
+        <li>Clic en el ícono de <strong>candado (🔒)</strong> en la barra de direcciones.</li>
+        <li>Abrí <strong>Permisos → Notificaciones</strong>.</li>
+        <li>Elegí <strong>Permitir</strong> y recargá la página.</li>
+      </ol>
+      <div style="text-align:right;">
+        <button id="__notif_help_close__" class="primary-btn">Entendido</button>
+      </div>
+    </div>`;
+  document.body.appendChild(div);
+  document.getElementById('__notif_help_close__')?.addEventListener('click', ()=> div.remove());
+}
+
+
+
+
+
 // Estados persistentes
 const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
@@ -289,8 +328,19 @@ export async function handlePermissionRequest() {
       return;
     }
 
-    // IMPORTANTE: que esta función sea llamada por un gesto del usuario (click).
+    // current === 'default' → pedimos permiso
+    let settled = false;
+    const quietUITimer = setTimeout(() => {
+      // Si el navegador “silencia” el prompt, ayudamos al usuario
+      if (!settled && Notification.permission === 'default') {
+        console.warn('[FCM] Posible Quiet UI: el navegador no mostró el prompt.');
+        showNotifHelpOverlay();
+      }
+    }, 1200); // ~1.2s: tiempo suficiente para que aparezca el prompt si no está silenciado
+
     const status = await Notification.requestPermission();
+    settled = true;
+    clearTimeout(quietUITimer);
     console.log('[FCM] Resultado requestPermission():', status);
 
     if (status === 'granted') {
@@ -299,15 +349,22 @@ export async function handlePermissionRequest() {
       try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out', { source: 'prompt' });
     } else {
+      // status === 'default' → el usuario ignoró, o Quiet UI
       try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
       emit('rampet:consent:notif-dismissed', {});
+      // aseguro guía visible si no salió nada
+      showNotifHelpOverlay();
     }
+
     refreshNotifUIFromPermission();
   } catch (e) {
     console.warn('[notifications] handlePermissionRequest error:', e?.message || e);
+    // Por las dudas, guía también en error
+    showNotifHelpOverlay();
     refreshNotifUIFromPermission();
   }
 }
+
 
 export function dismissPermissionRequest() {
   try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
@@ -821,6 +878,7 @@ export async function initDomicilioForm() {
 // Exponer handlers para poder invocarlos directo desde el HTML
 try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
 try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catch {}
+
 
 
 
