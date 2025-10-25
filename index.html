@@ -16,90 +16,80 @@
       VAPID_PUBLIC: 'BF-KoL99dP_eOzjYisObou-0jHHayo4QNKAcqRWDAPLYSspsNWvCSyY3H4gJd2hF3g8TRDchT0JrxM-4RGf7Lv4'
     };
   </script>
- 
- <!-- Firebase compat -->
+
+  <!-- Firebase compat -->
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-analytics-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.6.0/firebase-messaging-compat.js"></script>
 
-<script type="module" src="/app.js"></script>
-
+  <script type="module" src="/app.js"></script>
 </head>
-
-  
-
-  
-  
-  <body>
-
+<body>
   <!-- Modal perfil / editar datos -->
-<div id="profile-modal" class="modal-overlay" style="display:none;">
-  <div class="modal-content" style="max-width:520px;">
-    <span id="profile-close" class="modal-close-btn">×</span>
-    <h2>Mi perfil</h2>
+  <div id="profile-modal" class="modal-overlay" style="display:none;">
+    <div class="modal-content" style="max-width:520px;">
+      <span id="profile-close" class="modal-close-btn">×</span>
+      <h2>Mi perfil</h2>
 
-    <div class="form-group">
-      <div>
-        <label for="prof-nombre">Nombre completo</label>
-        <input id="prof-nombre" type="text" placeholder="Nombre completo">
+      <div class="form-group">
+        <div>
+          <label for="prof-nombre">Nombre completo</label>
+          <input id="prof-nombre" type="text" placeholder="Nombre completo">
+        </div>
+
+        <div>
+          <label for="prof-telefono">Teléfono</label>
+          <input id="prof-telefono" type="tel" placeholder="Sólo números">
+        </div>
+
+        <div>
+          <label for="prof-fecha">Fecha de nacimiento</label>
+          <input id="prof-fecha" type="date">
+        </div>
+
+        <div>
+          <label for="prof-dni">DNI</label>
+          <input id="prof-dni" type="text" disabled>
+        </div>
+
+        <div>
+          <label for="prof-email">Email</label>
+          <input id="prof-email" type="email" disabled>
+        </div>
       </div>
 
-      <div>
-        <label for="prof-telefono">Teléfono</label>
-        <input id="prof-telefono" type="tel" placeholder="Sólo números">
+      <!-- 🔼 Domicilio primero -->
+      <div class="card prefs-card" style="margin-top:8px;">
+        <h3 style="margin-top:0;">Domicilio</h3>
+        <div id="prof-address-summary" class="profile-address-summary">—</div>
+        <div style="display:flex;justify-content:flex-end;">
+          <button id="prof-edit-address-btn" class="secondary-btn" type="button">Editar domicilio</button>
+        </div>
       </div>
 
-      <div>
-        <label for="prof-fecha">Fecha de nacimiento</label>
-        <input id="prof-fecha" type="date">
+      <!-- 🔽 Preferencias último -->
+      <div class="card prefs-card" style="margin-top:8px;">
+        <h3 style="margin-top:0;">Preferencias</h3>
+        <label class="profile-consent">
+          <input id="prof-consent-notif" type="checkbox">
+          <span>Recibir <strong>avisos de descuentos y novedades</strong></span>
+        </label>
+        <label class="profile-consent">
+          <input id="prof-consent-geo" type="checkbox">
+          <span>Activar <strong>beneficios en mi zona</strong></span>
+        </label>
+        <p class="small-note">Podés cambiar estas opciones cuando quieras.</p>
       </div>
 
-      <div>
-        <label for="prof-dni">DNI</label>
-        <input id="prof-dni" type="text" disabled>
+      <div class="modal-actions" style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px;">
+        <button id="prof-cancel" class="secondary-btn" type="button">Cancelar</button>
+        <button id="prof-save" class="primary-btn" type="button">Guardar cambios</button>
       </div>
-
-      <div>
-        <label for="prof-email">Email</label>
-        <input id="prof-email" type="email" disabled>
-      </div>
-    </div>
-
-    <!-- 🔼 Domicilio primero -->
-    <div class="card prefs-card" style="margin-top:8px;">
-      <h3 style="margin-top:0;">Domicilio</h3>
-      <div id="prof-address-summary" class="profile-address-summary">—</div>
-      <div style="display:flex;justify-content:flex-end;">
-        <button id="prof-edit-address-btn" class="secondary-btn" type="button">Editar domicilio</button>
-      </div>
-    </div>
-
-    <!-- 🔽 Preferencias último -->
-    <div class="card prefs-card" style="margin-top:8px;">
-      <h3 style="margin-top:0;">Preferencias</h3>
-      <label class="profile-consent">
-        <input id="prof-consent-notif" type="checkbox">
-        <span>Recibir <strong>avisos de descuentos y novedades</strong></span>
-      </label>
-      <label class="profile-consent">
-        <input id="prof-consent-geo" type="checkbox">
-        <span>Activar <strong>beneficios en mi zona</strong></span>
-      </label>
-      <p class="small-note">Podés cambiar estas opciones cuando quieras.</p>
-    </div>
-
-    <div class="modal-actions" style="display:flex; gap:10px; justify-content:flex-end; margin-top:12px;">
-      <button id="prof-cancel" class="secondary-btn" type="button">Cancelar</button>
-      <button id="prof-save" class="primary-btn" type="button">Guardar cambios</button>
     </div>
   </div>
-</div>
 
-
-
-   
   <div id="toast-container"></div>
 
   <div class="container">
@@ -162,7 +152,6 @@
             <input id="reg-numero" placeholder="Número (puede ser s/n)">
             <input id="reg-piso" placeholder="Piso">
             <input id="reg-depto" placeholder="Depto">
-         
 
             <input id="reg-localidad" list="reg-localidad-list" placeholder="Localidad / Barrio">
             <datalist id="reg-localidad-list"></datalist>
@@ -203,13 +192,8 @@
         <h3>Hola, <span id="cliente-nombre">--</span> (<span id="cliente-numero-socio">--</span>)</h3>
         <div class="user-actions">
           <button id="edit-profile-btn" class="secondary-btn">Mi perfil</button>
-         <button id="change-password-btn" class="secondary-btn">Cambiar Clave</button>
+          <button id="change-password-btn" class="secondary-btn">Cambiar Clave</button>
           <button id="logout-btn" class="secondary-btn">Salir</button>
-
-     
-       
- 
-        
         </div>
       </div>
 
@@ -238,7 +222,6 @@
           <input id="dom-numero" placeholder="Número (puede ser s/n)">
           <input id="dom-piso" placeholder="Piso">
           <input id="dom-depto" placeholder="Depto">
-          
 
           <!-- Localidad y Partido con datalist -->
           <input id="dom-localidad" list="localidad-list" placeholder="Localidad / Barrio">
@@ -311,8 +294,7 @@
           <li>🎁 <strong>Recompensas exclusivas</strong></li>
         </ul>
         <div class="prompt-actions">
-         <button id="btn-activar-notif-prompt" class="primary-btn">Sí, quiero recibir beneficios</button>
-
+          <button id="btn-activar-notif-prompt" class="primary-btn">Sí, quiero recibir beneficios</button>
           <button id="btn-rechazar-notif-prompt" class="secondary-btn">Luego</button>
         </div>
       </div>
@@ -437,11 +419,6 @@
     </div>
   </div>
 
-
-
-  <!-- App -->
- 
-
   <!-- Deep-link del INBOX -->
   <script>
     (function () {
@@ -449,7 +426,6 @@
       const wantsInbox =
         u.pathname.replace(/\/+$/,'') === '/notificaciones' ||
         u.searchParams.has('inbox');
-
       if (!wantsInbox) return;
 
       function tryOpen() {
@@ -469,22 +445,3 @@
   </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
