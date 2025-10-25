@@ -281,6 +281,98 @@ function reorderProfileCards(){
     container.insertBefore(preferenciasCard, actions);
   }
 }
+// ──────────────────────────────────────────────────────────────
+// Instalación PWA (helpers + wiring)
+// ──────────────────────────────────────────────────────────────
+let deferredInstallPrompt = null;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  deferredInstallPrompt = e;
+  console.log('✅ beforeinstallprompt');
+});
+
+window.addEventListener('appinstalled', async () => {
+  console.log('✅ App instalada');
+  localStorage.removeItem('installDismissed');
+  deferredInstallPrompt = null;
+
+  document.getElementById('install-prompt-card')?.style?.setProperty('display','none');
+  document.getElementById('install-entrypoint')?.style?.setProperty('display','none');
+  document.getElementById('install-help-modal')?.style?.setProperty('display','none');
+  localStorage.setItem('pwaInstalled', 'true');
+
+  const u = auth.currentUser;
+  if (!u) return;
+  try {
+    const snap = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
+    if (snap.empty) return;
+    const ref = snap.docs[0].ref;
+    const ua = navigator.userAgent || '';
+    const isIOS = /iPhone|iPad|iPod/i.test(ua);
+    const isAndroid = /Android/i.test(ua);
+    const platform = isIOS ? 'iOS' : isAndroid ? 'Android' : 'Desktop';
+    await ref.set({
+      pwaInstalled: true,
+      pwaInstalledAt: new Date().toISOString(),
+      pwaInstallPlatform: platform
+    }, { merge: true });
+  } catch (e) {
+    console.warn('No se pudo registrar la instalación en Firestore:', e);
+  }
+});
+
+function isStandalone() {
+  const displayModeStandalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+  const iosStandalone = window.navigator.standalone === true;
+  return displayModeStandalone || iosStandalone;
+}
+
+function showInstallPromptIfAvailable() {
+  if (deferredInstallPrompt && !localStorage.getItem('installDismissed')) {
+    const card = document.getElementById('install-prompt-card');
+    if (card) card.style.display = 'block';
+  }
+}
+
+async function handleInstallPrompt() {
+  if (!deferredInstallPrompt) return;
+  deferredInstallPrompt.prompt();
+  const { outcome } = await deferredInstallPrompt.userChoice;
+  console.log(`El usuario eligió: ${outcome}`);
+  deferredInstallPrompt = null;
+  const card = document.getElementById('install-prompt-card');
+  if (card) card.style.display = 'none';
+}
+
+async function handleDismissInstall() {
+  localStorage.setItem('installDismissed', 'true');
+  const card = document.getElementById('install-prompt-card');
+  if (card) card.style.display = 'none';
+  console.log('El usuario descartó la instalación.');
+  const u = auth.currentUser;
+  if (!u) return;
+  try {
+    const snap = await db.collection('clientes').where('authUID', '==', u.uid).limit(1).get();
+    if (snap.empty) return;
+    await snap.docs[0].ref.set({ pwaInstallDismissedAt: new Date().toISOString() }, { merge: true });
+  } catch (e) {
+    console.warn('No se pudo registrar el dismiss en Firestore:', e);
+  }
+}
+
+function getInstallInstructions() {
+  const ua = navigator.userAgent.toLowerCase();
+  const isIOS = /iphone|ipad|ipod/.test(ua);
+  const isAndroid = /android/.test(ua);
+  if (isIOS) {
+    return `<p>En iPhone/iPad:</p><ol><li>Tocá el botón <strong>Compartir</strong>.</li><li><strong>Añadir a pantalla de inicio</strong>.</li><li>Confirmá con <strong>Añadir</strong>.</li></ol>`;
+  }
+  if (isAndroid) {
+    return `<p>En Android (Chrome/Edge):</p><ol><li>Menú <strong>⋮</strong> del navegador.</li><li><strong>Instalar app</strong> o <strong>Añadir a pantalla principal</strong>.</li><li>Confirmá.</li></ol>`;
+  }
+  return `<p>En escritorio (Chrome/Edge):</p><ol><li>Icono <strong>Instalar</strong> en la barra de direcciones.</li><li><strong>Instalar app</strong>.</li><li>Confirmá.</li></ol>`;
+}
 
 // ──────────────────────────────────────────────────────────────
 // LISTENERS Auth/Main
@@ -778,3 +870,4 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
