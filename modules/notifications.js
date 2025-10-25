@@ -32,25 +32,40 @@ function toast(msg, type='info') {
 }
 
 function showNotifHelpOverlay() {
-  // Reutiliza tu card de advertencia si querés. Si no existe, muestro un overlay mínimo.
+  // 1) Mostrar solo una vez por sesión
+  try {
+    if (sessionStorage.getItem('__notif_help_shown__') === '1') {
+      // Si igual querés reforzar, mostrás el banner si existe
+      const warned = document.getElementById('notif-blocked-warning');
+      if (warned) warned.style.display = 'block';
+      return;
+    }
+    sessionStorage.setItem('__notif_help_shown__', '1');
+  } catch {}
+
+  // 2) Reutilizar banner si existe
   const warned = document.getElementById('notif-blocked-warning');
   if (warned) {
+    // Mostralo, pero solo seteá el HTML si está vacío
     warned.style.display = 'block';
-    warned.innerHTML = `
-      <p>⚠️ Es posible que el navegador esté bloqueando el pedido de permiso (“modo silencioso”).</p>
-      <p><strong>Cómo habilitar:</strong> hacé clic en el ícono de candado (🔒) de la barra de direcciones → <em>Notificaciones</em> → <strong>Permitir</strong>, y luego recargá la página.</p>
-    `;
+    if (!warned.dataset.wired) {
+      warned.innerHTML = `
+        <p>⚠️ Es posible que el navegador esté bloqueando el pedido de permiso (“modo silencioso”).</p>
+        <p><strong>Cómo habilitar:</strong> hacé clic en el ícono de candado (🔒) de la barra de direcciones → <em>Notificaciones</em> → <strong>Permitir</strong>, y luego recargá la página.</p>
+      `;
+      warned.dataset.wired = '1';
+    }
     return;
   }
 
-  // Overlay liviano si no está el banner
+  // 3) Overlay liviano si no hay banner
   const id = '__notif_help_overlay__';
-  if (document.getElementById(id)) return;
+  if (document.getElementById(id)) return;  // ya está abierto
   const div = document.createElement('div');
   div.id = id;
   div.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px;';
   div.innerHTML = `
-    <div style="max-width:520px;width:100%;background:#fff;border-radius:12px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.2)">
+    <div role="dialog" aria-modal="true" style="max-width:520px;width:100%;background:#fff;border-radius:12px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.2)">
       <h3 style="margin-top:0">Habilitar notificaciones</h3>
       <p>Es posible que tu navegador esté usando el <em>modo silencioso</em> para permisos.</p>
       <ol style="margin:8px 0 12px 20px;">
@@ -63,7 +78,10 @@ function showNotifHelpOverlay() {
       </div>
     </div>`;
   document.body.appendChild(div);
-  document.getElementById('__notif_help_close__')?.addEventListener('click', ()=> div.remove());
+
+  const close = () => { try { div.remove(); } catch {} };
+  div.querySelector('#__notif_help_close__')?.addEventListener('click', close);
+  document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') close(); }, { once: true });
 }
 
 
@@ -73,6 +91,8 @@ function showNotifHelpOverlay() {
 // Estados persistentes
 const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
+// Evita múltiples requestPermission en paralelo
+let __notifReqInFlight = false;
 
 // Ruta del Service Worker (RELATIVA para que funcione en subcarpetas también)
 const SW_PATH = './firebase-messaging-sw.js';
@@ -313,6 +333,14 @@ function refreshNotifUIFromPermission() {
 
 export async function handlePermissionRequest() {
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
+
+  // Debounce: si ya hay un request en curso, no dispares otro
+  if (__notifReqInFlight) {
+    console.log('[FCM] requestPermission ya en curso, ignoro click duplicado.');
+    return;
+  }
+
+  __notifReqInFlight = true;
   try {
     const current = Notification.permission;
     console.log('[FCM] Estado previo a requestPermission():', current);
@@ -328,15 +356,14 @@ export async function handlePermissionRequest() {
       return;
     }
 
-    // current === 'default' → pedimos permiso
+    // current === 'default' → pedir permiso
     let settled = false;
     const quietUITimer = setTimeout(() => {
-      // Si el navegador “silencia” el prompt, ayudamos al usuario
       if (!settled && Notification.permission === 'default') {
         console.warn('[FCM] Posible Quiet UI: el navegador no mostró el prompt.');
-        showNotifHelpOverlay();
+        showNotifHelpOverlay(); // guía visual
       }
-    }, 1200); // ~1.2s: tiempo suficiente para que aparezca el prompt si no está silenciado
+    }, 1200);
 
     const status = await Notification.requestPermission();
     settled = true;
@@ -349,21 +376,22 @@ export async function handlePermissionRequest() {
       try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out', { source: 'prompt' });
     } else {
-      // status === 'default' → el usuario ignoró, o Quiet UI
+      // status === 'default' → ignorado o Quiet UI
       try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
       emit('rampet:consent:notif-dismissed', {});
-      // aseguro guía visible si no salió nada
       showNotifHelpOverlay();
     }
 
     refreshNotifUIFromPermission();
   } catch (e) {
     console.warn('[notifications] handlePermissionRequest error:', e?.message || e);
-    // Por las dudas, guía también en error
     showNotifHelpOverlay();
     refreshNotifUIFromPermission();
+  } finally {
+    __notifReqInFlight = false;
   }
 }
+
 
 
 export function dismissPermissionRequest() {
@@ -878,6 +906,7 @@ export async function initDomicilioForm() {
 // Exponer handlers para poder invocarlos directo desde el HTML
 try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
 try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catch {}
+
 
 
 
