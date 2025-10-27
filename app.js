@@ -287,6 +287,8 @@ window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredInstallPrompt = e;
   console.log('✅ beforeinstallprompt');
+   // ⬇️ NUEVO: si el usuario no lo descartó antes, mostramos el card
+  try { showInstallPromptIfAvailable(); } catch {}
 });
 
 window.addEventListener('appinstalled', async () => {
@@ -865,5 +867,6 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
 
