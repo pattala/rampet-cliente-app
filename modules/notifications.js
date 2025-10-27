@@ -1,40 +1,5 @@
 // /modules/notifications.js — FCM + VAPID + Opt-In (card → switch) + Geo + Domicilio
 'use strict';
-// === WATCHER DE PERMISO DE NOTIFICACIONES (detecta cuando el usuario habilita desde el candado) ===
-let __notifPermWatcherStarted = false;
-
-function startNotifPermissionWatcher() {
-  if (__notifPermWatcherStarted) return;
-  __notifPermWatcherStarted = true;
-
-  try {
-    if (!('permissions' in navigator) || !navigator.permissions?.query) return;
-
-    navigator.permissions.query({ name: 'notifications' }).then((permStatus) => {
-      // Dispara ahora si ya estaba granted (por si llegamos tarde)
-      if (permStatus.state === 'granted') {
-        try { localStorage.setItem('notifState', 'accepted'); } catch {}
-        obtenerYGuardarToken().catch(()=>{}).finally(refreshNotifUIFromPermission);
-      }
-
-      // Y escucha cambios futuros
-      permStatus.onchange = () => {
-        // values: 'granted' | 'denied' | 'prompt'
-        if (permStatus.state === 'granted') {
-          try { localStorage.setItem('notifState', 'accepted'); } catch {}
-          obtenerYGuardarToken().catch(()=>{}).finally(refreshNotifUIFromPermission);
-        } else if (permStatus.state === 'denied') {
-          try { localStorage.setItem('notifState', 'blocked'); } catch {}
-          refreshNotifUIFromPermission();
-        } else {
-          // 'prompt' → UI marketing/switch
-          try { localStorage.setItem('notifState', 'deferred'); } catch {}
-          refreshNotifUIFromPermission();
-        }
-      };
-    }).catch(()=>{});
-  } catch {}
-}
 
 // ─────────────────────────────────────────────────────────────
 // CONFIG / HELPERS
@@ -42,12 +7,10 @@ function startNotifPermissionWatcher() {
 const VAPID_PUBLIC = (window.__RAMPET__ && window.__RAMPET__.VAPID_PUBLIC) || '';
 if (!VAPID_PUBLIC) console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
 
-// ⬇️ NUEVO: Edge/Chrome bloquean permisos si no hay contexto seguro
 if (!window.isSecureContext) {
   console.warn('[FCM] El sitio NO está en contexto seguro (https o localhost). Notificaciones serán bloqueadas.');
 }
 
-// ⬇️ NUEVO: log de estado del permiso al cargar
 try {
   if ('Notification' in window) {
     console.log('[FCM] Permission actual:', Notification.permission);
@@ -66,11 +29,12 @@ function toast(msg, type='info') {
   if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
 }
 
+// ─────────────────────────────────────────────────────────────
+// Quiet UI / Ayuda
+// ─────────────────────────────────────────────────────────────
 function showNotifHelpOverlay() {
-  // 1) Mostrar solo una vez por sesión
   try {
     if (sessionStorage.getItem('__notif_help_shown__') === '1') {
-      // Si igual querés reforzar, mostrás el banner si existe
       const warned = document.getElementById('notif-blocked-warning');
       if (warned) warned.style.display = 'block';
       return;
@@ -78,10 +42,8 @@ function showNotifHelpOverlay() {
     sessionStorage.setItem('__notif_help_shown__', '1');
   } catch {}
 
-  // 2) Reutilizar banner si existe
   const warned = document.getElementById('notif-blocked-warning');
   if (warned) {
-    // Mostralo, pero solo seteá el HTML si está vacío
     warned.style.display = 'block';
     if (!warned.dataset.wired) {
       warned.innerHTML = `
@@ -93,9 +55,8 @@ function showNotifHelpOverlay() {
     return;
   }
 
-  // 3) Overlay liviano si no hay banner
   const id = '__notif_help_overlay__';
-  if (document.getElementById(id)) return;  // ya está abierto
+  if (document.getElementById(id)) return;
   const div = document.createElement('div');
   div.id = id;
   div.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;padding:16px;';
@@ -119,18 +80,14 @@ function showNotifHelpOverlay() {
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') close(); }, { once: true });
 }
 
-
-
-
-
-// Estados persistentes
+// ─────────────────────────────────────────────────────────────
+// ESTADO LOCAL / CONSTANTES
+// ─────────────────────────────────────────────────────────────
 const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
-// Evita múltiples requestPermission en paralelo
-let __notifReqInFlight = false;
 
-// Ruta del Service Worker (RELATIVA para que funcione en subcarpetas también)
-const SW_PATH = './firebase-messaging-sw.js';
+let __notifReqInFlight = false;
+const SW_PATH = '/firebase-messaging-sw.js';   // usar raíz: tal como entrega tu index
 
 // ───────────────── Firebase compat helpers ─────────────────
 async function ensureMessagingCompatLoaded() {
@@ -146,18 +103,17 @@ async function ensureMessagingCompatLoaded() {
 async function registerSW() {
   if (!('serviceWorker' in navigator)) { console.warn('[FCM] SW no soportado'); return false; }
   try {
-    // Verifica que el archivo exista (fetch HEAD rápido)
     try {
-      const head = await fetch('/firebase-messaging-sw.js', { method: 'HEAD' });
-      if (!head.ok) console.warn('[FCM] /firebase-messaging-sw.js no accesible (HTTP', head.status, ')');
+      const head = await fetch(SW_PATH, { method: 'HEAD' });
+      if (!head.ok) console.warn('[FCM] %s no accesible (HTTP %s )', SW_PATH, head.status);
     } catch (e) {
-      console.warn('[FCM] No se pudo verificar /firebase-messaging-sw.js:', e?.message || e);
+      console.warn('[FCM] No se pudo verificar %s: %s', SW_PATH, e?.message || e);
     }
 
-    const existing = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
+    const existing = await navigator.serviceWorker.getRegistration(SW_PATH);
     if (existing) { console.log('✅ SW FCM ya registrado:', existing.scope); return true; }
 
-    const reg = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    const reg = await navigator.serviceWorker.register(SW_PATH);
     console.log('✅ SW FCM registrado:', reg.scope || (location.origin + '/'));
     return true;
   } catch (e) {
@@ -166,7 +122,9 @@ async function registerSW() {
   }
 }
 
-
+// ─────────────────────────────────────────────────────────────
+// Firestore helpers: clientes/{id} + config + tokens
+// ─────────────────────────────────────────────────────────────
 async function getClienteDocIdPorUID(uid) {
   const snap = await firebase.firestore()
     .collection('clientes')
@@ -176,7 +134,6 @@ async function getClienteDocIdPorUID(uid) {
   return snap.empty ? null : snap.docs[0].id;
 }
 
-// ---- PATCH: escribir flags en clientes/{id}.config ----
 async function setClienteConfigPatch(partial) {
   try {
     const uid = firebase.auth().currentUser?.uid;
@@ -189,9 +146,7 @@ async function setClienteConfigPatch(partial) {
   }
 }
 
-// ───────── PATCH: merge & cap de fcmTokens (máx. 5, sin duplicados) ─────────
 const MAX_TOKENS = 5;
-
 function dedupeTokens(arr = []) {
   const out = [];
   const seen = new Set();
@@ -213,14 +168,12 @@ async function setFcmTokensOnCliente(newTokens) {
   if (clienteId) {
     ref = firebase.firestore().collection('clientes').doc(clienteId);
   } else {
-    // Fallback: usar uid como docId y crear el doc con authUID si no existe
     clienteId = uid;
     ref = firebase.firestore().collection('clientes').doc(clienteId);
     await ref.set({ authUID: uid, creadoDesde: 'pwa' }, { merge: true });
     console.warn('[FCM] Cliente no existía por authUID; creado fallback clientes/{uid}.');
   }
 
-  // Leer tokens actuales
   let current = [];
   try {
     const snap = await ref.get();
@@ -239,14 +192,15 @@ async function clearFcmTokensOnCliente() {
   const clienteId = await getClienteDocIdPorUID(uid);
   if (!clienteId) throw new Error('No encontré tu doc en clientes (authUID).');
   const ref = firebase.firestore().collection('clientes').doc(clienteId);
-  await ref.set({ fcmTokens: [] }, { merge: true }); // ← borra la lista
+  await ref.set({ fcmTokens: [] }, { merge: true });
 }
 
-// Guardado / borrado de token
+// ─────────────────────────────────────────────────────────────
+// Token helpers
+// ─────────────────────────────────────────────────────────────
 async function guardarTokenEnMiDoc(token) {
   const clienteId = await setFcmTokensOnCliente([token]);
 
-  // ← marcar opt-in en config
   await setClienteConfigPatch({
     notifEnabled: true,
     notifOptInSource: 'ui',
@@ -258,15 +212,15 @@ async function guardarTokenEnMiDoc(token) {
   emit('rampet:consent:notif-opt-in', { source: 'ui' });
   console.log('✅ Token FCM guardado en clientes/' + clienteId);
 }
+
 async function borrarTokenYOptOut() {
   try {
     await ensureMessagingCompatLoaded();
     try { await firebase.messaging().deleteToken(); } catch {}
-    await clearFcmTokensOnCliente();                      // ← borra en Firestore
+    await clearFcmTokensOnCliente();
     try { localStorage.removeItem('fcmToken'); } catch {}
     try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
 
-    // ← marcar opt-out en config
     await setClienteConfigPatch({
       notifEnabled: false,
       notifUpdatedAt: new Date().toISOString()
@@ -282,18 +236,14 @@ async function borrarTokenYOptOut() {
 async function obtenerYGuardarToken() {
   await ensureMessagingCompatLoaded();
 
-  // 1) intentar por ruta exacta
-  let reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
-
-  // 2) si no, cualquiera
-  if (!reg) reg = await navigator.serviceWorker.getRegistration();
-
-  // 3) si aún no, esperar a que haya uno listo
-  if (!reg) {
-    try {
-      reg = await navigator.serviceWorker.ready;
-    } catch {}
-  }
+  // Resolver registration de forma robusta
+  let reg = null;
+  try {
+    reg = await navigator.serviceWorker.getRegistration(SW_PATH);
+    if (!reg) { try { reg = await navigator.serviceWorker.ready; } catch {} }
+    if (!reg) reg = await navigator.serviceWorker.getRegistration('/');
+    if (!reg) reg = await navigator.serviceWorker.getRegistration();
+  } catch {}
 
   if (!reg) {
     console.warn('[FCM] No encontré un ServiceWorker registration activo.');
@@ -322,12 +272,13 @@ async function obtenerYGuardarToken() {
   console.log('[FCM] Token OK:', tok.slice(0, 12) + '…');
   await guardarTokenEnMiDoc(tok);
   toast('Notificaciones activadas ✅', 'success');
+
+  try { refreshNotifUIFromPermission?.(); } catch {}
   return tok;
 }
 
-
 // ─────────────────────────────────────────────────────────────
-// NOTIFICACIONES — UI
+// UI de Notificaciones (marketing + switch)
 // ─────────────────────────────────────────────────────────────
 function refreshNotifUIFromPermission() {
   const hasNotif = ('Notification' in window);
@@ -366,13 +317,77 @@ function refreshNotifUIFromPermission() {
   }
 }
 
-export async function handlePermissionRequest() {
+// ─────────────────────────────────────────────────────────────
+// Watcher de permiso (Permissions API + fallback polling)
+// ─────────────────────────────────────────────────────────────
+let __permWatcher = { timer:null, last:null, wired:false };
 
-  // ⬇️ NUEVO: por si el usuario habilita desde el candado luego del click
-  startNotifPermissionWatcher();   // <——— AGREGAR ESTA LÍNEA
+function startNotifPermissionWatcher(){
+  if (__permWatcher.wired) return;
+  __permWatcher.wired = true;
+
+  // 1) Intentar Permissions API
+  try {
+    if ('permissions' in navigator && navigator.permissions?.query) {
+      navigator.permissions.query({ name: 'notifications' })
+        .then((permStatus) => {
+          __permWatcher.last = permStatus.state; // 'granted' | 'denied' | 'prompt'
+          // Disparo inicial (por si ya estaba "granted")
+          if (permStatus.state === 'granted') {
+            try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
+            obtenerYGuardarToken().catch(()=>{}).finally(refreshNotifUIFromPermission);
+          } else if (permStatus.state === 'denied') {
+            try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
+            refreshNotifUIFromPermission();
+          } else {
+            try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+            refreshNotifUIFromPermission();
+          }
+
+          permStatus.onchange = async () => {
+            const cur = permStatus.state;
+            __permWatcher.last = cur;
+            try { refreshNotifUIFromPermission?.(); } catch {}
+            if (cur === 'granted') {
+              try { await obtenerYGuardarToken(); } catch {}
+            }
+          };
+        })
+        .catch(() => { startPollingWatcher(); });
+      return;
+    }
+  } catch {}
+
+  // 2) Fallback a polling
+  startPollingWatcher();
+}
+
+function startPollingWatcher(){
+  if (__permWatcher.timer) return;
+  __permWatcher.last = (window.Notification?.permission) || 'default';
+  __permWatcher.timer = setInterval(async () => {
+    const cur = (window.Notification?.permission) || 'default';
+    if (cur !== __permWatcher.last) {
+      __permWatcher.last = cur;
+      try { refreshNotifUIFromPermission?.(); } catch {}
+      if (cur === 'granted') {
+        try { await obtenerYGuardarToken(); } catch {}
+      }
+    }
+  }, 1200);
+}
+
+function stopNotifPermissionWatcher(){
+  if (__permWatcher.timer) { clearInterval(__permWatcher.timer); __permWatcher.timer = null; }
+}
+
+// ─────────────────────────────────────────────────────────────
+// Handlers de Notificaciones
+// ─────────────────────────────────────────────────────────────
+export async function handlePermissionRequest() {
+  startNotifPermissionWatcher();
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
 
-  // Debounce: si ya hay un request en curso, no dispares otro
   if (__notifReqInFlight) {
     console.log('[FCM] requestPermission ya en curso, ignoro click duplicado.');
     return;
@@ -394,12 +409,12 @@ export async function handlePermissionRequest() {
       return;
     }
 
-    // current === 'default' → pedir permiso
+    // current === 'default'
     let settled = false;
     const quietUITimer = setTimeout(() => {
       if (!settled && Notification.permission === 'default') {
         console.warn('[FCM] Posible Quiet UI: el navegador no mostró el prompt.');
-        showNotifHelpOverlay(); // guía visual
+        try { showNotifHelpOverlay?.(); } catch {}
       }
     }, 1200);
 
@@ -414,23 +429,20 @@ export async function handlePermissionRequest() {
       try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out', { source: 'prompt' });
     } else {
-      // status === 'default' → ignorado o Quiet UI
       try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
       emit('rampet:consent:notif-dismissed', {});
-      showNotifHelpOverlay();
+      try { showNotifHelpOverlay?.(); } catch {}
     }
 
     refreshNotifUIFromPermission();
   } catch (e) {
     console.warn('[notifications] handlePermissionRequest error:', e?.message || e);
-    showNotifHelpOverlay();
+    try { showNotifHelpOverlay?.(); } catch {}
     refreshNotifUIFromPermission();
   } finally {
     __notifReqInFlight = false;
   }
 }
-
-
 
 export function dismissPermissionRequest() {
   try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
@@ -438,6 +450,7 @@ export function dismissPermissionRequest() {
   if (el) el.style.display = 'none';
   emit('rampet:consent:notif-dismissed', {});
 }
+
 export async function handlePermissionSwitch(e) {
   const checked = !!e?.target?.checked;
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
@@ -448,7 +461,6 @@ export async function handlePermissionSwitch(e) {
     if (before === 'granted') {
       try { await obtenerYGuardarToken(); } catch {}
     } else if (before === 'default') {
-      // pedimos permiso y si pasa a granted, obtenemos token YA
       const status = await Notification.requestPermission();
       if (status === 'granted') {
         try { await obtenerYGuardarToken(); } catch {}
@@ -473,7 +485,8 @@ export async function handlePermissionSwitch(e) {
 }
 
 // ─────────────────────────────────────────────────────────────
-/** FOREGROUND PUSH: muestra sistémica incluso en foreground */
+// Foreground push → notificación del sistema
+// ─────────────────────────────────────────────────────────────
 async function hookOnMessage() {
   try {
     await ensureMessagingCompatLoaded();
@@ -481,9 +494,9 @@ async function hookOnMessage() {
     messaging.onMessage(async (payload) => {
       const d = payload?.data || {};
       try {
-        // Usar la misma estrategia: primero el SW por ruta relativa, si no hay, cualquiera.
-        const reg = await navigator.serviceWorker.getRegistration(SW_PATH)
-                 || await navigator.serviceWorker.getRegistration();
+        const reg =
+          await navigator.serviceWorker.getRegistration(SW_PATH) ||
+          await navigator.serviceWorker.getRegistration();
         if (reg?.showNotification) {
           await reg.showNotification(d.title || 'RAMPET', {
             body: d.body || '',
@@ -498,28 +511,23 @@ async function hookOnMessage() {
     console.warn('[notifications] hookOnMessage error:', e?.message || e);
   }
 }
-// === Cableado de botones/controles de notificaciones (UI) ===
+
+// ─────────────────────────────────────────────────────────────
+// Cableado de botones de la UI (index.html)
+// ─────────────────────────────────────────────────────────────
 function wirePushButtonsOnce() {
-  // Botón del card marketing (activar notificaciones)
   const allow = document.getElementById('btn-activar-notif-prompt');
   if (allow && !allow._wired) {
     allow._wired = true;
-    allow.addEventListener('click', () => {
-      // Debe ejecutarse por gesto del usuario para que el prompt salga
-      handlePermissionRequest();
-    });
+    allow.addEventListener('click', () => { handlePermissionRequest(); });
   }
 
-  // Botón "Luego" del card marketing
   const later = document.getElementById('btn-rechazar-notif-prompt');
   if (later && !later._wired) {
     later._wired = true;
-    later.addEventListener('click', () => {
-      dismissPermissionRequest();
-    });
+    later.addEventListener('click', () => { dismissPermissionRequest(); });
   }
 
-  // Switch del card de ajustes
   const sw = document.getElementById('notif-switch');
   if (sw && !sw._wired) {
     sw._wired = true;
@@ -527,41 +535,38 @@ function wirePushButtonsOnce() {
   }
 }
 
-// (opc) lo dejo en window por si querés llamarlo desde consola o HTML
+// Exponer para consola si querés
 try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
 
 // ─────────────────────────────────────────────────────────────
-// INIT
+// INIT (se llama desde app.js al loguearse)
 // ─────────────────────────────────────────────────────────────
 export async function initNotificationsOnce() {
   await registerSW();
-   // ⬇️ NUEVO: empezar a observar el permiso apenas inicia la app
-  startNotifPermissionWatcher();   // <——— AGREGAR ESTA LÍNEA
+  startNotifPermissionWatcher();
+
   if ('Notification' in window && Notification.permission === 'granted') {
     try {
       await obtenerYGuardarToken();
-      // refuerza el flag por si ya existía token
       await setClienteConfigPatch({
         notifEnabled: true,
         notifUpdatedAt: new Date().toISOString()
       });
     } catch {}
   }
- await hookOnMessage();
-refreshNotifUIFromPermission();
 
-// ⬇️ NUEVO: asegura que los botones del index.html llamen a los handlers correctos
-wirePushButtonsOnce();
-
-return true;
-
+  await hookOnMessage();
+  refreshNotifUIFromPermission();
+  wirePushButtonsOnce();
+  return true;
 }
+
 export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
 export function handleBellClick() { return Promise.resolve(); }
 export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
 
 // ─────────────────────────────────────────────────────────────
-// “BENEFICIOS CERCA TUYO”
+// “BENEFICIOS CERCA TUYO” (Geo UI + tracking)
 // ─────────────────────────────────────────────────────────────
 function geoEls(){
   return {
@@ -643,7 +648,6 @@ async function updateGeoUI() {
     setGeoRegularUI('granted');
     startGeoWatch();
 
-    // ⬇️ NUEVO: si el navegador ya tenía permiso, reflejamos en Firestore
     await setClienteConfigPatch({
       geoEnabled: true,
       geoOptInSource: 'permission',
@@ -653,14 +657,12 @@ async function updateGeoUI() {
     return;
   }
 
-  // Sin permiso → frenamos el watch y reflejamos desactivado
   stopGeoWatch();
 
   if (state === 'denied') {
     setGeoMarketingUI(false);
     setGeoRegularUI('denied');
 
-    // ⬇️ NUEVO: guardamos que está deshabilitado
     await setClienteConfigPatch({
       geoEnabled: false,
       geoUpdatedAt: new Date().toISOString()
@@ -669,12 +671,9 @@ async function updateGeoUI() {
     return;
   }
 
-  // Estado "prompt"/desconocido: mostramos marketing y no tocamos config
   setGeoMarketingUI(true);
 }
 
-
-// Activar: optimista y verificación liviana
 async function handleGeoEnable() {
   const { banner } = geoEls();
 
@@ -683,7 +682,6 @@ async function handleGeoEnable() {
   show(banner, false);
   startGeoWatch();
 
-  // ← marcar geoEnabled en config
   await setClienteConfigPatch({
     geoEnabled: true,
     geoOptInSource: 'ui',
@@ -714,7 +712,6 @@ function handleGeoDisable() {
   try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
   emit('rampet:geo:disabled', { method: 'ui' });
 
-  // ← marcar geo deshabilitado en config
   setClienteConfigPatch({
     geoEnabled: false,
     geoUpdatedAt: new Date().toISOString()
@@ -722,7 +719,11 @@ function handleGeoDisable() {
 
   updateGeoUI();
 }
-function handleGeoHelp() { alert('Para activarlo:\n\n1) Abrí configuración del navegador.\n2) Permisos → Activar ubicación.\n3) Recargá la página.'); }
+
+function handleGeoHelp() {
+  alert('Para activarlo:\n\n1) Abrí configuración del navegador.\n2) Permisos → Activar ubicación.\n3) Recargá la página.');
+}
+
 function wireGeoButtonsOnce() {
   const { banner, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner || banner._wired) return; banner._wired = true;
@@ -901,7 +902,6 @@ export async function initDomicilioForm() {
           g('dom-numero').value = dom.numero || '';
           g('dom-piso').value = dom.piso || '';
           g('dom-depto').value = dom.depto || '';
-          // g('dom-barrio').value = dom.barrio || '';
           g('dom-localidad').value = dom.localidad || '';
           g('dom-partido').value = dom.partido || '';
           g('dom-provincia').value = dom.provincia || '';
@@ -943,12 +943,6 @@ export async function initDomicilioForm() {
   });
 }
 
-// Exponer handlers para poder invocarlos directo desde el HTML
+// Exponer handlers al window (útil en HTML o consola)
 try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
 try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catch {}
-
-
-
-
-
-
