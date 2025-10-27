@@ -9,9 +9,6 @@ import * as Auth from './modules/auth.js';
 // Notificaciones (único import desde notifications.js)
 import {
   initNotificationsOnce,
-  dismissPermissionRequest,
-  handlePermissionRequest,
-  handlePermissionSwitch,
   handleBellClick,
   handleSignOutCleanup
 } from './modules/notifications.js';
@@ -499,9 +496,7 @@ function setupMainAppScreenListeners() {
 
   // Notificaciones UI
   on('btn-notifs', 'click', async () => { try { await openInboxModal(); } catch {} try { await handleBellClick(); } catch {} });
-  on('btn-activar-notif-prompt', 'click', async () => { try { await handlePermissionRequest(); } catch {} });
-  on('btn-rechazar-notif-prompt', 'click', async () => { try { await Data.saveNotifDismiss(); } catch {} try { await dismissPermissionRequest(); } catch {} });
-  on('notif-switch', 'change', async (e) => { try { await handlePermissionSwitch(e); } catch {} });
+ 
 }
 
 function openInboxIfQuery() {
@@ -850,7 +845,7 @@ function openTermsModalCatchAll() {
   }
   try { wireTermsModalBehavior?.(); } catch {}
 }
-document.addEventListener('click', (e) => {}, true);
+
 document.addEventListener('click', (e) => {
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
   const trigger = e.target.closest(
@@ -870,4 +865,5 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
