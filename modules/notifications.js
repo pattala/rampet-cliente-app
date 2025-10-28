@@ -30,31 +30,22 @@ function toast(msg, type='info') {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Quiet UI / Ayuda
+// Quiet UI / Ayuda  (solo mostrar si el permiso está DENIED)
 // ─────────────────────────────────────────────────────────────
 function showNotifHelpOverlay() {
-  try {
-    if (sessionStorage.getItem('__notif_help_shown__') === '1') {
-      const warned = document.getElementById('notif-blocked-warning');
-      if (warned) warned.style.display = 'block';
-      return;
-    }
-    sessionStorage.setItem('__notif_help_shown__', '1');
-  } catch {}
-
+  // Se usa SOLO cuando Notification.permission === 'denied'
   const warned = document.getElementById('notif-blocked-warning');
   if (warned) {
     warned.style.display = 'block';
     if (!warned.dataset.wired) {
       warned.innerHTML = `
-        <p>⚠️ Es posible que el navegador esté bloqueando el pedido de permiso (“modo silencioso”).</p>
-        <p><strong>Cómo habilitar:</strong> hacé clic en el ícono de candado (🔒) de la barra de direcciones → <em>Notificaciones</em> → <strong>Permitir</strong>, y luego recargá la página.</p>
+        <p>🔒 Tenés las notificaciones <strong>bloqueadas</strong> en el navegador.</p>
+        <p><strong>Cómo habilitar:</strong> clic en el ícono de candado (🔒) → <em>Notificaciones</em> → <strong>Permitir</strong>, y recargá la página.</p>
       `;
       warned.dataset.wired = '1';
     }
     return;
   }
-
   const id = '__notif_help_overlay__';
   if (document.getElementById(id)) return;
   const div = document.createElement('div');
@@ -63,7 +54,6 @@ function showNotifHelpOverlay() {
   div.innerHTML = `
     <div role="dialog" aria-modal="true" style="max-width:520px;width:100%;background:#fff;border-radius:12px;padding:16px;box-shadow:0 10px 30px rgba(0,0,0,.2)">
       <h3 style="margin-top:0">Habilitar notificaciones</h3>
-      <p>Es posible que tu navegador esté usando el <em>modo silencioso</em> para permisos.</p>
       <ol style="margin:8px 0 12px 20px;">
         <li>Clic en el ícono de <strong>candado (🔒)</strong> en la barra de direcciones.</li>
         <li>Abrí <strong>Permisos → Notificaciones</strong>.</li>
@@ -74,7 +64,6 @@ function showNotifHelpOverlay() {
       </div>
     </div>`;
   document.body.appendChild(div);
-
   const close = () => { try { div.remove(); } catch {} };
   div.querySelector('#__notif_help_close__')?.addEventListener('click', close);
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') close(); }, { once: true });
@@ -284,8 +273,8 @@ function refreshNotifUIFromPermission() {
   const hasNotif = ('Notification' in window);
   const perm = hasNotif ? Notification.permission : 'unsupported';
 
-  const cardMarketing = $('notif-prompt-card');
-  const cardSwitch    = $('notif-card');
+  const cardMarketing = $('notif-prompt-card');   // Onboarding (Aceptar / Luego / No quiero)
+  const cardSwitch    = $('notif-card');          // Card regular con switch (suele estar en Perfil)
   const warnBlocked   = $('notif-blocked-warning');
   const switchEl      = $('notif-switch');
 
@@ -296,25 +285,46 @@ function refreshNotifUIFromPermission() {
   if (!hasNotif) return;
 
   if (perm === 'granted') {
+    // Usuario aceptó a nivel navegador → switch encendido y NO mostramos onboarding
     if (switchEl) switchEl.checked = true;
     try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
-    return;
-  }
-  if (perm === 'denied') {
-    if (switchEl) switchEl.checked = false;
-    show(warnBlocked, true);
-    try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
+    // Card de switch: generalmente se ve sólo en el perfil
+    // (si tu layout lo deja visible, se verá ON, que es correcto).
     return;
   }
 
-  const state = localStorage.getItem(LS_NOTIF_STATE);
-  if (state === 'deferred') {
-    show(cardSwitch, true);
+  if (perm === 'denied') {
+    // Bloqueado en navegador → explicar cómo habilitar
     if (switchEl) switchEl.checked = false;
-  } else {
-    show(cardMarketing, true);
-    if (switchEl) switchEl.checked = false;
+    try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
+    show(warnBlocked, true);
+    return;
   }
+
+  // perm === 'default' → no mostrar ayuda; decidir por estado local
+  const state = localStorage.getItem(LS_NOTIF_STATE);
+  if (state === 'accepted') {
+    // Aceptó en la app previamente: no insistir con onboarding.
+    if (switchEl) switchEl.checked = true;
+    return;
+  }
+  if (state === 'blocked') {
+    // Bloqueado a nivel app (Plan A): no mostramos onboarding;
+    // el usuario puede reactivar desde Perfil (switch).
+    if (switchEl) switchEl.checked = false;
+    return;
+  }
+  if (state === 'deferred') {
+    // Mostrar card con switch simple (si tu UI lo tiene fuera del perfil),
+    // o simplemente no mostrar nada y dejar que lo active desde Perfil.
+    if (switchEl) switchEl.checked = false;
+    show(cardSwitch, true);
+    return;
+  }
+
+  // Sin estado → primera vez: mostrar onboarding
+  if (switchEl) switchEl.checked = false;
+  show(cardMarketing, true);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -332,13 +342,14 @@ function startNotifPermissionWatcher(){
       navigator.permissions.query({ name: 'notifications' })
         .then((permStatus) => {
           __permWatcher.last = permStatus.state; // 'granted' | 'denied' | 'prompt'
-          // Disparo inicial (por si ya estaba "granted")
+
           if (permStatus.state === 'granted') {
             try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
             obtenerYGuardarToken().catch(()=>{}).finally(refreshNotifUIFromPermission);
           } else if (permStatus.state === 'denied') {
             try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
             refreshNotifUIFromPermission();
+            showNotifHelpOverlay(); // ayuda SOLO si está denied
           } else {
             try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
             refreshNotifUIFromPermission();
@@ -350,6 +361,8 @@ function startNotifPermissionWatcher(){
             try { refreshNotifUIFromPermission?.(); } catch {}
             if (cur === 'granted') {
               try { await obtenerYGuardarToken(); } catch {}
+            } else if (cur === 'denied') {
+              showNotifHelpOverlay();
             }
           };
         })
@@ -372,6 +385,8 @@ function startPollingWatcher(){
       try { refreshNotifUIFromPermission?.(); } catch {}
       if (cur === 'granted') {
         try { await obtenerYGuardarToken(); } catch {}
+      } else if (cur === 'denied') {
+        showNotifHelpOverlay();
       }
     }
   }, 1200);
@@ -387,16 +402,11 @@ function stopNotifPermissionWatcher(){
 export async function handlePermissionRequest() {
   startNotifPermissionWatcher();
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
-
-  if (__notifReqInFlight) {
-    console.log('[FCM] requestPermission ya en curso, ignoro click duplicado.');
-    return;
-  }
+  if (__notifReqInFlight) { console.log('[FCM] requestPermission ya en curso'); return; }
 
   __notifReqInFlight = true;
   try {
     const current = Notification.permission;
-    console.log('[FCM] Estado previo a requestPermission():', current);
 
     if (current === 'granted') {
       await obtenerYGuardarToken();
@@ -404,44 +414,49 @@ export async function handlePermissionRequest() {
       return;
     }
     if (current === 'denied') {
-      console.warn('[FCM] Permiso de notificaciones está DENEGADO a nivel navegador.');
+      // No podemos pedir; mostrar ayuda para desbloquear
       refreshNotifUIFromPermission();
+      showNotifHelpOverlay();
       return;
     }
 
-    // current === 'default'
-    let settled = false;
-    const quietUITimer = setTimeout(() => {
-      if (!settled && Notification.permission === 'default') {
-        console.warn('[FCM] Posible Quiet UI: el navegador no mostró el prompt.');
-        try { showNotifHelpOverlay?.(); } catch {}
-      }
-    }, 1200);
-
+    // current === 'default' → pedir permiso SIN overlay “quiet UI”
     const status = await Notification.requestPermission();
-    settled = true;
-    clearTimeout(quietUITimer);
-    console.log('[FCM] Resultado requestPermission():', status);
 
     if (status === 'granted') {
       await obtenerYGuardarToken();
     } else if (status === 'denied') {
       try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out', { source: 'prompt' });
+      showNotifHelpOverlay(); // ahora sí, porque quedó denied
     } else {
+      // Usuario ignoró → no insistir (deferred)
       try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
       emit('rampet:consent:notif-dismissed', {});
-      try { showNotifHelpOverlay?.(); } catch {}
     }
 
     refreshNotifUIFromPermission();
   } catch (e) {
     console.warn('[notifications] handlePermissionRequest error:', e?.message || e);
-    try { showNotifHelpOverlay?.(); } catch {}
     refreshNotifUIFromPermission();
   } finally {
     __notifReqInFlight = false;
   }
+}
+
+// NUEVO: “No quiero” (Plan A) → bloquear a nivel app, sin quemar permiso del navegador
+export function handlePermissionBlockClick() {
+  try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
+  const el = $('notif-prompt-card');
+  if (el) el.style.display = 'none';
+  const sw = $('notif-switch'); if (sw) sw.checked = false;
+  setClienteConfigPatch({
+    notifEnabled: false,
+    notifUpdatedAt: new Date().toISOString()
+  }).catch(()=>{});
+  emit('rampet:consent:notif-opt-out', { source: 'ui-block' });
+  toast('Podés volver a activarlas desde tu Perfil cuando quieras.', 'info');
+  refreshNotifUIFromPermission();
 }
 
 export function dismissPermissionRequest() {
@@ -468,6 +483,7 @@ export async function handlePermissionSwitch(e) {
         try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
         toast('Notificaciones bloqueadas en el navegador.', 'warning');
         const sw = $('notif-switch'); if (sw) sw.checked = false;
+        showNotifHelpOverlay();
       } else {
         try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
         const sw = $('notif-switch'); if (sw) sw.checked = false;
@@ -475,6 +491,7 @@ export async function handlePermissionSwitch(e) {
     } else { // 'denied'
       toast('Tenés bloqueadas las notificaciones en el navegador.', 'warning');
       const sw = $('notif-switch'); if (sw) sw.checked = false;
+      showNotifHelpOverlay();
     }
   } else {
     await borrarTokenYOptOut();
@@ -528,6 +545,13 @@ function wirePushButtonsOnce() {
     later.addEventListener('click', () => { dismissPermissionRequest(); });
   }
 
+  // NUEVO: botón “No quiero” (Plan A)
+  const block = document.getElementById('btn-bloquear-notif-prompt');
+  if (block && !block._wired) {
+    block._wired = true;
+    block.addEventListener('click', () => { handlePermissionBlockClick(); });
+  }
+
   const sw = document.getElementById('notif-switch');
   if (sw && !sw._wired) {
     sw._wired = true;
@@ -537,6 +561,7 @@ function wirePushButtonsOnce() {
 
 // Exponer para consola si querés
 try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
+try { window.handlePermissionBlockClick = handlePermissionBlockClick; } catch {}
 
 // ─────────────────────────────────────────────────────────────
 // INIT (se llama desde app.js al loguearse)
@@ -946,3 +971,4 @@ export async function initDomicilioForm() {
 // Exponer handlers al window (útil en HTML o consola)
 try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
 try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catch {}
+try { window.handlePermissionBlockClick = handlePermissionBlockClick; } catch {}
