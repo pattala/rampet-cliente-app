@@ -560,14 +560,39 @@ function wirePushButtonsOnce() {
 // Sincro con “Mi Perfil” (checkbox) — NUEVO
 // ─────────────────────────────────────────────────────────────
 function isNotifEnabledLocally() {
-  return (('Notification' in window) && Notification.permission === 'granted') || !!localStorage.getItem('fcmToken');
+  // El único “OK real” es tener token guardado.
+  try { return !!localStorage.getItem('fcmToken'); }
+  catch { return false; }
 }
 
-export function syncProfileConsentUI() {
+
+async function fetchServerNotifEnabled() {
+  try {
+    const uid = firebase.auth().currentUser?.uid;
+    if (!uid) return null;
+    const clienteId = await getClienteDocIdPorUID(uid) || uid;
+    const snap = await firebase.firestore().collection('clientes').doc(clienteId).get();
+    const data = snap.exists ? snap.data() : null;
+    const hasTokens = Array.isArray(data?.fcmTokens) && data.fcmTokens.length > 0;
+    const cfgEnabled = !!data?.config?.notifEnabled;
+    return hasTokens && cfgEnabled;
+  } catch { return null; }
+}
+
+export async function syncProfileConsentUI() {
   const cb = $('prof-consent-notif');
   if (!cb) return;
-  cb.checked = isNotifEnabledLocally();
+
+  // 1) Señal rápida local (token en LS)
+  const localOn = isNotifEnabledLocally();
+
+  // 2) Señal servidor (si se puede leer). No bloquea si falla.
+  let serverOn = null;
+  try { serverOn = await fetchServerNotifEnabled(); } catch {}
+
+  cb.checked = !!(localOn || serverOn);
 }
+
 
 export async function handleProfileConsentToggle(checked) {
   if (checked) {
@@ -604,6 +629,14 @@ try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catc
 try { window.handlePermissionBlockClick = handlePermissionBlockClick; } catch {}
 try { window.syncProfileConsentUI = syncProfileConsentUI; } catch {}
 try { window.handleProfileConsentToggle = handleProfileConsentToggle; } catch {}
+
+// Mantener sincronizado el checkbox del Perfil cuando cambie el consentimiento
+document.addEventListener('rampet:consent:notif-opt-in',  () => { syncProfileConsentUI(); });
+document.addEventListener('rampet:consent:notif-opt-out', () => { syncProfileConsentUI(); });
+// Al volver a la pestaña, re-sincronizar por si hubo cambios externos
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') syncProfileConsentUI();
+});
 
 // ─────────────────────────────────────────────────────────────
 // INIT (se llama desde app.js al loguearse)
@@ -1025,3 +1058,4 @@ try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catc
 try { window.handlePermissionBlockClick = handlePermissionBlockClick; } catch {}
 try { window.syncProfileConsentUI = syncProfileConsentUI; } catch {}
 try { window.handleProfileConsentToggle = handleProfileConsentToggle; } catch {}
+
