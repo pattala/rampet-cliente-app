@@ -285,40 +285,32 @@ function refreshNotifUIFromPermission() {
   if (!hasNotif) return;
 
   if (perm === 'granted') {
-    // Usuario aceptó a nivel navegador → switch encendido y NO mostramos onboarding
     if (switchEl) switchEl.checked = true;
     try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
-    // Card de switch: generalmente se ve sólo en el perfil
-    // (si tu layout lo deja visible, se verá ON, que es correcto).
+    // Card de switch puede o no estar visible según layout. No forzamos mostrar.
     return;
   }
 
   if (perm === 'denied') {
-    // Bloqueado en navegador → explicar cómo habilitar
     if (switchEl) switchEl.checked = false;
     try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
     show(warnBlocked, true);
     return;
   }
 
-  // perm === 'default' → no mostrar ayuda; decidir por estado local
+  // perm === 'default' → decidir por estado local (sin ayuda)
   const state = localStorage.getItem(LS_NOTIF_STATE);
   if (state === 'accepted') {
-    // Aceptó en la app previamente: no insistir con onboarding.
     if (switchEl) switchEl.checked = true;
     return;
   }
   if (state === 'blocked') {
-    // Bloqueado a nivel app (Plan A): no mostramos onboarding;
-    // el usuario puede reactivar desde Perfil (switch).
     if (switchEl) switchEl.checked = false;
     return;
   }
   if (state === 'deferred') {
-    // Mostrar card con switch simple (si tu UI lo tiene fuera del perfil),
-    // o simplemente no mostrar nada y dejar que lo active desde Perfil.
     if (switchEl) switchEl.checked = false;
-    show(cardSwitch, true);
+    show(cardSwitch, true); // Plan A: luego → mostrar switch
     return;
   }
 
@@ -351,7 +343,7 @@ function startNotifPermissionWatcher(){
             refreshNotifUIFromPermission();
             showNotifHelpOverlay(); // ayuda SOLO si está denied
           } else {
-            try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+            // 'prompt' → NO tocar LS_NOTIF_STATE. Solo refrescar UI.
             refreshNotifUIFromPermission();
           }
 
@@ -362,6 +354,7 @@ function startNotifPermissionWatcher(){
             if (cur === 'granted') {
               try { await obtenerYGuardarToken(); } catch {}
             } else if (cur === 'denied') {
+              try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
               showNotifHelpOverlay();
             }
           };
@@ -386,6 +379,7 @@ function startPollingWatcher(){
       if (cur === 'granted') {
         try { await obtenerYGuardarToken(); } catch {}
       } else if (cur === 'denied') {
+        try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
         showNotifHelpOverlay();
       }
     }
@@ -464,6 +458,9 @@ export function dismissPermissionRequest() {
   const el = $('notif-prompt-card');
   if (el) el.style.display = 'none';
   emit('rampet:consent:notif-dismissed', {});
+  // Plan A: luego → mostrar switch apagado si está presente
+  const sw = $('notif-switch'); if (sw) sw.checked = false;
+  show($('notif-card'), true);
 }
 
 export async function handlePermissionSwitch(e) {
@@ -559,9 +556,54 @@ function wirePushButtonsOnce() {
   }
 }
 
+// ─────────────────────────────────────────────────────────────
+// Sincro con “Mi Perfil” (checkbox) — NUEVO
+// ─────────────────────────────────────────────────────────────
+function isNotifEnabledLocally() {
+  return (('Notification' in window) && Notification.permission === 'granted') || !!localStorage.getItem('fcmToken');
+}
+
+export function syncProfileConsentUI() {
+  const cb = $('prof-consent-notif');
+  if (!cb) return;
+  cb.checked = isNotifEnabledLocally();
+}
+
+export async function handleProfileConsentToggle(checked) {
+  if (checked) {
+    if (('Notification' in window) && Notification.permission === 'granted') {
+      try { await obtenerYGuardarToken(); } catch {}
+    } else {
+      try {
+        const status = await Notification.requestPermission();
+        if (status === 'granted') {
+          try { await obtenerYGuardarToken(); } catch {}
+        } else if (status === 'denied') {
+          try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
+          toast('Notificaciones bloqueadas en el navegador.', 'warning');
+          $('prof-consent-notif') && ( $('prof-consent-notif').checked = false );
+          showNotifHelpOverlay();
+        } else {
+          try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+          $('prof-consent-notif') && ( $('prof-consent-notif').checked = false );
+        }
+      } catch (e) {
+        console.warn('[Perfil] requestPermission error:', e?.message || e);
+        $('prof-consent-notif') && ( $('prof-consent-notif').checked = false );
+      }
+    }
+  } else {
+    await borrarTokenYOptOut();
+  }
+  refreshNotifUIFromPermission();
+}
+
 // Exponer para consola si querés
 try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
+try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catch {}
 try { window.handlePermissionBlockClick = handlePermissionBlockClick; } catch {}
+try { window.syncProfileConsentUI = syncProfileConsentUI; } catch {}
+try { window.handleProfileConsentToggle = handleProfileConsentToggle; } catch {}
 
 // ─────────────────────────────────────────────────────────────
 // INIT (se llama desde app.js al loguearse)
@@ -583,6 +625,15 @@ export async function initNotificationsOnce() {
   await hookOnMessage();
   refreshNotifUIFromPermission();
   wirePushButtonsOnce();
+
+  // NUEVO: cablear checkbox de Perfil si existe
+  const profCb = $('prof-consent-notif');
+  if (profCb && !profCb._wired) {
+    profCb._wired = true;
+    profCb.addEventListener('change', (e) => handleProfileConsentToggle(!!e.target.checked));
+  }
+  syncProfileConsentUI();
+
   return true;
 }
 
@@ -972,3 +1023,5 @@ export async function initDomicilioForm() {
 try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
 try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catch {}
 try { window.handlePermissionBlockClick = handlePermissionBlockClick; } catch {}
+try { window.syncProfileConsentUI = syncProfileConsentUI; } catch {}
+try { window.handleProfileConsentToggle = handleProfileConsentToggle; } catch {}
