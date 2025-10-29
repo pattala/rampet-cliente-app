@@ -285,6 +285,7 @@
       </div>
 
       <!-- Notificaciones / prompts -->
+      <!-- ✅ Onboarding con tres opciones -->
       <div id="notif-prompt-card" class="card" style="display:none;">
         <h3>🚀 ¡Activá tus beneficios exclusivos!</h3>
         <p>Enterate al instante de promos y recompensas pensadas para vos. Activá las notificaciones y no te pierdas nada.</p>
@@ -293,9 +294,11 @@
           <li>🔥 <strong>Ofertas flash</strong></li>
           <li>🎁 <strong>Recompensas exclusivas</strong></li>
         </ul>
-        <div class="prompt-actions">
+        <div class="prompt-actions" style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btn-activar-notif-prompt" class="primary-btn">Sí, quiero recibir beneficios</button>
           <button id="btn-rechazar-notif-prompt" class="secondary-btn">Luego</button>
+          <!-- NUEVO: opción “No quiero” (bloqueo a nivel app, sin quemar permiso del navegador) -->
+          <button id="btn-bloquear-notif-prompt" class="secondary-btn" style="opacity:.9;">No quiero</button>
         </div>
       </div>
 
@@ -308,6 +311,7 @@
         </div>
       </div>
 
+      <!-- ✅ Card regular con switch (lo maneja notifications.js) -->
       <div id="notif-card" class="card" style="display:none;">
         <h3>Notificaciones</h3>
         <div class="notif-setting">
@@ -331,8 +335,14 @@
         </div>
       </div>
 
-      <div id="notif-blocked-warning" class="card warning-banner" style="display:none;">
-        <p>⚠️ Has bloqueado las notificaciones. Habilítalas en la configuración de tu navegador.</p>
+      <!-- ✅ Aviso cuando el navegador está BLOQUEADO (denied) -->
+      <div id="notif-blocked-warning" class="card warning-banner" style="display:none; border:1px solid #f5c2c7; background:#f8d7da; color:#842029;">
+        <div class="card-body">
+          <p style="margin:0;"><strong>Tenés las notificaciones bloqueadas en el navegador.</strong></p>
+          <p style="margin:6px 0 0 0; font-size:14px;">
+            Para habilitarlas: clic en el <em>candado (🔒)</em> de la barra de direcciones → <em>Notificaciones</em> → <strong>Permitir</strong>, y recargá la página.
+          </p>
+        </div>
       </div>
 
       <div id="historial-container" class="card">
