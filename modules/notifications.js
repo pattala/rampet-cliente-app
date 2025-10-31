@@ -717,6 +717,30 @@ function geoEls(){
     btnHelp: $('geo-help-btn')
   };
 }
+// ── Helpers de estado del banner/domicilio ──────────────────
+async function hasDomicilioOnServer() {
+  try {
+    const uid = firebase.auth().currentUser?.uid;
+    if (!uid) return false;
+    const clienteId = await getClienteDocIdPorUID(uid) || uid;
+    const snap = await firebase.firestore().collection('clientes').doc(clienteId).get();
+    const dom = snap.exists ? snap.data()?.domicilio : null;
+    const line = (dom?.addressLine || '').trim();
+    return !!line;
+  } catch { return false; }
+}
+
+async function shouldHideGeoBanner() {
+  try {
+    if (localStorage.getItem('addressBannerDismissed') === '1') return true;
+  } catch {}
+  return await hasDomicilioOnServer();
+}
+
+function hideGeoBanner() {
+  const { banner } = geoEls();
+  if (banner) banner.style.display = 'none';
+}
 
 function setGeoMarketingUI(on) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
@@ -782,10 +806,11 @@ async function detectGeoPermission() {
 
 async function updateGeoUI() {
   const state = await detectGeoPermission();
+  const hide = await shouldHideGeoBanner(); // <- decide si conviene ocultar todo
 
   if (state === 'granted') {
+    // activar geo-tracking + flags de servidor
     setGeoMarketingUI(false);
-    setGeoRegularUI('granted');
     startGeoWatch();
 
     await setClienteConfigPatch({
@@ -794,25 +819,41 @@ async function updateGeoUI() {
       geoUpdatedAt: new Date().toISOString()
     });
 
+    // Mostrar u ocultar banner según necesidad real
+    if (hide) {
+      hideGeoBanner();
+    } else {
+      setGeoRegularUI('granted'); // muestra “Listo…” si aún no cargó domicilio ni lo descartó
+    }
     return;
   }
 
+  // detener watch si no está concedido
   stopGeoWatch();
 
   if (state === 'denied') {
-    setGeoMarketingUI(false);
-    setGeoRegularUI('denied');
-
     await setClienteConfigPatch({
       geoEnabled: false,
       geoUpdatedAt: new Date().toISOString()
     });
 
+    if (hide) {
+      hideGeoBanner();
+    } else {
+      setGeoMarketingUI(false);
+      setGeoRegularUI('denied'); // muestra ayuda para habilitar
+    }
     return;
   }
 
-  setGeoMarketingUI(true);
+  // state === 'prompt' | 'unknown'
+  if (hide) {
+    hideGeoBanner();
+  } else {
+    setGeoMarketingUI(true); // primera vez: mostrar CTA “Activá… / Luego”
+  }
 }
+
 
 async function handleGeoEnable() {
   const { banner } = geoEls();
@@ -1082,3 +1123,4 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
+
