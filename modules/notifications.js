@@ -690,11 +690,14 @@ async function hasDomicilioOnServer() {
 }
 
 async function shouldHideGeoBanner() {
+  // Si el usuario lo bloqueó desde Perfil, queremos mostrar igual el recordatorio/CTA.
+  if (isGeoBlockedLocally()) return false;
   try {
     if (localStorage.getItem('addressBannerDismissed') === '1') return true;
   } catch {}
   return await hasDomicilioOnServer();
 }
+
 
 function hideGeoBanner() {
   const { banner } = geoEls();
@@ -752,6 +755,21 @@ function setGeoRegularUI(state) {
   if (txt) txt.textContent = 'Activá para ver ofertas y beneficios cerca tuyo.';
   showInline(btnOn,true); showInline(btnOff,false); showInline(btnHelp,false);
 }
+// UI cuando el usuario lo desactivó desde el Perfil (bloqueo local)
+// Muestra banner corto con CTA para reactivar, sin culpar al navegador.
+function setGeoOffByUserUI() {
+  const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
+  if (!banner) return;
+  show(banner, true);
+
+  const later = document.getElementById('geo-later-btn');
+  if (later) later.style.display = 'none';
+
+  if (txt) txt.textContent = 'No vas a recibir beneficios en tu zona. Podés activarlo cuando quieras.';
+  showInline(btnOn, true);   // CTA “Activar”
+  showInline(btnOff, false); // no hace falta un “Desactivar” porque ya está off
+  showInline(btnHelp, false);
+}
 
 async function detectGeoPermission() {
   try {
@@ -774,8 +792,9 @@ async function updateGeoUI() {
       geoEnabled: false,
       geoUpdatedAt: new Date().toISOString()
     });
-    if (hide) hideGeoBanner();
-    else { setGeoMarketingUI(false); setGeoRegularUI('denied'); }
+
+    // Mostrar siempre un aviso suave para reactivar (aunque 'hide' sea true)
+    setGeoOffByUserUI();
     return;
   }
 
@@ -812,6 +831,7 @@ async function updateGeoUI() {
   if (hide) { hideGeoBanner(); }
   else { setGeoMarketingUI(true); }
 }
+
 
 
 async function handleGeoEnable() {
@@ -1219,4 +1239,5 @@ export async function initNotificationsOnce() {
 export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
 export function handleBellClick() { return Promise.resolve(); }
 export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
+
 
