@@ -1113,6 +1113,8 @@ export async function initDomicilioForm() {
 
       try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
       toast('Domicilio guardado. ¡Gracias!', 'success');
+       hideGeoBanner();              // cerrar visualmente el banner ya mismo
+      updateGeoUI().catch(()=>{});  // re-evaluar lógica por si cambió permiso/estado
     } catch (e) {
       console.error('save domicilio error', e);
       toast('No pudimos guardar el domicilio', 'error');
@@ -1123,4 +1125,5 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
+
 
