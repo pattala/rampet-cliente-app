@@ -672,6 +672,10 @@ function geoEls(){
     btnHelp: $('geo-help-btn')
   };
 }
+function isGeoBlockedLocally() {
+  try { return localStorage.getItem(LS_GEO_STATE) === 'blocked'; }
+  catch { return false; }
+}
 
 async function hasDomicilioOnServer() {
   try {
@@ -763,6 +767,18 @@ async function updateGeoUI() {
   const state = await detectGeoPermission();
   const hide = await shouldHideGeoBanner();
 
+  // 👉 Si el usuario bloqueó desde el perfil, NO activar aunque el permiso sea granted.
+  if (isGeoBlockedLocally()) {
+    stopGeoWatch();
+    await setClienteConfigPatch({
+      geoEnabled: false,
+      geoUpdatedAt: new Date().toISOString()
+    });
+    if (hide) hideGeoBanner();
+    else { setGeoMarketingUI(false); setGeoRegularUI('denied'); }
+    return;
+  }
+
   if (state === 'granted') {
     setGeoMarketingUI(false);
     startGeoWatch();
@@ -773,14 +789,12 @@ async function updateGeoUI() {
       geoUpdatedAt: new Date().toISOString()
     });
 
-    if (hide) {
-      hideGeoBanner();
-    } else {
-      setGeoRegularUI('granted');
-    }
+    if (hide) { hideGeoBanner(); }
+    else { setGeoRegularUI('granted'); }
     return;
   }
 
+  // No granted → asegurar apagado
   stopGeoWatch();
 
   if (state === 'denied') {
@@ -789,22 +803,16 @@ async function updateGeoUI() {
       geoUpdatedAt: new Date().toISOString()
     });
 
-    if (hide) {
-      hideGeoBanner();
-    } else {
-      setGeoMarketingUI(false);
-      setGeoRegularUI('denied');
-    }
+    if (hide) { hideGeoBanner(); }
+    else { setGeoMarketingUI(false); setGeoRegularUI('denied'); }
     return;
   }
 
   // state === 'prompt' | 'unknown'
-  if (hide) {
-    hideGeoBanner();
-  } else {
-    setGeoMarketingUI(true);
-  }
+  if (hide) { hideGeoBanner(); }
+  else { setGeoMarketingUI(true); }
 }
+
 
 async function handleGeoEnable() {
   const { banner } = geoEls();
@@ -962,7 +970,8 @@ function onGeoPosSuccess(pos) {
 function onGeoPosError(_) {}
 
 function startGeoWatch() {
-  if (!navigator.geolocation || geoWatchId != null) return;
+ if (!navigator.geolocation || geoWatchId != null) return;
+  if (isGeoBlockedLocally()) return; // 👈 respetar opt-out del perfil
   if (document.visibilityState !== 'visible') return;
   try {
     geoWatchId = navigator.geolocation.watchPosition(
@@ -977,10 +986,14 @@ function stopGeoWatch() {
 }
 
 try {
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') startGeoWatch();
-    else stopGeoWatch();
-  });
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    if (!isGeoBlockedLocally()) startGeoWatch();
+  } else {
+    stopGeoWatch();
+  }
+});
+
 } catch {}
 
 /* ────────────────────────────────────────────────────────────
@@ -1093,15 +1106,21 @@ export async function syncProfileGeoUI() {
   const cb = $('prof-consent-geo');
   if (!cb) return;
 
+  // 1) Si el usuario bloqueó desde el perfil, manda eso.
+  if (isGeoBlockedLocally()) { cb.checked = false; return; }
+
+  // 2) Si el server dice algo explícito, respetarlo.
   let serverOn = null;
   try { serverOn = await fetchServerGeoEnabled(); } catch {}
 
   if (serverOn === true) { cb.checked = true; return; }
   if (serverOn === false) { cb.checked = false; return; }
 
+  // 3) Fallback: permiso del navegador
   const perm = await detectGeoPermission();
   cb.checked = (perm === 'granted');
 }
+
 
 export async function handleProfileGeoToggle(checked) {
   if (checked) {
@@ -1200,3 +1219,4 @@ export async function initNotificationsOnce() {
 export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
 export function handleBellClick() { return Promise.resolve(); }
 export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
+
