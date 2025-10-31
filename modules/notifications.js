@@ -1,9 +1,9 @@
 // /modules/notifications.js — FCM + VAPID + Opt-In (card → switch) + Geo + Domicilio
 'use strict';
 
-// ─────────────────────────────────────────────────────────────
-// CONFIG / HELPERS
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   CONFIG / HELPERS
+   ──────────────────────────────────────────────────────────── */
 const VAPID_PUBLIC = (window.__RAMPET__ && window.__RAMPET__.VAPID_PUBLIC) || '';
 if (!VAPID_PUBLIC) console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
 
@@ -29,9 +29,9 @@ function toast(msg, type='info') {
   if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
 }
 
-// ─────────────────────────────────────────────────────────────
-// Quiet UI / Ayuda  (solo mostrar si el permiso está DENIED)
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   Quiet UI / Ayuda  (solo mostrar si el permiso está DENIED)
+   ──────────────────────────────────────────────────────────── */
 function showNotifHelpOverlay() {
   // Se usa SOLO cuando Notification.permission === 'denied'
   const warned = document.getElementById('notif-blocked-warning');
@@ -69,16 +69,16 @@ function showNotifHelpOverlay() {
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') close(); }, { once: true });
 }
 
-// ─────────────────────────────────────────────────────────────
-// ESTADO LOCAL / CONSTANTES
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   ESTADO LOCAL / CONSTANTES
+   ──────────────────────────────────────────────────────────── */
 const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
 
 let __notifReqInFlight = false;
 const SW_PATH = '/firebase-messaging-sw.js';   // usar raíz: tal como entrega tu index
 
-// ───────────────── Firebase compat helpers ─────────────────
+/* ───────────────── Firebase compat helpers ──────────────── */
 async function ensureMessagingCompatLoaded() {
   if (typeof firebase?.messaging === 'function') return;
   await new Promise((ok, err) => {
@@ -111,9 +111,42 @@ async function registerSW() {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Firestore helpers: clientes/{id} + config + tokens
-// ─────────────────────────────────────────────────────────────
+// Espera a que exista un SW ACTIVO (state === 'activated')
+async function waitForActiveSW() {
+  if (!('serviceWorker' in navigator)) return null;
+
+  let reg = null;
+  try {
+    reg = await navigator.serviceWorker.getRegistration(SW_PATH)
+        || await navigator.serviceWorker.ready
+        || await navigator.serviceWorker.getRegistration('/')
+        || await navigator.serviceWorker.getRegistration();
+  } catch {}
+
+  if (!reg) return null;
+
+  if (reg.active && reg.active.state === 'activated') return reg;
+
+  const sw = reg.active || reg.installing || reg.waiting;
+  if (sw) {
+    await new Promise((resolve) => {
+      const done = () => resolve();
+      sw.addEventListener('statechange', () => { if (sw.state === 'activated') done(); });
+      if (sw.state === 'activated') done();
+      setTimeout(done, 2500);
+    });
+  }
+
+  try {
+    reg = await navigator.serviceWorker.getRegistration(SW_PATH) || reg;
+  } catch {}
+
+  return reg;
+}
+
+/* ────────────────────────────────────────────────────────────
+   Firestore helpers: clientes/{id} + config + tokens
+   ──────────────────────────────────────────────────────────── */
 async function getClienteDocIdPorUID(uid) {
   const snap = await firebase.firestore()
     .collection('clientes')
@@ -184,9 +217,9 @@ async function clearFcmTokensOnCliente() {
   await ref.set({ fcmTokens: [] }, { merge: true });
 }
 
-// ─────────────────────────────────────────────────────────────
-// Token helpers
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   Token helpers
+   ──────────────────────────────────────────────────────────── */
 async function guardarTokenEnMiDoc(token) {
   const clienteId = await setFcmTokensOnCliente([token]);
 
@@ -225,18 +258,19 @@ async function borrarTokenYOptOut() {
 async function obtenerYGuardarToken() {
   await ensureMessagingCompatLoaded();
 
-  // Resolver registration de forma robusta
-  let reg = null;
-  try {
-    reg = await navigator.serviceWorker.getRegistration(SW_PATH);
-    if (!reg) { try { reg = await navigator.serviceWorker.ready; } catch {} }
-    if (!reg) reg = await navigator.serviceWorker.getRegistration('/');
-    if (!reg) reg = await navigator.serviceWorker.getRegistration();
-  } catch {}
-
-  if (!reg) {
-    console.warn('[FCM] No encontré un ServiceWorker registration activo.');
+  // Espera a un SW realmente ACTIVADO
+  const reg = await waitForActiveSW();
+  if (!reg || !(reg.active)) {
+    console.warn('[FCM] No hay ServiceWorker ACTIVO todavía.');
     toast('No se pudo activar notificaciones (SW no activo).', 'error');
+    // Reintento suave cuando cambie el controller
+    try {
+      const once = () => {
+        navigator.serviceWorker.removeEventListener('controllerchange', once);
+        setTimeout(() => { obtenerYGuardarToken().catch(()=>{}); }, 250);
+      };
+      navigator.serviceWorker.addEventListener('controllerchange', once, { once: true });
+    } catch {}
     throw new Error('SW no activo');
   }
 
@@ -253,7 +287,7 @@ async function obtenerYGuardarToken() {
   }
 
   if (!tok) {
-    console.warn('[FCM] getToken() devolvió vacío. Revisar VAPID o permiso del navegador.');
+    console.warn('[FCM] getToken() devolvió vacío. Revisar VAPID/permiso.');
     toast('No se pudo activar notificaciones (token vacío).', 'warning');
     throw new Error('token vacío');
   }
@@ -266,15 +300,15 @@ async function obtenerYGuardarToken() {
   return tok;
 }
 
-// ─────────────────────────────────────────────────────────────
-// UI de Notificaciones (marketing + switch)
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   UI de Notificaciones (marketing + switch)
+   ──────────────────────────────────────────────────────────── */
 function refreshNotifUIFromPermission() {
   const hasNotif = ('Notification' in window);
   const perm = hasNotif ? Notification.permission : 'unsupported';
 
-  const cardMarketing = $('notif-prompt-card');   // Onboarding (Aceptar / Luego / No quiero)
-  const cardSwitch    = $('notif-card');          // Card regular con switch (suele estar en Perfil)
+  const cardMarketing = $('notif-prompt-card');   // Onboarding
+  const cardSwitch    = $('notif-card');          // Card con switch (perfil)
   const warnBlocked   = $('notif-blocked-warning');
   const switchEl      = $('notif-switch');
 
@@ -282,12 +316,16 @@ function refreshNotifUIFromPermission() {
   show(cardSwitch, false);
   show(warnBlocked, false);
 
+  // Sólo consideramos "activo" si HAY token persistido
+  let hasToken = false;
+  try { hasToken = !!localStorage.getItem('fcmToken'); } catch {}
+
   if (!hasNotif) return;
 
   if (perm === 'granted') {
-    if (switchEl) switchEl.checked = true;
-    try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
-    // Card de switch puede o no estar visible según layout. No forzamos mostrar.
+    if (switchEl) switchEl.checked = !!hasToken;
+    try { localStorage.setItem(LS_NOTIF_STATE, hasToken ? 'accepted' : 'deferred'); } catch {}
+    if (!hasToken) show(cardSwitch, true); // Permiso ok pero falta token → mostrar switch
     return;
   }
 
@@ -298,9 +336,9 @@ function refreshNotifUIFromPermission() {
     return;
   }
 
-  // perm === 'default' → decidir por estado local (sin ayuda)
+  // perm === 'default' → decidir por estado local
   const state = localStorage.getItem(LS_NOTIF_STATE);
-  if (state === 'accepted') {
+  if (state === 'accepted' && hasToken) {
     if (switchEl) switchEl.checked = true;
     return;
   }
@@ -310,25 +348,24 @@ function refreshNotifUIFromPermission() {
   }
   if (state === 'deferred') {
     if (switchEl) switchEl.checked = false;
-    show(cardSwitch, true); // Plan A: luego → mostrar switch
+    show(cardSwitch, true);
     return;
   }
 
-  // Sin estado → primera vez: mostrar onboarding
+  // Primera vez: onboarding
   if (switchEl) switchEl.checked = false;
   show(cardMarketing, true);
 }
 
-// ─────────────────────────────────────────────────────────────
-// Watcher de permiso (Permissions API + fallback polling)
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   Watcher de permiso (Permissions API + fallback polling)
+   ──────────────────────────────────────────────────────────── */
 let __permWatcher = { timer:null, last:null, wired:false };
 
 function startNotifPermissionWatcher(){
   if (__permWatcher.wired) return;
   __permWatcher.wired = true;
 
-  // 1) Intentar Permissions API
   try {
     if ('permissions' in navigator && navigator.permissions?.query) {
       navigator.permissions.query({ name: 'notifications' })
@@ -341,9 +378,8 @@ function startNotifPermissionWatcher(){
           } else if (permStatus.state === 'denied') {
             try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
             refreshNotifUIFromPermission();
-            showNotifHelpOverlay(); // ayuda SOLO si está denied
+            showNotifHelpOverlay();
           } else {
-            // 'prompt' → NO tocar LS_NOTIF_STATE. Solo refrescar UI.
             refreshNotifUIFromPermission();
           }
 
@@ -364,7 +400,6 @@ function startNotifPermissionWatcher(){
     }
   } catch {}
 
-  // 2) Fallback a polling
   startPollingWatcher();
 }
 
@@ -390,9 +425,9 @@ function stopNotifPermissionWatcher(){
   if (__permWatcher.timer) { clearInterval(__permWatcher.timer); __permWatcher.timer = null; }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Handlers de Notificaciones
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   Handlers de Notificaciones
+   ──────────────────────────────────────────────────────────── */
 export async function handlePermissionRequest() {
   startNotifPermissionWatcher();
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
@@ -408,13 +443,11 @@ export async function handlePermissionRequest() {
       return;
     }
     if (current === 'denied') {
-      // No podemos pedir; mostrar ayuda para desbloquear
       refreshNotifUIFromPermission();
       showNotifHelpOverlay();
       return;
     }
 
-    // current === 'default' → pedir permiso SIN overlay “quiet UI”
     const status = await Notification.requestPermission();
 
     if (status === 'granted') {
@@ -422,9 +455,8 @@ export async function handlePermissionRequest() {
     } else if (status === 'denied') {
       try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out', { source: 'prompt' });
-      showNotifHelpOverlay(); // ahora sí, porque quedó denied
+      showNotifHelpOverlay();
     } else {
-      // Usuario ignoró → no insistir (deferred)
       try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
       emit('rampet:consent:notif-dismissed', {});
     }
@@ -438,7 +470,7 @@ export async function handlePermissionRequest() {
   }
 }
 
-// NUEVO: “No quiero” (Plan A) → bloquear a nivel app, sin quemar permiso del navegador
+// “No quiero” (Plan A) → bloqueo a nivel app, sin quemar permiso del navegador
 export function handlePermissionBlockClick() {
   try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
   const el = $('notif-prompt-card');
@@ -458,7 +490,6 @@ export function dismissPermissionRequest() {
   const el = $('notif-prompt-card');
   if (el) el.style.display = 'none';
   emit('rampet:consent:notif-dismissed', {});
-  // Plan A: luego → mostrar switch apagado si está presente
   const sw = $('notif-switch'); if (sw) sw.checked = false;
   show($('notif-card'), true);
 }
@@ -498,9 +529,9 @@ export async function handlePermissionSwitch(e) {
   refreshNotifUIFromPermission();
 }
 
-// ─────────────────────────────────────────────────────────────
-// Foreground push → notificación del sistema
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   Foreground push → notificación del sistema
+   ──────────────────────────────────────────────────────────── */
 async function hookOnMessage() {
   try {
     await ensureMessagingCompatLoaded();
@@ -526,9 +557,9 @@ async function hookOnMessage() {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Cableado de botones de la UI (index.html)
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   Cableado de botones de la UI (index.html)
+   ──────────────────────────────────────────────────────────── */
 function wirePushButtonsOnce() {
   const allow = document.getElementById('btn-activar-notif-prompt');
   if (allow && !allow._wired) {
@@ -542,7 +573,6 @@ function wirePushButtonsOnce() {
     later.addEventListener('click', () => { dismissPermissionRequest(); });
   }
 
-  // NUEVO: botón “No quiero” (Plan A)
   const block = document.getElementById('btn-bloquear-notif-prompt');
   if (block && !block._wired) {
     block._wired = true;
@@ -556,15 +586,13 @@ function wirePushButtonsOnce() {
   }
 }
 
-// ─────────────────────────────────────────────────────────────
-// Sincro con “Mi Perfil” (checkbox) — NUEVO
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   Sincro con “Mi Perfil” (checkbox)
+   ──────────────────────────────────────────────────────────── */
 function isNotifEnabledLocally() {
-  // El único “OK real” es tener token guardado.
   try { return !!localStorage.getItem('fcmToken'); }
   catch { return false; }
 }
-
 
 async function fetchServerNotifEnabled() {
   try {
@@ -583,16 +611,13 @@ export async function syncProfileConsentUI() {
   const cb = $('prof-consent-notif');
   if (!cb) return;
 
-  // 1) Señal rápida local (token en LS)
   const localOn = isNotifEnabledLocally();
 
-  // 2) Señal servidor (si se puede leer). No bloquea si falla.
   let serverOn = null;
   try { serverOn = await fetchServerNotifEnabled(); } catch {}
 
   cb.checked = !!(localOn || serverOn);
 }
-
 
 export async function handleProfileConsentToggle(checked) {
   if (checked) {
@@ -623,31 +648,37 @@ export async function handleProfileConsentToggle(checked) {
   refreshNotifUIFromPermission();
 }
 
-// Exponer para consola si querés
-try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
-try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catch {}
-try { window.handlePermissionBlockClick = handlePermissionBlockClick; } catch {}
-try { window.syncProfileConsentUI = syncProfileConsentUI; } catch {}
-try { window.handleProfileConsentToggle = handleProfileConsentToggle; } catch {}
+// Exponer para consola (una sola vez, sin duplicados)
+try {
+  window.handlePermissionRequest = handlePermissionRequest;
+  window.handlePermissionSwitch = (e) => handlePermissionSwitch(e);
+  window.handlePermissionBlockClick = handlePermissionBlockClick;
+  window.syncProfileConsentUI = syncProfileConsentUI;
+  window.handleProfileConsentToggle = handleProfileConsentToggle;
+} catch {}
 
 // Mantener sincronizado el checkbox del Perfil cuando cambie el consentimiento
 document.addEventListener('rampet:consent:notif-opt-in',  () => { syncProfileConsentUI(); });
 document.addEventListener('rampet:consent:notif-opt-out', () => { syncProfileConsentUI(); });
-// Al volver a la pestaña, re-sincronizar por si hubo cambios externos
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') syncProfileConsentUI();
 });
 
-// ─────────────────────────────────────────────────────────────
-// INIT (se llama desde app.js al loguearse)
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   INIT (se llama desde app.js al loguearse)
+   ──────────────────────────────────────────────────────────── */
 export async function initNotificationsOnce() {
   await registerSW();
+
+  // Esperar a que el SW esté listo/activo antes de cualquier intento de token
+  await waitForActiveSW().catch(()=>{});
+
   startNotifPermissionWatcher();
 
   if ('Notification' in window && Notification.permission === 'granted') {
     try {
-      await obtenerYGuardarToken();
+      const hasTok = !!localStorage.getItem('fcmToken');
+      if (!hasTok) await obtenerYGuardarToken();
       await setClienteConfigPatch({
         notifEnabled: true,
         notifUpdatedAt: new Date().toISOString()
@@ -659,7 +690,7 @@ export async function initNotificationsOnce() {
   refreshNotifUIFromPermission();
   wirePushButtonsOnce();
 
-  // NUEVO: cablear checkbox de Perfil si existe
+  // Cablear checkbox de Perfil si existe
   const profCb = $('prof-consent-notif');
   if (profCb && !profCb._wired) {
     profCb._wired = true;
@@ -674,9 +705,9 @@ export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermi
 export function handleBellClick() { return Promise.resolve(); }
 export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
 
-// ─────────────────────────────────────────────────────────────
-// “BENEFICIOS CERCA TUYO” (Geo UI + tracking)
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   “BENEFICIOS CERCA TUYO” (Geo UI + tracking)
+   ──────────────────────────────────────────────────────────── */
 function geoEls(){
   return {
     banner: $('geo-banner'),
@@ -845,9 +876,9 @@ export async function ensureGeoOnStartup(){ wireGeoButtonsOnce(); await updateGe
 export async function maybeRefreshIfStale(){ await updateGeoUI(); }
 try { window.ensureGeoOnStartup = ensureGeoOnStartup; window.maybeRefreshIfStale = maybeRefreshIfStale; } catch {}
 
-// ─────────────────────────────────────────────────────────────
-// GEO TRACKING “MIENTRAS ESTÉ ABIERTA”
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   GEO TRACKING “MIENTRAS ESTÉ ABIERTA”
+   ──────────────────────────────────────────────────────────── */
 const GEO_CONF = { THROTTLE_S: 180, DIST_M: 250, DAILY_CAP: 30 };
 const LS_GEO_DAY = 'geoDay';
 const LS_GEO_COUNT = 'geoCount';
@@ -963,9 +994,9 @@ try {
   });
 } catch {}
 
-// ─────────────────────────────────────────────────────────────
-// FORMULARIO DOMICILIO (clientes/{id}.domicilio)
-// ─────────────────────────────────────────────────────────────
+/* ────────────────────────────────────────────────────────────
+   FORMULARIO DOMICILIO (clientes/{id}.domicilio)
+   ──────────────────────────────────────────────────────────── */
 function buildAddressLine(c) {
   const parts = [];
   if (c.calle) parts.push(c.calle + (c.numero ? ' ' + c.numero : ''));
@@ -1051,11 +1082,3 @@ export async function initDomicilioForm() {
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
   });
 }
-
-// Exponer handlers al window (útil en HTML o consola)
-try { window.handlePermissionRequest = handlePermissionRequest; } catch {}
-try { window.handlePermissionSwitch   = (e) => handlePermissionSwitch(e); } catch {}
-try { window.handlePermissionBlockClick = handlePermissionBlockClick; } catch {}
-try { window.syncProfileConsentUI = syncProfileConsentUI; } catch {}
-try { window.handleProfileConsentToggle = handleProfileConsentToggle; } catch {}
-
