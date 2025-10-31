@@ -33,7 +33,6 @@ function toast(msg, type='info') {
    Quiet UI / Ayuda  (solo mostrar si el permiso está DENIED)
    ──────────────────────────────────────────────────────────── */
 function showNotifHelpOverlay() {
-  // Se usa SOLO cuando Notification.permission === 'denied'
   const warned = document.getElementById('notif-blocked-warning');
   if (warned) {
     warned.style.display = 'block';
@@ -76,7 +75,7 @@ const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | nu
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
 
 let __notifReqInFlight = false;
-const SW_PATH = '/firebase-messaging-sw.js';   // usar raíz: tal como entrega tu index
+const SW_PATH = '/firebase-messaging-sw.js';
 
 /* ───────────────── Firebase compat helpers ──────────────── */
 async function ensureMessagingCompatLoaded() {
@@ -241,7 +240,8 @@ async function borrarTokenYOptOut() {
     try { await firebase.messaging().deleteToken(); } catch {}
     await clearFcmTokensOnCliente();
     try { localStorage.removeItem('fcmToken'); } catch {}
-    try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+    // IMPORTANTE: marcar como BLOQUEADO para que no se auto-reactive
+    try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
 
     await setClienteConfigPatch({
       notifEnabled: false,
@@ -263,7 +263,6 @@ async function obtenerYGuardarToken() {
   if (!reg || !(reg.active)) {
     console.warn('[FCM] No hay ServiceWorker ACTIVO todavía.');
     toast('No se pudo activar notificaciones (SW no activo).', 'error');
-    // Reintento suave cuando cambie el controller
     try {
       const once = () => {
         navigator.serviceWorker.removeEventListener('controllerchange', once);
@@ -372,9 +371,16 @@ function startNotifPermissionWatcher(){
         .then((permStatus) => {
           __permWatcher.last = permStatus.state; // 'granted' | 'denied' | 'prompt'
 
+          const ls = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
+
           if (permStatus.state === 'granted') {
-            try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
-            obtenerYGuardarToken().catch(()=>{}).finally(refreshNotifUIFromPermission);
+            // Solo autogenerar token si NO está marcado como "blocked" por el usuario
+            if (ls !== 'blocked') {
+              try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
+              obtenerYGuardarToken().catch(()=>{}).finally(refreshNotifUIFromPermission);
+            } else {
+              refreshNotifUIFromPermission();
+            }
           } else if (permStatus.state === 'denied') {
             try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
             refreshNotifUIFromPermission();
@@ -387,8 +393,11 @@ function startNotifPermissionWatcher(){
             const cur = permStatus.state;
             __permWatcher.last = cur;
             try { refreshNotifUIFromPermission?.(); } catch {}
+            const lsNow = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
             if (cur === 'granted') {
-              try { await obtenerYGuardarToken(); } catch {}
+              if (lsNow !== 'blocked') {
+                try { await obtenerYGuardarToken(); } catch {}
+              }
             } else if (cur === 'denied') {
               try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
               showNotifHelpOverlay();
@@ -411,8 +420,11 @@ function startPollingWatcher(){
     if (cur !== __permWatcher.last) {
       __permWatcher.last = cur;
       try { refreshNotifUIFromPermission?.(); } catch {}
+      const ls = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
       if (cur === 'granted') {
-        try { await obtenerYGuardarToken(); } catch {}
+        if (ls !== 'blocked') {
+          try { await obtenerYGuardarToken(); } catch {}
+        }
       } else if (cur === 'denied') {
         try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
         showNotifHelpOverlay();
@@ -587,7 +599,7 @@ function wirePushButtonsOnce() {
 }
 
 /* ────────────────────────────────────────────────────────────
-   Sincro con “Mi Perfil” (checkbox)
+   Sincro con “Mi Perfil” (checkbox) — NOTIFS
    ──────────────────────────────────────────────────────────── */
 function isNotifEnabledLocally() {
   try { return !!localStorage.getItem('fcmToken'); }
@@ -648,65 +660,8 @@ export async function handleProfileConsentToggle(checked) {
   refreshNotifUIFromPermission();
 }
 
-// Exponer para consola (una sola vez, sin duplicados)
-try {
-  window.handlePermissionRequest = handlePermissionRequest;
-  window.handlePermissionSwitch = (e) => handlePermissionSwitch(e);
-  window.handlePermissionBlockClick = handlePermissionBlockClick;
-  window.syncProfileConsentUI = syncProfileConsentUI;
-  window.handleProfileConsentToggle = handleProfileConsentToggle;
-} catch {}
-
-// Mantener sincronizado el checkbox del Perfil cuando cambie el consentimiento
-document.addEventListener('rampet:consent:notif-opt-in',  () => { syncProfileConsentUI(); });
-document.addEventListener('rampet:consent:notif-opt-out', () => { syncProfileConsentUI(); });
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') syncProfileConsentUI();
-});
-
 /* ────────────────────────────────────────────────────────────
-   INIT (se llama desde app.js al loguearse)
-   ──────────────────────────────────────────────────────────── */
-export async function initNotificationsOnce() {
-  await registerSW();
-
-  // Esperar a que el SW esté listo/activo antes de cualquier intento de token
-  await waitForActiveSW().catch(()=>{});
-
-  startNotifPermissionWatcher();
-
-  if ('Notification' in window && Notification.permission === 'granted') {
-    try {
-      const hasTok = !!localStorage.getItem('fcmToken');
-      if (!hasTok) await obtenerYGuardarToken();
-      await setClienteConfigPatch({
-        notifEnabled: true,
-        notifUpdatedAt: new Date().toISOString()
-      });
-    } catch {}
-  }
-
-  await hookOnMessage();
-  refreshNotifUIFromPermission();
-  wirePushButtonsOnce();
-
-  // Cablear checkbox de Perfil si existe
-  const profCb = $('prof-consent-notif');
-  if (profCb && !profCb._wired) {
-    profCb._wired = true;
-    profCb.addEventListener('change', (e) => handleProfileConsentToggle(!!e.target.checked));
-  }
-  syncProfileConsentUI();
-
-  return true;
-}
-
-export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
-export function handleBellClick() { return Promise.resolve(); }
-export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
-
-/* ────────────────────────────────────────────────────────────
-   “BENEFICIOS CERCA TUYO” (Geo UI + tracking)
+   GEO — Helpers de banner + Perfil
    ──────────────────────────────────────────────────────────── */
 function geoEls(){
   return {
@@ -717,7 +672,7 @@ function geoEls(){
     btnHelp: $('geo-help-btn')
   };
 }
-// ── Helpers de estado del banner/domicilio ──────────────────
+
 async function hasDomicilioOnServer() {
   try {
     const uid = firebase.auth().currentUser?.uid;
@@ -806,10 +761,9 @@ async function detectGeoPermission() {
 
 async function updateGeoUI() {
   const state = await detectGeoPermission();
-  const hide = await shouldHideGeoBanner(); // <- decide si conviene ocultar todo
+  const hide = await shouldHideGeoBanner();
 
   if (state === 'granted') {
-    // activar geo-tracking + flags de servidor
     setGeoMarketingUI(false);
     startGeoWatch();
 
@@ -819,16 +773,14 @@ async function updateGeoUI() {
       geoUpdatedAt: new Date().toISOString()
     });
 
-    // Mostrar u ocultar banner según necesidad real
     if (hide) {
       hideGeoBanner();
     } else {
-      setGeoRegularUI('granted'); // muestra “Listo…” si aún no cargó domicilio ni lo descartó
+      setGeoRegularUI('granted');
     }
     return;
   }
 
-  // detener watch si no está concedido
   stopGeoWatch();
 
   if (state === 'denied') {
@@ -841,7 +793,7 @@ async function updateGeoUI() {
       hideGeoBanner();
     } else {
       setGeoMarketingUI(false);
-      setGeoRegularUI('denied'); // muestra ayuda para habilitar
+      setGeoRegularUI('denied');
     }
     return;
   }
@@ -850,10 +802,9 @@ async function updateGeoUI() {
   if (hide) {
     hideGeoBanner();
   } else {
-    setGeoMarketingUI(true); // primera vez: mostrar CTA “Activá… / Luego”
+    setGeoMarketingUI(true);
   }
 }
-
 
 async function handleGeoEnable() {
   const { banner } = geoEls();
@@ -872,16 +823,13 @@ async function handleGeoEnable() {
   try {
     await new Promise((resolve) => {
       if (!navigator.geolocation?.getCurrentPosition) return resolve();
-
       let settled = false;
       const done = () => { if (settled) return; settled = true; resolve(); };
-
       navigator.geolocation.getCurrentPosition(
         () => { done(); },
         () => { done(); },
         { timeout: 3000, maximumAge: 120000, enableHighAccuracy: false }
       );
-
       setTimeout(done, 3500);
     });
   } catch {}
@@ -1113,8 +1061,9 @@ export async function initDomicilioForm() {
 
       try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
       toast('Domicilio guardado. ¡Gracias!', 'success');
-       hideGeoBanner();              // cerrar visualmente el banner ya mismo
-      updateGeoUI().catch(()=>{});  // re-evaluar lógica por si cambió permiso/estado
+      hideGeoBanner();
+      updateGeoUI().catch(()=>{});
+      emit('rampet:geo:changed', { enabled: true }); // avisa al principal
     } catch (e) {
       console.error('save domicilio error', e);
       toast('No pudimos guardar el domicilio', 'error');
@@ -1126,4 +1075,128 @@ export async function initDomicilioForm() {
   });
 }
 
+/* ────────────────────────────────────────────────────────────
+   GEO — Perfil (switch)
+   ──────────────────────────────────────────────────────────── */
+async function fetchServerGeoEnabled() {
+  try {
+    const uid = firebase.auth().currentUser?.uid;
+    if (!uid) return null;
+    const clienteId = await getClienteDocIdPorUID(uid) || uid;
+    const snap = await firebase.firestore().collection('clientes').doc(clienteId).get();
+    const data = snap.exists ? snap.data() : null;
+    return !!data?.config?.geoEnabled;
+  } catch { return null; }
+}
 
+export async function syncProfileGeoUI() {
+  const cb = $('prof-consent-geo');
+  if (!cb) return;
+
+  let serverOn = null;
+  try { serverOn = await fetchServerGeoEnabled(); } catch {}
+
+  if (serverOn === true) { cb.checked = true; return; }
+  if (serverOn === false) { cb.checked = false; return; }
+
+  const perm = await detectGeoPermission();
+  cb.checked = (perm === 'granted');
+}
+
+export async function handleProfileGeoToggle(checked) {
+  if (checked) {
+    try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
+    await setClienteConfigPatch({
+      geoEnabled: true,
+      geoOptInSource: 'ui',
+      geoUpdatedAt: new Date().toISOString()
+    });
+    startGeoWatch();
+    emit('rampet:geo:changed', { enabled: true });
+    updateGeoUI().catch(()=>{});
+  } else {
+    try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
+    await setClienteConfigPatch({
+      geoEnabled: false,
+      geoUpdatedAt: new Date().toISOString()
+    });
+    stopGeoWatch();
+    emit('rampet:geo:changed', { enabled: false });
+    updateGeoUI().catch(()=>{});
+  }
+}
+
+/* ────────────────────────────────────────────────────────────
+   Exposiciones y sincronías globales
+   ──────────────────────────────────────────────────────────── */
+try {
+  window.handlePermissionRequest = handlePermissionRequest;
+  window.handlePermissionSwitch = (e) => handlePermissionSwitch(e);
+  window.handlePermissionBlockClick = handlePermissionBlockClick;
+  window.syncProfileConsentUI = syncProfileConsentUI;
+  window.handleProfileConsentToggle = handleProfileConsentToggle;
+  window.syncProfileGeoUI = syncProfileGeoUI;
+  window.handleProfileGeoToggle = handleProfileGeoToggle;
+} catch {}
+
+document.addEventListener('rampet:consent:notif-opt-in',  () => { syncProfileConsentUI(); });
+document.addEventListener('rampet:consent:notif-opt-out', () => { syncProfileConsentUI(); });
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    syncProfileConsentUI();
+    syncProfileGeoUI();
+  }
+});
+
+/* ────────────────────────────────────────────────────────────
+   INIT (se llama desde app.js al loguearse)
+   ──────────────────────────────────────────────────────────── */
+export async function initNotificationsOnce() {
+  await registerSW();
+  await waitForActiveSW().catch(()=>{});
+
+  startNotifPermissionWatcher();
+
+  // NO auto-activar si el usuario se dio de baja (LS_NOTIF_STATE === 'blocked')
+  const permOK = ('Notification' in window) && (Notification.permission === 'granted');
+  const lsState = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
+  const hasLocalToken = (() => { try { return !!localStorage.getItem('fcmToken'); } catch { return false; } })();
+
+  if (permOK && (lsState === 'accepted' || hasLocalToken)) {
+    try {
+      await obtenerYGuardarToken(); // refresh si hace falta
+      await setClienteConfigPatch({
+        notifEnabled: true,
+        notifUpdatedAt: new Date().toISOString()
+      });
+    } catch {}
+  } else {
+    // Respetar opt-out: no tocar config.notifEnabled aquí.
+  }
+
+  await hookOnMessage();
+  refreshNotifUIFromPermission();
+  wirePushButtonsOnce();
+
+  // Checkboxes de Perfil
+  const profCb = $('prof-consent-notif');
+  if (profCb && !profCb._wired) {
+    profCb._wired = true;
+    profCb.addEventListener('change', (e) => handleProfileConsentToggle(!!e.target.checked));
+  }
+  syncProfileConsentUI();
+
+  const profGeo = $('prof-consent-geo');
+  if (profGeo && !profGeo._wired) {
+    profGeo._wired = true;
+    profGeo.addEventListener('change', (e) => handleProfileGeoToggle(!!e.target.checked));
+  }
+  syncProfileGeoUI();
+
+  return true;
+}
+
+export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
+export function handleBellClick() { return Promise.resolve(); }
+export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
