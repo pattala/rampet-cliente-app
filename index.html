@@ -212,6 +212,37 @@
         </div>
       </div>
 
+<!-- Soft banner Geo (solo si NO hay domicilio y Geo está OFF) -->
+<div id="geo-soft-banner" style="display:none; margin:12px 0; padding:12px; border:1px solid #e5e7eb; border-radius:12px;">
+  <div style="display:flex; align-items:center; gap:12px; justify-content:space-between;">
+    <div style="flex:1;">
+      <div style="font-weight:600;">Promos cerca tuyo</div>
+      <div style="font-size:14px; opacity:.8;">
+        Activá ubicación para ver beneficios cerca tuyo. Podés apagarlo cuando quieras.
+      </div>
+    </div>
+    <label style="display:inline-flex; align-items:center; gap:8px; cursor:pointer;">
+      <span style="font-size:14px;">Activar</span>
+      <input type="checkbox" id="geo-soft-switch">
+    </label>
+  </div>
+  <div style="margin-top:10px; display:flex; gap:8px;">
+    <button id="geo-soft-dismiss" class="secondary-btn" type="button">Luego</button>
+  </div>
+</div>
+
+<!-- Nota informativa cuando el usuario descartó todo -->
+<p id="geo-soft-note" style="display:none; font-size:14px; opacity:.85; margin:8px 0;">
+  🔕 No estás recibiendo promociones cercanas. Podés activarlo cuando quieras desde tu Perfil.
+</p>
+
+
+
+
+
+
+
+      
       <!-- Card de domicilio (formulario), oculta por defecto -->
       <section id="address-card" class="card address-card" style="display:none;">
         <h3>Recibí beneficios cerca tuyo</h3>
@@ -455,3 +486,4 @@
   </script>
 </body>
 </html>
+
