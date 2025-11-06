@@ -698,7 +698,6 @@ async function shouldHideGeoBanner() {
   return await hasDomicilioOnServer();
 }
 
-
 function hideGeoBanner() {
   const { banner } = geoEls();
   if (banner) banner.style.display = 'none';
@@ -755,8 +754,8 @@ function setGeoRegularUI(state) {
   if (txt) txt.textContent = 'Activá para ver ofertas y beneficios cerca tuyo.';
   showInline(btnOn,true); showInline(btnOff,false); showInline(btnHelp,false);
 }
+
 // UI cuando el usuario lo desactivó desde el Perfil (bloqueo local)
-// Muestra banner corto con CTA para reactivar, sin culpar al navegador.
 function setGeoOffByUserUI() {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
@@ -766,8 +765,8 @@ function setGeoOffByUserUI() {
   if (later) later.style.display = 'none';
 
   if (txt) txt.textContent = 'No vas a recibir beneficios en tu zona. Podés activarlo cuando quieras.';
-  showInline(btnOn, true);   // CTA “Activar”
-  showInline(btnOff, false); // no hace falta un “Desactivar” porque ya está off
+  showInline(btnOn, true);
+  showInline(btnOff, false);
   showInline(btnHelp, false);
 }
 
@@ -831,8 +830,6 @@ async function updateGeoUI() {
   if (hide) { hideGeoBanner(); }
   else { setGeoMarketingUI(true); }
 }
-
-
 
 async function handleGeoEnable() {
   const { banner } = geoEls();
@@ -990,7 +987,7 @@ function onGeoPosSuccess(pos) {
 function onGeoPosError(_) {}
 
 function startGeoWatch() {
- if (!navigator.geolocation || geoWatchId != null) return;
+  if (!navigator.geolocation || geoWatchId != null) return;
   if (isGeoBlockedLocally()) return; // 👈 respetar opt-out del perfil
   if (document.visibilityState !== 'visible') return;
   try {
@@ -1006,14 +1003,13 @@ function stopGeoWatch() {
 }
 
 try {
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    if (!isGeoBlockedLocally()) startGeoWatch();
-  } else {
-    stopGeoWatch();
-  }
-});
-
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      if (!isGeoBlockedLocally()) startGeoWatch();
+    } else {
+      stopGeoWatch();
+    }
+  });
 } catch {}
 
 /* ────────────────────────────────────────────────────────────
@@ -1141,7 +1137,6 @@ export async function syncProfileGeoUI() {
   cb.checked = (perm === 'granted');
 }
 
-
 export async function handleProfileGeoToggle(checked) {
   if (checked) {
     try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
@@ -1239,5 +1234,3 @@ export async function initNotificationsOnce() {
 export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
 export function handleBellClick() { return Promise.resolve(); }
 export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
-
-
