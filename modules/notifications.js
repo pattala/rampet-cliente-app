@@ -28,6 +28,67 @@ function toast(msg, type='info') {
   try { window.UI?.showToast?.(msg, type); } catch {}
   if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
 }
+function toast(msg, type='info') {
+  try { window.UI?.showToast?.(msg, type); } catch {}
+  if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
+}
+
+// >>> INSERTAR AQUÍ (debajo de toast, antes de showNotifHelpOverlay)
+
+/* ────────────────────────────────────────────────────────────
+   Banner “Notificaciones desactivadas por el usuario”
+   ──────────────────────────────────────────────────────────── */
+function ensureNotifOffBanner() {
+  let el = document.getElementById('notif-off-banner');
+  if (el) return el;
+
+  el = document.createElement('div');
+  el.id = 'notif-off-banner';
+  el.style.cssText =
+    'display:none;margin:12px 0;padding:10px 12px;border-radius:10px;' +
+    'background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12;font-size:14px;';
+  el.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;">
+      <div style="display:flex;gap:10px;align-items:center;">
+        <span aria-hidden="true" style="font-size:18px;">🔕</span>
+        <div>
+          <strong>No estás recibiendo notificaciones.</strong><br/>
+          Podés volver a activarlas desde <em>Mi Perfil</em> cuando quieras.
+        </div>
+      </div>
+      <div>
+        <button id="notif-off-go-profile" class="secondary-btn" type="button" style="white-space:nowrap;">Abrir Perfil</button>
+      </div>
+    </div>
+  `;
+  const mountAt =
+    document.getElementById('main') ||
+    document.querySelector('.content') ||
+    document.body;
+  mountAt.insertBefore(el, mountAt.firstChild);
+
+  const btn = el.querySelector('#notif-off-go-profile');
+  if (btn && !btn._wired) {
+    btn._wired = true;
+    btn.addEventListener('click', () => {
+      try { window.UI?.openTab?.('perfil'); } catch {}
+    });
+  }
+  return el;
+}
+
+function showNotifOffBanner(on) {
+  const el = ensureNotifOffBanner();
+  if (!el) return;
+  el.style.display = on ? 'block' : 'none';
+}
+
+/* ────────────────────────────────────────────────────────────
+   Quiet UI / Ayuda  (solo mostrar si el permiso está DENIED)
+   ──────────────────────────────────────────────────────────── */
+function showNotifHelpOverlay() {
+  // ... (tu código existente)
+}
 
 /* ────────────────────────────────────────────────────────────
    Quiet UI / Ayuda  (solo mostrar si el permiso está DENIED)
@@ -249,6 +310,7 @@ async function borrarTokenYOptOut() {
     });
 
     emit('rampet:consent:notif-opt-out', { source: 'ui' });
+     showNotifOffBanner(true);  // ahora refleja que NO recibirá avisos
     console.log('🔕 Opt-out FCM aplicado.');
   } catch (e) {
     console.warn('[FCM] borrarTokenYOptOut error:', e?.message || e);
@@ -354,6 +416,15 @@ function refreshNotifUIFromPermission() {
   // Primera vez: onboarding
   if (switchEl) switchEl.checked = false;
   show(cardMarketing, true);
+
+// --- PUNTO 2: banner OFF según estado local ---
+try {
+  const st = localStorage.getItem(LS_NOTIF_STATE);
+  // Mostramos el banner sólo cuando el usuario eligió "blocked" (opt-out desde la app)
+  showNotifOffBanner(st === 'blocked');
+} catch {}
+
+   
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -441,36 +512,81 @@ function stopNotifPermissionWatcher(){
    Handlers de Notificaciones
    ──────────────────────────────────────────────────────────── */
 export async function handlePermissionRequest() {
+  // Aseguramos el watcher (detectar cambios de permiso del navegador)
   startNotifPermissionWatcher();
-  if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
-  if (__notifReqInFlight) { console.log('[FCM] requestPermission ya en curso'); return; }
+
+  // Si el navegador no soporta Notifications, sólo refrescamos UI
+  if (!('Notification' in window)) {
+    refreshNotifUIFromPermission();
+    return;
+  }
+
+  // Evitar toques múltiples
+  if (__notifReqInFlight) {
+    console.log('[FCM] requestPermission ya en curso');
+    return;
+  }
 
   __notifReqInFlight = true;
   try {
-    const current = Notification.permission;
+    // Estado local del usuario (opt-out de la app)
+    const lsState = (() => {
+      try { return localStorage.getItem(LS_NOTIF_STATE) || null; }
+      catch { return null; }
+    })();
 
+    const current = Notification.permission; // 'granted' | 'denied' | 'default'
+
+    // 1) Ya está concedido el permiso del navegador
     if (current === 'granted') {
+      // Si el usuario hizo opt-out en la app, NO reactivar
+      if (lsState === 'blocked') {
+        showNotifOffBanner(true);   // mostrar recordatorio “no recibís avisos…”
+        refreshNotifUIFromPermission();
+        return;
+      }
+      // Caso normal: obtenemos/actualizamos token y ocultamos banner de “off”
       await obtenerYGuardarToken();
+      showNotifOffBanner(false);
       refreshNotifUIFromPermission();
-      return;
-    }
-    if (current === 'denied') {
-      refreshNotifUIFromPermission();
-      showNotifHelpOverlay();
       return;
     }
 
-    const status = await Notification.requestPermission();
+    // 2) El navegador tiene el permiso bloqueado
+    if (current === 'denied') {
+      try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
+      emit('rampet:consent:notif-opt-out', { source: 'browser-denied' });
+      showNotifHelpOverlay();      // guía para desbloquear en el candado
+      showNotifOffBanner(true);    // informar que no recibirá avisos
+      refreshNotifUIFromPermission();
+      return;
+    }
+
+    // 3) Estado 'default' → pedimos permiso explícitamente
+    const status = await Notification.requestPermission(); // 'granted' | 'denied' | 'default'
 
     if (status === 'granted') {
-      await obtenerYGuardarToken();
+      // Si el usuario antes hizo opt-out local, respetarlo (no autogenerar token)
+      const lsAfter = (() => {
+        try { return localStorage.getItem(LS_NOTIF_STATE) || null; }
+        catch { return null; }
+      })();
+      if (lsAfter === 'blocked') {
+        showNotifOffBanner(true);
+      } else {
+        await obtenerYGuardarToken();
+        showNotifOffBanner(false);
+      }
     } else if (status === 'denied') {
       try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out', { source: 'prompt' });
       showNotifHelpOverlay();
+      showNotifOffBanner(true);
     } else {
+      // 'default' (dismiss) → no aceptó ni negó
       try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
       emit('rampet:consent:notif-dismissed', {});
+      // No tocamos el banner aquí
     }
 
     refreshNotifUIFromPermission();
@@ -495,6 +611,7 @@ export function handlePermissionBlockClick() {
   emit('rampet:consent:notif-opt-out', { source: 'ui-block' });
   toast('Podés volver a activarlas desde tu Perfil cuando quieras.', 'info');
   refreshNotifUIFromPermission();
+   showNotifOffBanner(true);
 }
 
 export function dismissPermissionRequest() {
@@ -514,7 +631,9 @@ export async function handlePermissionSwitch(e) {
 
   if (checked) {
     if (before === 'granted') {
-      try { await obtenerYGuardarToken(); } catch {}
+      try { await obtenerYGuardarToken(); } 
+      showNotifOffBanner(false);
+      catch {}
     } else if (before === 'default') {
       const status = await Notification.requestPermission();
       if (status === 'granted') {
@@ -535,6 +654,7 @@ export async function handlePermissionSwitch(e) {
     }
   } else {
     await borrarTokenYOptOut();
+     showNotifOffBanner(true);
     toast('Notificaciones desactivadas.', 'info');
   }
 
@@ -1234,3 +1354,4 @@ export async function initNotificationsOnce() {
 export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
 export function handleBellClick() { return Promise.resolve(); }
 export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
+
