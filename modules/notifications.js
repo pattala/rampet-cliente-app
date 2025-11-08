@@ -24,10 +24,7 @@ function show(el, on){ if (el) el.style.display = on ? 'block' : 'none'; }
 function showInline(el, on){ if (el) el.style.display = on ? 'inline-block' : 'none'; }
 function emit(name, detail){ try { document.dispatchEvent(new CustomEvent(name, { detail })); } catch {} }
 
-function toast(msg, type='info') {
-  try { window.UI?.showToast?.(msg, type); } catch {}
-  if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
-}
+
 function toast(msg, type='info') {
   try { window.UI?.showToast?.(msg, type); } catch {}
   if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
@@ -1354,4 +1351,5 @@ export async function initNotificationsOnce() {
 export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
 export function handleBellClick() { return Promise.resolve(); }
 export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
+
 
