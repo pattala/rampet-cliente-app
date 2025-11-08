@@ -28,6 +28,28 @@ function toast(msg, type='info') {
   try { window.UI?.showToast?.(msg, type); } catch {}
   if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
 }
+// Bootstrap de primera sesión para un usuario recién logueado en esta pestaña
+function bootstrapFirstSessionUX() {
+  try {
+    // Evitar repetir en la misma pestaña
+    if (sessionStorage.getItem('rampet:firstSessionDone') === '1') return;
+
+    // Si nunca hubo elección del usuario, mostramos el card comercial (no el switch)
+    const st = (() => { try { return localStorage.getItem(LS_NOTIF_STATE); } catch { return null; } })();
+    if (st == null) {
+      show(document.getElementById('notif-prompt-card'), true);
+      show(document.getElementById('notif-card'), false);
+    }
+
+    // (Opcional) Rehabilitar el banner de domicilio en primer login
+    // try { localStorage.removeItem('addressBannerDismissed'); } catch {}
+
+    // Actualizar banner GEO según permiso/domicilio, sin disparar prompt del navegador
+    setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
+
+    sessionStorage.setItem('rampet:firstSessionDone', '1');
+  } catch {}
+}
 
 /* ────────────────────────────────────────────────────────────
    Banner “Notificaciones desactivadas por el usuario”
@@ -351,11 +373,12 @@ async function obtenerYGuardarToken() {
 /* ────────────────────────────────────────────────────────────
    UI de Notificaciones (marketing + switch)
    ──────────────────────────────────────────────────────────── */
+// === REEMPLAZAR TODA la función ===
 function refreshNotifUIFromPermission() {
   const hasNotif = ('Notification' in window);
   const perm = hasNotif ? Notification.permission : 'unsupported';
 
-  const cardMarketing = $('notif-prompt-card');   // Onboarding
+  const cardMarketing = $('notif-prompt-card');   // Onboarding (card comercial)
   const cardSwitch    = $('notif-card');          // Card con switch (perfil)
   const warnBlocked   = $('notif-blocked-warning');
   const switchEl      = $('notif-switch');
@@ -379,25 +402,32 @@ function refreshNotifUIFromPermission() {
     try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
     show(warnBlocked, true);
   } else {
-    // perm === 'default' → decidir por estado local
-    const state = (() => { try { return localStorage.getItem(LS_NOTIF_STATE); } catch { return null; } })();
-    if (state === 'accepted' && hasToken) {
-      if (switchEl) switchEl.checked = true;
-    } else if (state === 'blocked') {
+    // perm === 'default'
+    const state = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
+
+    if (state === 'blocked') {
+      // Opt-out local → no mostramos cards, sólo el banner "🔕"
       if (switchEl) switchEl.checked = false;
-      // no mostrar prompt de marketing si bloqueó localmente
-    } else {
+    } else if (state === 'deferred') {
+      // Ya vio el card comercial y apretó "Luego" → mostrar switch
       if (switchEl) switchEl.checked = false;
       show(cardSwitch, true);
+    } else if (state === 'accepted' && hasToken) {
+      if (switchEl) switchEl.checked = true;
+    } else {
+      // Primera vez REAL: sin estado → mostrar card comercial
+      if (switchEl) switchEl.checked = false;
+      show(cardMarketing, true);
     }
   }
 
-  // Banner de “notificaciones desactivadas” → sólo si el usuario hizo opt-out local
+  // Banner “🔕” sólo cuando el usuario eligió opt-out local
   try {
     const st = localStorage.getItem(LS_NOTIF_STATE);
     showNotifOffBanner(st === 'blocked');
   } catch {}
 }
+
 
 /* ────────────────────────────────────────────────────────────
    Watcher de permiso (Permissions API + fallback polling)
@@ -1291,7 +1321,8 @@ export async function initNotificationsOnce() {
   await waitForActiveSW().catch(()=>{});
 
   startNotifPermissionWatcher();
-
+// Fuerza UX de primer ingreso en esta pestaña (usuario nuevo)
+  bootstrapFirstSessionUX();
   // NO auto-activar si el usuario se dio de baja (LS_NOTIF_STATE === 'blocked')
   const permOK = ('Notification' in window) && (Notification.permission === 'granted');
   const lsState = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
@@ -1334,3 +1365,4 @@ export async function initNotificationsOnce() {
 export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
 export function handleBellClick() { return Promise.resolve(); }
 export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
+
