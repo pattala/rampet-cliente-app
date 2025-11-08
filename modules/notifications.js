@@ -28,30 +28,35 @@ function toast(msg, type='info') {
   try { window.UI?.showToast?.(msg, type); } catch {}
   if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
 }
-// Bootstrap de primera sesión para un usuario recién logueado en esta pestaña
+
+/** Bootstrap de primera sesión (pestaña/log-in actual)
+ * - No dispara prompts del navegador.
+ * - Si es primera vez real de notifs: muestra el card comercial (no el switch).
+ * - En GEO: evalúa banner domicilio vs. geo banner (coherente con updateGeoUI()).
+ */
 function bootstrapFirstSessionUX() {
   try {
-    // Evitar repetir en la misma pestaña
     if (sessionStorage.getItem('rampet:firstSessionDone') === '1') return;
 
-    // Si nunca hubo elección del usuario, mostramos el card comercial (no el switch)
+    // NOTIFS → primera vez real: card comercial
     const st = (() => { try { return localStorage.getItem(LS_NOTIF_STATE); } catch { return null; } })();
     if (st == null) {
-      show(document.getElementById('notif-prompt-card'), true);
-      show(document.getElementById('notif-card'), false);
+      show($('notif-prompt-card'), true);
+      show($('notif-card'), false);
     }
 
-    // (Opcional) Rehabilitar el banner de domicilio en primer login
+    // (opcional) re-habilitar banner domicilio sólo en este primer login
     try { localStorage.removeItem('addressBannerDismissed'); } catch {}
 
-    // Actualizar banner GEO según permiso/domicilio, sin disparar prompt del navegador
+    // GEO: primero cablear botones del banner, luego evaluar UI sin prompt
+    try { wireGeoButtonsOnce(); } catch {}
     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
 
-    sessionStorage.setItem('rampet:firstSessionDone', '1');
-  
+    // Refrescar UI de notifs sin solicitar permisos
+    setTimeout(() => { refreshNotifUIFromPermission(); }, 0);
 
-setTimeout(() => { refreshNotifUIFromPermission(); }, 0);
-} catch {}
+    sessionStorage.setItem('rampet:firstSessionDone', '1');
+  } catch {}
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -313,7 +318,6 @@ async function borrarTokenYOptOut() {
     try { await firebase.messaging().deleteToken(); } catch {}
     await clearFcmTokensOnCliente();
     try { localStorage.removeItem('fcmToken'); } catch {}
-    // IMPORTANTE: marcar como BLOQUEADO para que no se auto-reactive
     try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
 
     await setClienteConfigPatch({
@@ -322,7 +326,7 @@ async function borrarTokenYOptOut() {
     });
 
     emit('rampet:consent:notif-opt-out', { source: 'ui' });
-    showNotifOffBanner(true);  // refleja que NO recibirá avisos
+    showNotifOffBanner(true);
     console.log('🔕 Opt-out FCM aplicado.');
   } catch (e) {
     console.warn('[FCM] borrarTokenYOptOut error:', e?.message || e);
@@ -332,7 +336,6 @@ async function borrarTokenYOptOut() {
 async function obtenerYGuardarToken() {
   await ensureMessagingCompatLoaded();
 
-  // Espera a un SW realmente ACTIVADO
   const reg = await waitForActiveSW();
   if (!reg || !(reg.active)) {
     console.warn('[FCM] No hay ServiceWorker ACTIVO todavía.');
@@ -376,7 +379,6 @@ async function obtenerYGuardarToken() {
 /* ────────────────────────────────────────────────────────────
    UI de Notificaciones (marketing + switch)
    ──────────────────────────────────────────────────────────── */
-// === REEMPLAZAR TODA la función ===
 function refreshNotifUIFromPermission() {
   const hasNotif = ('Notification' in window);
   const perm = hasNotif ? Notification.permission : 'unsupported';
@@ -390,7 +392,6 @@ function refreshNotifUIFromPermission() {
   show(cardSwitch, false);
   show(warnBlocked, false);
 
-  // Sólo consideramos "activo" si HAY token persistido
   let hasToken = false;
   try { hasToken = !!localStorage.getItem('fcmToken'); } catch {}
 
@@ -399,40 +400,40 @@ function refreshNotifUIFromPermission() {
   if (perm === 'granted') {
     if (switchEl) switchEl.checked = !!hasToken;
     try { localStorage.setItem(LS_NOTIF_STATE, hasToken ? 'accepted' : 'deferred'); } catch {}
-    if (!hasToken) show(cardSwitch, true); // Permiso ok pero falta token → mostrar switch
+    if (!hasToken) show(cardSwitch, true);
   } else if (perm === 'denied') {
     if (switchEl) switchEl.checked = false;
     try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
     show(warnBlocked, true);
   } else {
-    // perm === 'default'
     const state = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
 
     if (state === 'blocked') {
-      // Opt-out local → no mostramos cards, sólo el banner "🔕"
       if (switchEl) switchEl.checked = false;
     } else if (state === 'deferred') {
-      // Ya vio el card comercial y apretó "Luego" → mostrar switch
       if (switchEl) switchEl.checked = false;
       show(cardSwitch, true);
     } else if (state === 'accepted' && hasToken) {
       if (switchEl) switchEl.checked = true;
     } else {
-      // Primera vez REAL: sin estado → mostrar card comercial
       if (switchEl) switchEl.checked = false;
       show(cardMarketing, true);
     }
   }
 
-  // Banner “🔕” sólo cuando el usuario eligió opt-out local
+  // Banner “🔕” sólo si el usuario hizo opt-out local
   try {
     const st = localStorage.getItem(LS_NOTIF_STATE);
     showNotifOffBanner(st === 'blocked');
   } catch {}
 }
 
+/* ────────────────────────────────────────────────────────────
+   Watcher de permiso (Permissions API + fallback polling)
+   ──────────────────────────────────────────────────────────── */
+let __permWatcher = { timer:null, last:null, wired:false };
 
-function startNotifPermissionWatcher() {
+function startNotifPermissionWatcher(){
   if (__permWatcher.wired) return;
   __permWatcher.wired = true;
 
@@ -443,22 +444,18 @@ function startNotifPermissionWatcher() {
           __permWatcher.last = permStatus.state; // 'granted' | 'denied' | 'prompt'
 
           if (permStatus.state === 'granted') {
-            // 👉 Primera vez real en esta app (sin huella local): NO auto-token
-            const firstTime =
-              !localStorage.getItem(LS_NOTIF_STATE) &&
-              !localStorage.getItem('fcmToken');
-
+            // Primera vez real (sin huella local) → NO auto-token, mostramos switch/card
+            const firstTime = !localStorage.getItem(LS_NOTIF_STATE) && !localStorage.getItem('fcmToken');
             if (firstTime) {
               try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
               refreshNotifUIFromPermission();
               return;
             }
-
             // Normal (salvo opt-out local)
             const ls = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
             if (ls !== 'blocked') {
               try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
-              obtenerYGuardarToken().catch(() => {}).finally(refreshNotifUIFromPermission);
+              obtenerYGuardarToken().catch(()=>{}).finally(refreshNotifUIFromPermission);
             } else {
               refreshNotifUIFromPermission();
             }
@@ -471,24 +468,19 @@ function startNotifPermissionWatcher() {
             refreshNotifUIFromPermission();
           }
 
-          // Escucha cambios del permiso
+          // Cambios de permiso en caliente
           permStatus.onchange = async () => {
-            const cur = permStatus.state; // 'granted' | 'denied' | 'prompt'
+            const cur = permStatus.state;
             __permWatcher.last = cur;
-
             try { refreshNotifUIFromPermission?.(); } catch {}
 
             if (cur === 'granted') {
-              const firstTime =
-                !localStorage.getItem(LS_NOTIF_STATE) &&
-                !localStorage.getItem('fcmToken');
-
+              const firstTime = !localStorage.getItem(LS_NOTIF_STATE) && !localStorage.getItem('fcmToken');
               if (firstTime) {
                 try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
                 refreshNotifUIFromPermission();
                 return;
               }
-
               const lsNow = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
               if (lsNow !== 'blocked') {
                 try { await obtenerYGuardarToken(); } catch {}
@@ -496,8 +488,6 @@ function startNotifPermissionWatcher() {
             } else if (cur === 'denied') {
               try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
               showNotifHelpOverlay();
-            } else {
-              // 'prompt' → nada extra
             }
           };
         })
@@ -506,10 +496,8 @@ function startNotifPermissionWatcher() {
     }
   } catch {}
 
-  // Fallback si no existe Permissions API
   startPollingWatcher();
 }
-
 
 function startPollingWatcher(){
   if (__permWatcher.timer) return;
@@ -519,10 +507,18 @@ function startPollingWatcher(){
     if (cur !== __permWatcher.last) {
       __permWatcher.last = cur;
       try { refreshNotifUIFromPermission?.(); } catch {}
-      const ls = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
+
+      // Respetar “primera vez real”: no auto-token
+      const firstTime = !localStorage.getItem(LS_NOTIF_STATE) && !localStorage.getItem('fcmToken');
+
       if (cur === 'granted') {
-        if (ls !== 'blocked') {
-          try { await obtenerYGuardarToken(); } catch {}
+        if (firstTime) {
+          try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+        } else {
+          const ls = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
+          if (ls !== 'blocked') {
+            try { await obtenerYGuardarToken(); } catch {}
+          }
         }
       } else if (cur === 'denied') {
         try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
@@ -540,16 +536,13 @@ function stopNotifPermissionWatcher(){
    Handlers de Notificaciones
    ──────────────────────────────────────────────────────────── */
 export async function handlePermissionRequest() {
-  // Aseguramos el watcher (detectar cambios de permiso del navegador)
   startNotifPermissionWatcher();
 
-  // Si el navegador no soporta Notifications, sólo refrescamos UI
   if (!('Notification' in window)) {
     refreshNotifUIFromPermission();
     return;
   }
 
-  // Evitar toques múltiples
   if (__notifReqInFlight) {
     console.log('[FCM] requestPermission ya en curso');
     return;
@@ -557,48 +550,35 @@ export async function handlePermissionRequest() {
 
   __notifReqInFlight = true;
   try {
-    // Estado local del usuario (opt-out de la app)
-    const lsState = (() => {
-      try { return localStorage.getItem(LS_NOTIF_STATE) || null; }
-      catch { return null; }
-    })();
-
+    const lsState = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
     const current = Notification.permission; // 'granted' | 'denied' | 'default'
 
-    // 1) Ya está concedido el permiso del navegador
     if (current === 'granted') {
-      // Si el usuario hizo opt-out en la app, NO reactivar
       if (lsState === 'blocked') {
-        showNotifOffBanner(true);   // mostrar recordatorio “no recibís avisos…”
+        showNotifOffBanner(true);
         refreshNotifUIFromPermission();
         return;
       }
-      // Caso normal: obtenemos/actualizamos token y ocultamos banner de “off”
       await obtenerYGuardarToken();
       showNotifOffBanner(false);
       refreshNotifUIFromPermission();
       return;
     }
 
-    // 2) El navegador tiene el permiso bloqueado
     if (current === 'denied') {
       try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out', { source: 'browser-denied' });
-      showNotifHelpOverlay();      // guía para desbloquear en el candado
-      showNotifOffBanner(true);    // informar que no recibirá avisos
+      showNotifHelpOverlay();
+      showNotifOffBanner(true);
       refreshNotifUIFromPermission();
       return;
     }
 
-    // 3) Estado 'default' → pedimos permiso explícitamente
+    // default → pedimos permiso solo por acción del usuario
     const status = await Notification.requestPermission(); // 'granted' | 'denied' | 'default'
 
     if (status === 'granted') {
-      // Si el usuario antes hizo opt-out local, respetarlo (no autogenerar token)
-      const lsAfter = (() => {
-        try { return localStorage.getItem(LS_NOTIF_STATE) || null; }
-        catch { return null; }
-      })();
+      const lsAfter = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
       if (lsAfter === 'blocked') {
         showNotifOffBanner(true);
       } else {
@@ -611,10 +591,8 @@ export async function handlePermissionRequest() {
       showNotifHelpOverlay();
       showNotifOffBanner(true);
     } else {
-      // 'default' (dismiss) → no aceptó ni negó
       try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
       emit('rampet:consent:notif-dismissed', {});
-      // No tocamos el banner aquí
     }
 
     refreshNotifUIFromPermission();
@@ -626,11 +604,9 @@ export async function handlePermissionRequest() {
   }
 }
 
-// “No quiero” (Plan A) → bloqueo a nivel app, sin quemar permiso del navegador
 export function handlePermissionBlockClick() {
   try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
-  const el = $('notif-prompt-card');
-  if (el) el.style.display = 'none';
+  show($('notif-prompt-card'), false);
   const sw = $('notif-switch'); if (sw) sw.checked = false;
   setClienteConfigPatch({
     notifEnabled: false,
@@ -644,8 +620,7 @@ export function handlePermissionBlockClick() {
 
 export function dismissPermissionRequest() {
   try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
-  const el = $('notif-prompt-card');
-  if (el) el.style.display = 'none';
+  show($('notif-prompt-card'), false);
   emit('rampet:consent:notif-dismissed', {});
   const sw = $('notif-switch'); if (sw) sw.checked = false;
   show($('notif-card'), true);
@@ -659,17 +634,11 @@ export async function handlePermissionSwitch(e) {
 
   if (checked) {
     if (before === 'granted') {
-      try {
-        await obtenerYGuardarToken();
-        showNotifOffBanner(false);
-      } catch {}
+      try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {}
     } else if (before === 'default') {
       const status = await Notification.requestPermission();
       if (status === 'granted') {
-        try {
-          await obtenerYGuardarToken();
-          showNotifOffBanner(false);
-        } catch {}
+        try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {}
       } else if (status === 'denied') {
         try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
         toast('Notificaciones bloqueadas en el navegador.', 'warning');
@@ -680,7 +649,7 @@ export async function handlePermissionSwitch(e) {
         try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
         const sw = $('notif-switch'); if (sw) sw.checked = false;
       }
-    } else { // 'denied'
+    } else { // denied
       toast('Tenés bloqueadas las notificaciones en el navegador.', 'warning');
       const sw = $('notif-switch'); if (sw) sw.checked = false;
       showNotifHelpOverlay();
@@ -940,16 +909,14 @@ async function updateGeoUI() {
   const state = await detectGeoPermission();
   const hide = await shouldHideGeoBanner();
 
-  // 👉 Si el usuario bloqueó desde el perfil, NO activar aunque el permiso sea granted.
+  // Si bloqueó desde perfil, nunca activamos aunque permiso sea granted
   if (isGeoBlockedLocally()) {
     stopGeoWatch();
     await setClienteConfigPatch({
       geoEnabled: false,
       geoUpdatedAt: new Date().toISOString()
     });
-
-    // Mostrar siempre un aviso suave para reactivar (aunque 'hide' sea true)
-    setGeoOffByUserUI();
+    setGeoOffByUserUI(); // recordatorio suave
     return;
   }
 
@@ -976,7 +943,6 @@ async function updateGeoUI() {
       geoEnabled: false,
       geoUpdatedAt: new Date().toISOString()
     });
-
     if (hide) { hideGeoBanner(); }
     else { setGeoMarketingUI(false); setGeoRegularUI('denied'); }
     return;
@@ -1144,7 +1110,7 @@ function onGeoPosError(_) {}
 
 function startGeoWatch() {
   if (!navigator.geolocation || geoWatchId != null) return;
-  if (isGeoBlockedLocally()) return; // 👈 respetar opt-out del perfil
+  if (isGeoBlockedLocally()) return; // respetar opt-out del perfil
   if (document.visibilityState !== 'visible') return;
   try {
     geoWatchId = navigator.geolocation.watchPosition(
@@ -1248,7 +1214,7 @@ export async function initDomicilioForm() {
       toast('Domicilio guardado. ¡Gracias!', 'success');
       hideGeoBanner();
       updateGeoUI().catch(()=>{});
-      emit('rampet:geo:changed', { enabled: true }); // avisa al principal
+      emit('rampet:geo:changed', { enabled: true });
     } catch (e) {
       console.error('save domicilio error', e);
       toast('No pudimos guardar el domicilio', 'error');
@@ -1278,17 +1244,14 @@ export async function syncProfileGeoUI() {
   const cb = $('prof-consent-geo');
   if (!cb) return;
 
-  // 1) Si el usuario bloqueó desde el perfil, manda eso.
   if (isGeoBlockedLocally()) { cb.checked = false; return; }
 
-  // 2) Si el server dice algo explícito, respetarlo.
   let serverOn = null;
   try { serverOn = await fetchServerGeoEnabled(); } catch {}
 
   if (serverOn === true) { cb.checked = true; return; }
   if (serverOn === false) { cb.checked = false; return; }
 
-  // 3) Fallback: permiso del navegador
   const perm = await detectGeoPermission();
   cb.checked = (perm === 'granted');
 }
@@ -1345,14 +1308,14 @@ document.addEventListener('visibilitychange', () => {
 export async function initNotificationsOnce() {
   await registerSW();
   await waitForActiveSW().catch(()=>{});
-// 1) UX de primer ingreso (muestra card comercial si corresponde)
-bootstrapFirstSessionUX();
 
-// 2) Recién ahora arrancamos el watcher de permiso
-startNotifPermissionWatcher();
+  // 1) UX de primer ingreso (domicilio/geo + card comercial notifs si corresponde)
+  bootstrapFirstSessionUX();
 
- 
-  // NO auto-activar si el usuario se dio de baja (LS_NOTIF_STATE === 'blocked')
+  // 2) Luego sí: watcher del permiso de notifs (sin auto-prompt)
+  startNotifPermissionWatcher();
+
+  // No auto-activar si el usuario se dio de baja (state=blocked)
   const permOK = ('Notification' in window) && (Notification.permission === 'granted');
   const lsState = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
   const hasLocalToken = (() => { try { return !!localStorage.getItem('fcmToken'); } catch { return false; } })();
@@ -1365,9 +1328,7 @@ startNotifPermissionWatcher();
         notifUpdatedAt: new Date().toISOString()
       });
     } catch {}
-  } else {
-    // Respetar opt-out: no tocar config.notifEnabled aquí.
-  }
+  } // Si está blocked, respetamos y no tocamos config
 
   await hookOnMessage();
   refreshNotifUIFromPermission();
@@ -1395,10 +1356,5 @@ export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermi
 export function handleBellClick() { return Promise.resolve(); }
 export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
-  // 👉 Para que el card comercial vuelva a aparecer cuando entre otra cuenta en esta pestaña
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
-
-
-
-
