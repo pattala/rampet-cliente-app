@@ -24,13 +24,10 @@ function show(el, on){ if (el) el.style.display = on ? 'block' : 'none'; }
 function showInline(el, on){ if (el) el.style.display = on ? 'inline-block' : 'none'; }
 function emit(name, detail){ try { document.dispatchEvent(new CustomEvent(name, { detail })); } catch {} }
 
-
 function toast(msg, type='info') {
   try { window.UI?.showToast?.(msg, type); } catch {}
   if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
 }
-
-// >>> INSERTAR AQUÍ (debajo de toast, antes de showNotifHelpOverlay)
 
 /* ────────────────────────────────────────────────────────────
    Banner “Notificaciones desactivadas por el usuario”
@@ -79,7 +76,6 @@ function showNotifOffBanner(on) {
   if (!el) return;
   el.style.display = on ? 'block' : 'none';
 }
-
 
 /* ────────────────────────────────────────────────────────────
    Quiet UI / Ayuda  (solo mostrar si el permiso está DENIED)
@@ -301,7 +297,7 @@ async function borrarTokenYOptOut() {
     });
 
     emit('rampet:consent:notif-opt-out', { source: 'ui' });
-     showNotifOffBanner(true);  // ahora refleja que NO recibirá avisos
+    showNotifOffBanner(true);  // refleja que NO recibirá avisos
     console.log('🔕 Opt-out FCM aplicado.');
   } catch (e) {
     console.warn('[FCM] borrarTokenYOptOut error:', e?.message || e);
@@ -378,44 +374,29 @@ function refreshNotifUIFromPermission() {
     if (switchEl) switchEl.checked = !!hasToken;
     try { localStorage.setItem(LS_NOTIF_STATE, hasToken ? 'accepted' : 'deferred'); } catch {}
     if (!hasToken) show(cardSwitch, true); // Permiso ok pero falta token → mostrar switch
-    return;
-  }
-
-  if (perm === 'denied') {
+  } else if (perm === 'denied') {
     if (switchEl) switchEl.checked = false;
     try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
     show(warnBlocked, true);
-    return;
+  } else {
+    // perm === 'default' → decidir por estado local
+    const state = (() => { try { return localStorage.getItem(LS_NOTIF_STATE); } catch { return null; } })();
+    if (state === 'accepted' && hasToken) {
+      if (switchEl) switchEl.checked = true;
+    } else if (state === 'blocked') {
+      if (switchEl) switchEl.checked = false;
+      // no mostrar prompt de marketing si bloqueó localmente
+    } else {
+      if (switchEl) switchEl.checked = false;
+      show(cardSwitch, true);
+    }
   }
 
-  // perm === 'default' → decidir por estado local
-  const state = localStorage.getItem(LS_NOTIF_STATE);
-  if (state === 'accepted' && hasToken) {
-    if (switchEl) switchEl.checked = true;
-    return;
-  }
-  if (state === 'blocked') {
-    if (switchEl) switchEl.checked = false;
-    return;
-  }
-  if (state === 'deferred') {
-    if (switchEl) switchEl.checked = false;
-    show(cardSwitch, true);
-    return;
-  }
-
-  // Primera vez: onboarding
-  if (switchEl) switchEl.checked = false;
-  show(cardMarketing, true);
-
-// --- PUNTO 2: banner OFF según estado local ---
-try {
-  const st = localStorage.getItem(LS_NOTIF_STATE);
-  // Mostramos el banner sólo cuando el usuario eligió "blocked" (opt-out desde la app)
-  showNotifOffBanner(st === 'blocked');
-} catch {}
-
-   
+  // Banner de “notificaciones desactivadas” → sólo si el usuario hizo opt-out local
+  try {
+    const st = localStorage.getItem(LS_NOTIF_STATE);
+    showNotifOffBanner(st === 'blocked');
+  } catch {}
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -602,7 +583,7 @@ export function handlePermissionBlockClick() {
   emit('rampet:consent:notif-opt-out', { source: 'ui-block' });
   toast('Podés volver a activarlas desde tu Perfil cuando quieras.', 'info');
   refreshNotifUIFromPermission();
-   showNotifOffBanner(true);
+  showNotifOffBanner(true);
 }
 
 export function dismissPermissionRequest() {
@@ -622,18 +603,23 @@ export async function handlePermissionSwitch(e) {
 
   if (checked) {
     if (before === 'granted') {
-      try { await obtenerYGuardarToken(); } 
-      showNotifOffBanner(false);
-      catch {}
+      try {
+        await obtenerYGuardarToken();
+        showNotifOffBanner(false);
+      } catch {}
     } else if (before === 'default') {
       const status = await Notification.requestPermission();
       if (status === 'granted') {
-        try { await obtenerYGuardarToken(); } catch {}
+        try {
+          await obtenerYGuardarToken();
+          showNotifOffBanner(false);
+        } catch {}
       } else if (status === 'denied') {
         try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
         toast('Notificaciones bloqueadas en el navegador.', 'warning');
         const sw = $('notif-switch'); if (sw) sw.checked = false;
         showNotifHelpOverlay();
+        showNotifOffBanner(true);
       } else {
         try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
         const sw = $('notif-switch'); if (sw) sw.checked = false;
@@ -642,10 +628,11 @@ export async function handlePermissionSwitch(e) {
       toast('Tenés bloqueadas las notificaciones en el navegador.', 'warning');
       const sw = $('notif-switch'); if (sw) sw.checked = false;
       showNotifHelpOverlay();
+      showNotifOffBanner(true);
     }
   } else {
     await borrarTokenYOptOut();
-     showNotifOffBanner(true);
+    showNotifOffBanner(true);
     toast('Notificaciones desactivadas.', 'info');
   }
 
@@ -745,17 +732,18 @@ export async function syncProfileConsentUI() {
 export async function handleProfileConsentToggle(checked) {
   if (checked) {
     if (('Notification' in window) && Notification.permission === 'granted') {
-      try { await obtenerYGuardarToken(); } catch {}
+      try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {}
     } else {
       try {
         const status = await Notification.requestPermission();
         if (status === 'granted') {
-          try { await obtenerYGuardarToken(); } catch {}
+          try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {}
         } else if (status === 'denied') {
           try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
           toast('Notificaciones bloqueadas en el navegador.', 'warning');
           $('prof-consent-notif') && ( $('prof-consent-notif').checked = false );
           showNotifHelpOverlay();
+          showNotifOffBanner(true);
         } else {
           try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
           $('prof-consent-notif') && ( $('prof-consent-notif').checked = false );
@@ -767,6 +755,7 @@ export async function handleProfileConsentToggle(checked) {
     }
   } else {
     await borrarTokenYOptOut();
+    showNotifOffBanner(true);
   }
   refreshNotifUIFromPermission();
 }
@@ -1345,6 +1334,3 @@ export async function initNotificationsOnce() {
 export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
 export function handleBellClick() { return Promise.resolve(); }
 export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
-
-
-
