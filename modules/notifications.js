@@ -80,12 +80,6 @@ function showNotifOffBanner(on) {
   el.style.display = on ? 'block' : 'none';
 }
 
-/* ────────────────────────────────────────────────────────────
-   Quiet UI / Ayuda  (solo mostrar si el permiso está DENIED)
-   ──────────────────────────────────────────────────────────── */
-function showNotifHelpOverlay() {
-  // ... (tu código existente)
-}
 
 /* ────────────────────────────────────────────────────────────
    Quiet UI / Ayuda  (solo mostrar si el permiso está DENIED)
@@ -1351,5 +1345,6 @@ export async function initNotificationsOnce() {
 export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
 export function handleBellClick() { return Promise.resolve(); }
 export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
+
 
 
