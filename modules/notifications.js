@@ -42,13 +42,16 @@ function bootstrapFirstSessionUX() {
     }
 
     // (Opcional) Rehabilitar el banner de domicilio en primer login
-    // try { localStorage.removeItem('addressBannerDismissed'); } catch {}
+    try { localStorage.removeItem('addressBannerDismissed'); } catch {}
 
     // Actualizar banner GEO según permiso/domicilio, sin disparar prompt del navegador
     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
 
     sessionStorage.setItem('rampet:firstSessionDone', '1');
-  } catch {}
+  
+
+setTimeout(() => { refreshNotifUIFromPermission(); }, 0);
+} catch {}
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -1364,5 +1367,11 @@ export async function initNotificationsOnce() {
 
 export async function gestionarPermisoNotificaciones() { refreshNotifUIFromPermission(); }
 export function handleBellClick() { return Promise.resolve(); }
-export async function handleSignOutCleanup() { try { localStorage.removeItem('fcmToken'); } catch {} }
+export async function handleSignOutCleanup() {
+  try { localStorage.removeItem('fcmToken'); } catch {}
+  // 👉 Para que el card comercial vuelva a aparecer cuando entre otra cuenta en esta pestaña
+  try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
+}
+
+
 
