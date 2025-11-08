@@ -432,12 +432,7 @@ function refreshNotifUIFromPermission() {
 }
 
 
-/* ────────────────────────────────────────────────────────────
-   Watcher de permiso (Permissions API + fallback polling)
-   ──────────────────────────────────────────────────────────── */
-let __permWatcher = { timer:null, last:null, wired:false };
-
-function startNotifPermissionWatcher(){
+function startNotifPermissionWatcher() {
   if (__permWatcher.wired) return;
   __permWatcher.wired = true;
 
@@ -447,13 +442,23 @@ function startNotifPermissionWatcher(){
         .then((permStatus) => {
           __permWatcher.last = permStatus.state; // 'granted' | 'denied' | 'prompt'
 
-          const ls = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
-
           if (permStatus.state === 'granted') {
-            // Solo autogenerar token si NO está marcado como "blocked" por el usuario
+            // 👉 Primera vez real en esta app (sin huella local): NO auto-token
+            const firstTime =
+              !localStorage.getItem(LS_NOTIF_STATE) &&
+              !localStorage.getItem('fcmToken');
+
+            if (firstTime) {
+              try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+              refreshNotifUIFromPermission();
+              return;
+            }
+
+            // Normal (salvo opt-out local)
+            const ls = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
             if (ls !== 'blocked') {
               try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
-              obtenerYGuardarToken().catch(()=>{}).finally(refreshNotifUIFromPermission);
+              obtenerYGuardarToken().catch(() => {}).finally(refreshNotifUIFromPermission);
             } else {
               refreshNotifUIFromPermission();
             }
@@ -462,21 +467,37 @@ function startNotifPermissionWatcher(){
             refreshNotifUIFromPermission();
             showNotifHelpOverlay();
           } else {
+            // 'prompt'
             refreshNotifUIFromPermission();
           }
 
+          // Escucha cambios del permiso
           permStatus.onchange = async () => {
-            const cur = permStatus.state;
+            const cur = permStatus.state; // 'granted' | 'denied' | 'prompt'
             __permWatcher.last = cur;
+
             try { refreshNotifUIFromPermission?.(); } catch {}
-            const lsNow = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
+
             if (cur === 'granted') {
+              const firstTime =
+                !localStorage.getItem(LS_NOTIF_STATE) &&
+                !localStorage.getItem('fcmToken');
+
+              if (firstTime) {
+                try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
+                refreshNotifUIFromPermission();
+                return;
+              }
+
+              const lsNow = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
               if (lsNow !== 'blocked') {
                 try { await obtenerYGuardarToken(); } catch {}
               }
             } else if (cur === 'denied') {
               try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
               showNotifHelpOverlay();
+            } else {
+              // 'prompt' → nada extra
             }
           };
         })
@@ -485,8 +506,10 @@ function startNotifPermissionWatcher(){
     }
   } catch {}
 
+  // Fallback si no existe Permissions API
   startPollingWatcher();
 }
+
 
 function startPollingWatcher(){
   if (__permWatcher.timer) return;
@@ -1322,10 +1345,13 @@ document.addEventListener('visibilitychange', () => {
 export async function initNotificationsOnce() {
   await registerSW();
   await waitForActiveSW().catch(()=>{});
+// 1) UX de primer ingreso (muestra card comercial si corresponde)
+bootstrapFirstSessionUX();
 
-  startNotifPermissionWatcher();
-// Fuerza UX de primer ingreso en esta pestaña (usuario nuevo)
-  bootstrapFirstSessionUX();
+// 2) Recién ahora arrancamos el watcher de permiso
+startNotifPermissionWatcher();
+
+ 
   // NO auto-activar si el usuario se dio de baja (LS_NOTIF_STATE === 'blocked')
   const permOK = ('Notification' in window) && (Notification.permission === 'granted');
   const lsState = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
@@ -1372,6 +1398,7 @@ export async function handleSignOutCleanup() {
   // 👉 Para que el card comercial vuelva a aparecer cuando entre otra cuenta en esta pestaña
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
+
 
 
 
