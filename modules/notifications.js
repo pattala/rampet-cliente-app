@@ -861,13 +861,20 @@ async function hasDomicilioOnServer() {
 }
 
 async function shouldHideGeoBanner() {
-  // Si el usuario lo bloqueó desde Perfil, queremos mostrar igual el recordatorio/CTA.
+  // 1) Si el usuario bloqueó desde Perfil, NO ocultar (queremos mostrar un recordatorio)
   if (isGeoBlockedLocally()) return false;
-  try {
-    if (localStorage.getItem('addressBannerDismissed') === '1') return true;
-  } catch {}
+
+  // 2) Si aún NO tenés permiso “granted”, queremos mostrar el banner (no ocultar)
+  const perm = await detectGeoPermission(); // 'granted' | 'denied' | 'prompt' | 'unknown'
+  if (perm !== 'granted') return false;
+
+  // 3) Ya con permiso “granted”: solo ocultamos si el usuario ya lo descarta o si ya tiene domicilio
+  try { if (localStorage.getItem('addressBannerDismissed') === '1') return true; } catch {}
+
+  // 4) Con permiso “granted” y sin dismiss: si ya tiene domicilio en server, ocultamos
   return await hasDomicilioOnServer();
 }
+
 
 function hideGeoBanner() {
   const { banner } = geoEls();
@@ -1404,4 +1411,5 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
+
 
