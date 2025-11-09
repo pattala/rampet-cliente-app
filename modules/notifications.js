@@ -332,6 +332,53 @@ async function borrarTokenYOptOut() {
     console.warn('[FCM] borrarTokenYOptOut error:', e?.message || e);
   }
 }
+// Retries para errores transitorios de IndexedDB / SW recién activado
+function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
+let __tokenReqLock = null; // evita solapamientos
+
+async function getTokenWithRetry(reg, vapidKey, maxTries = 4) {
+  // Evitar múltiples getToken simultáneos (Edge cierra la DB si se pisan)
+  while (__tokenReqLock) { await __tokenReqLock.catch(()=>{}); }
+
+  let attempt = 0;
+  const run = (async () => {
+    for (;;) {
+      attempt++;
+      try {
+        // Aseguramos SW realmente ACTIVADO entre intentos
+        reg = await waitForActiveSW() || reg;
+
+        const tok = await firebase.messaging().getToken({
+          vapidKey,
+          serviceWorkerRegistration: reg
+        });
+        return tok; // éxito
+      } catch (e) {
+        const msg = (e?.message || '').toLowerCase();
+        const name = (e?.name || '').toLowerCase();
+
+        // Errores transitorios típicos
+        const transient =
+          name.includes('invalidstateerror') ||
+          msg.includes('database connection is closing') ||
+          msg.includes('a mutation operation was attempted') ||
+          msg.includes('the database is closing') ||
+          msg.includes('failed to execute \'transaction\'');
+
+        if (!transient || attempt >= maxTries) throw e;
+
+        // Backoff exponencial suave (200→400→800→1200ms)
+        const delay = Math.min(200 * (2 ** (attempt - 1)), 1200);
+        console.warn(`[FCM] getToken retry #${attempt} en ${delay}ms… (${e?.message||e})`);
+        await sleep(delay);
+      }
+    }
+  })();
+
+  __tokenReqLock = run;
+  try { return await run; }
+  finally { __tokenReqLock = null; }
+}
 
 async function obtenerYGuardarToken() {
   await ensureMessagingCompatLoaded();
@@ -349,18 +396,16 @@ async function obtenerYGuardarToken() {
     } catch {}
     throw new Error('SW no activo');
   }
-
   let tok = null;
   try {
-    tok = await firebase.messaging().getToken({
-      vapidKey: VAPID_PUBLIC,
-      serviceWorkerRegistration: reg
-    });
+    tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 4);
   } catch (e) {
-    console.warn('[FCM] getToken() falló:', e?.message || e);
+    console.warn('[FCM] getToken() falló (tras retry):', e?.message || e);
     toast('No se pudo activar notificaciones (getToken).', 'error');
     throw e;
   }
+
+  
 
   if (!tok) {
     console.warn('[FCM] getToken() devolvió vacío. Revisar VAPID/permiso.');
@@ -483,6 +528,7 @@ function startNotifPermissionWatcher(){
               }
               const lsNow = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
               if (lsNow !== 'blocked') {
+                 await sleep(300);
                 try { await obtenerYGuardarToken(); } catch {}
               }
             } else if (cur === 'denied') {
@@ -1358,3 +1404,4 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
+
