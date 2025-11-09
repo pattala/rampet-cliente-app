@@ -893,11 +893,19 @@ function hideGeoBanner() {
 function setGeoMarketingUI(on) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
+
   show(banner, on);
   if (!on) return;
-  if (txt) txt.textContent = 'Activá para ver ofertas y beneficios cerca tuyo.';
-  showInline(btnOn,true); showInline(btnOff,false); showInline(btnHelp,false);
 
+  if (txt) txt.textContent = 'Activá para ver ofertas y beneficios cerca tuyo.';
+  showInline(btnOn, true);
+  showInline(btnOff, false);
+  showInline(btnHelp, false);
+
+  // Contenedor de acciones (o el banner mismo como fallback)
+  const actions = banner.querySelector('.prompt-actions') || banner;
+
+  // Botón “Luego”
   let later = document.getElementById('geo-later-btn');
   if (!later) {
     later = document.createElement('button');
@@ -905,14 +913,47 @@ function setGeoMarketingUI(on) {
     later.className = 'secondary-btn';
     later.textContent = 'Luego';
     later.style.marginLeft = '8px';
-    const actions = banner.querySelector('.prompt-actions') || banner;
     actions.appendChild(later);
   }
-  later.onclick = () => {
-    try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
-    show(banner, false);
-  };
+  if (!later._wired) {
+    later._wired = true;
+    later.onclick = () => {
+      try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
+      show(banner, false);
+      // No activamos nada, solo cerramos hasta próxima sesión/visita
+    };
+  }
+
+  // Botón “No gracias”
+  let nogo = document.getElementById('geo-nothanks-btn');
+  if (!nogo) {
+    nogo = document.createElement('button');
+    nogo.id = 'geo-nothanks-btn';
+    nogo.className = 'link-btn'; // usá tu estilo; puede ser secondary también
+    nogo.textContent = 'No gracias';
+    nogo.style.marginLeft = '8px';
+    actions.appendChild(nogo);
+  }
+  if (!nogo._wired) {
+    nogo._wired = true;
+    nogo.onclick = async () => {
+      try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
+      stopGeoWatch();
+      await setClienteConfigPatch({
+        geoEnabled: false,
+        geoUpdatedAt: new Date().toISOString()
+      }).catch(()=>{});
+      // Elegí UNO de estos dos comportamientos:
+
+      // A) Mostrar estado “opt-out” suave con re-CTA:
+      setGeoOffByUserUI();
+
+      // B) O directamente ocultar el banner por completo:
+      // show(banner, false);
+    };
+  }
 }
+
 
 function setGeoRegularUI(state) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
@@ -1417,3 +1458,4 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
+
