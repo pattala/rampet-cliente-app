@@ -108,7 +108,7 @@ function showNotifOffBanner(on) {
 }
 
 /* ────────────────────────────────────────────────────────────
-   Quiet UI / Ayuda  (solo mostrar si el permiso está DENIED)
+   Quiet UI / Ayuda  (solo si permiso = DENIED)
    ──────────────────────────────────────────────────────────── */
 function showNotifHelpOverlay() {
   const warned = document.getElementById('notif-blocked-warning');
@@ -154,6 +154,18 @@ const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | nu
 
 let __notifReqInFlight = false;
 const SW_PATH = '/firebase-messaging-sw.js';
+
+/* ───────── Aggressive re-subscribe (opcional, solo reingreso) ─────── */
+const AUTO_RESUBSCRIBE = true;
+
+function hasPriorAppConsent() {
+  try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; }
+  catch { return false; }
+}
+function hasLocalToken() {
+  try { return !!localStorage.getItem('fcmToken'); }
+  catch { return false; }
+}
 
 /* ───────────────── Firebase compat helpers ──────────────── */
 async function ensureMessagingCompatLoaded() {
@@ -325,14 +337,15 @@ async function borrarTokenYOptOut() {
       notifUpdatedAt: new Date().toISOString()
     });
 
-    emit('rampet:consent:notif-opt-out', { source: 'ui' });
+    emit('rampet:consifcmTokenent:notif-opt-out', { source: 'ui' });
     showNotifOffBanner(true);
     console.log('🔕 Opt-out FCM aplicado.');
   } catch (e) {
     console.warn('[FCM] borrarTokenYOptOut error:', e?.message || e);
   }
 }
-// Retries para errores transitorios de IndexedDB / SW recién activado
+
+/* Retries para errores transitorios de IndexedDB / SW recién activado */
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 let __tokenReqLock = null; // evita solapamientos
 
@@ -380,6 +393,35 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 4) {
   finally { __tokenReqLock = null; }
 }
 
+/*  One-shot para re-suscripción silenciosa (sin loops) */
+async function obtenerYGuardarTokenOneShot() {
+  await ensureMessagingCompatLoaded();
+
+  const reg = await waitForActiveSW();
+  if (!reg || !(reg.active)) {
+    console.warn('[FCM] SW no activo (one-shot): no se re-suscribe');
+    return null; // silencio: dejamos el CTA visible
+  }
+
+  let tok = null;
+  try {
+    tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 1); // 1 intento exacto
+  } catch (e) {
+    console.warn('[FCM] one-shot getToken falló:', e?.message || e);
+    return null; // sin toast
+  }
+
+  if (!tok) {
+    console.warn('[FCM] one-shot getToken vacío');
+    return null;
+  }
+
+  await guardarTokenEnMiDoc(tok);
+  try { refreshNotifUIFromPermission?.(); } catch {}
+  return tok;
+}
+
+/*  Normal (con retries y toasts) → CTA / switch */
 async function obtenerYGuardarToken() {
   await ensureMessagingCompatLoaded();
 
@@ -396,6 +438,7 @@ async function obtenerYGuardarToken() {
     } catch {}
     throw new Error('SW no activo');
   }
+
   let tok = null;
   try {
     tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 4);
@@ -404,8 +447,6 @@ async function obtenerYGuardarToken() {
     toast('No se pudo activar notificaciones (getToken).', 'error');
     throw e;
   }
-
-  
 
   if (!tok) {
     console.warn('[FCM] getToken() devolvió vacío. Revisar VAPID/permiso.');
@@ -488,52 +529,33 @@ function startNotifPermissionWatcher(){
         .then((permStatus) => {
           __permWatcher.last = permStatus.state; // 'granted' | 'denied' | 'prompt'
 
-          if (permStatus.state === 'granted') {
-            // Primera vez real (sin huella local) → NO auto-token, mostramos switch/card
-            const firstTime = !localStorage.getItem(LS_NOTIF_STATE) && !localStorage.getItem('fcmToken');
-            if (firstTime) {
-              try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
-              refreshNotifUIFromPermission();
-              return;
-            }
-            // Normal (salvo opt-out local)
-            const ls = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
-            if (ls !== 'blocked') {
-              try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
-              obtenerYGuardarToken().catch(()=>{}).finally(refreshNotifUIFromPermission);
-            } else {
-              refreshNotifUIFromPermission();
-            }
-          } else if (permStatus.state === 'denied') {
-            try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
-            refreshNotifUIFromPermission();
-            showNotifHelpOverlay();
-          } else {
-            // 'prompt'
-            refreshNotifUIFromPermission();
+          // SIEMPRE: refrescar UI
+          refreshNotifUIFromPermission();
+
+          // Re-suscripción agresiva (one-shot), nunca primera suscripción
+          if (
+            AUTO_RESUBSCRIBE &&
+            permStatus.state === 'granted' &&
+            hasPriorAppConsent() &&
+            !hasLocalToken() &&
+            (localStorage.getItem(LS_NOTIF_STATE) !== 'blocked')
+          ) {
+            obtenerYGuardarTokenOneShot().catch(()=>{});
           }
 
           // Cambios de permiso en caliente
-          permStatus.onchange = async () => {
-            const cur = permStatus.state;
-            __permWatcher.last = cur;
-            try { refreshNotifUIFromPermission?.(); } catch {}
+          permStatus.onchange = () => {
+            __permWatcher.last = permStatus.state;
+            refreshNotifUIFromPermission();
 
-            if (cur === 'granted') {
-              const firstTime = !localStorage.getItem(LS_NOTIF_STATE) && !localStorage.getItem('fcmToken');
-              if (firstTime) {
-                try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
-                refreshNotifUIFromPermission();
-                return;
-              }
-              const lsNow = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
-              if (lsNow !== 'blocked') {
-                 await sleep(300);
-                try { await obtenerYGuardarToken(); } catch {}
-              }
-            } else if (cur === 'denied') {
-              try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
-              showNotifHelpOverlay();
+            if (
+              AUTO_RESUBSCRIBE &&
+              permStatus.state === 'granted' &&
+              hasPriorAppConsent() &&
+              !hasLocalToken() &&
+              (localStorage.getItem(LS_NOTIF_STATE) !== 'blocked')
+            ) {
+              obtenerYGuardarTokenOneShot().catch(()=>{});
             }
           };
         })
@@ -548,28 +570,22 @@ function startNotifPermissionWatcher(){
 function startPollingWatcher(){
   if (__permWatcher.timer) return;
   __permWatcher.last = (window.Notification?.permission) || 'default';
-  __permWatcher.timer = setInterval(async () => {
+
+  __permWatcher.timer = setInterval(() => {
     const cur = (window.Notification?.permission) || 'default';
-    if (cur !== __permWatcher.last) {
-      __permWatcher.last = cur;
-      try { refreshNotifUIFromPermission?.(); } catch {}
+    if (cur === __permWatcher.last) return;
+    __permWatcher.last = cur;
 
-      // Respetar “primera vez real”: no auto-token
-      const firstTime = !localStorage.getItem(LS_NOTIF_STATE) && !localStorage.getItem('fcmToken');
+    refreshNotifUIFromPermission();
 
-      if (cur === 'granted') {
-        if (firstTime) {
-          try { localStorage.setItem(LS_NOTIF_STATE, 'deferred'); } catch {}
-        } else {
-          const ls = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
-          if (ls !== 'blocked') {
-            try { await obtenerYGuardarToken(); } catch {}
-          }
-        }
-      } else if (cur === 'denied') {
-        try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
-        showNotifHelpOverlay();
-      }
+    if (
+      AUTO_RESUBSCRIBE &&
+      cur === 'granted' &&
+      hasPriorAppConsent() &&
+      !hasLocalToken() &&
+      (localStorage.getItem(LS_NOTIF_STATE) !== 'blocked')
+    ) {
+      obtenerYGuardarTokenOneShot().catch(()=>{});
     }
   }, 1200);
 }
@@ -860,21 +876,14 @@ async function hasDomicilioOnServer() {
   } catch { return false; }
 }
 
+// Mostrar/ocultar banner GEO según permiso/domicilio/opt-out
 async function shouldHideGeoBanner() {
-  // 1) Si el usuario bloqueó desde Perfil, NO ocultar (queremos mostrar un recordatorio)
-  if (isGeoBlockedLocally()) return false;
-
-  // 2) Si aún NO tenés permiso “granted”, queremos mostrar el banner (no ocultar)
+  if (isGeoBlockedLocally()) return false; // recordatorio visible
   const perm = await detectGeoPermission(); // 'granted' | 'denied' | 'prompt' | 'unknown'
   if (perm !== 'granted') return false;
-
-  // 3) Ya con permiso “granted”: solo ocultamos si el usuario ya lo descarta o si ya tiene domicilio
   try { if (localStorage.getItem('addressBannerDismissed') === '1') return true; } catch {}
-
-  // 4) Con permiso “granted” y sin dismiss: si ya tiene domicilio en server, ocultamos
   return await hasDomicilioOnServer();
 }
-
 
 function hideGeoBanner() {
   const { banner } = geoEls();
@@ -1365,23 +1374,20 @@ export async function initNotificationsOnce() {
   // 1) UX de primer ingreso (domicilio/geo + card comercial notifs si corresponde)
   bootstrapFirstSessionUX();
 
-  // 2) Luego sí: watcher del permiso de notifs (sin auto-prompt)
+  // 2) Watcher (solo UI) + re-suscripción one-shot si corresponde
   startNotifPermissionWatcher();
 
-  // No auto-activar si el usuario se dio de baja (state=blocked)
-  const permOK = ('Notification' in window) && (Notification.permission === 'granted');
-  const lsState = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
-  const hasLocalToken = (() => { try { return !!localStorage.getItem('fcmToken'); } catch { return false; } })();
-
-  if (permOK && (lsState === 'accepted' || hasLocalToken)) {
-    try {
-      await obtenerYGuardarToken(); // refresh si hace falta
-      await setClienteConfigPatch({
-        notifEnabled: true,
-        notifUpdatedAt: new Date().toISOString()
-      });
-    } catch {}
-  } // Si está blocked, respetamos y no tocamos config
+  // Re-suscripción agresiva (one-shot) también al iniciar
+  if (
+    AUTO_RESUBSCRIBE &&
+    ('Notification' in window) &&
+    Notification.permission === 'granted' &&
+    hasPriorAppConsent() &&
+    !hasLocalToken() &&
+    (localStorage.getItem(LS_NOTIF_STATE) !== 'blocked')
+  ) {
+    await obtenerYGuardarTokenOneShot().catch(()=>{});
+  }
 
   await hookOnMessage();
   refreshNotifUIFromPermission();
@@ -1411,5 +1417,3 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
-
-
