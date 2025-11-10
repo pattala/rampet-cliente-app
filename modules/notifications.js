@@ -52,6 +52,11 @@ function bootstrapFirstSessionUX() {
     // GEO: primero cablear botones del banner, luego evaluar UI sin prompt
     try { wireGeoButtonsOnce(); } catch {}
     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
+     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
+
+// NEW: asegurar CTA de domicilio aunque el HTML no lo haya puesto
+setTimeout(() => { ensureAddressBannerButtons(); }, 0);
+
 
     // Refrescar UI de notifs sin solicitar permisos
     setTimeout(() => { refreshNotifUIFromPermission(); }, 0);
@@ -1341,6 +1346,65 @@ export async function initDomicilioForm() {
     // Ocultar el banner de domicilio si existe (ajustar ID si usás otro)
     try { document.getElementById('address-banner')?.style && (document.getElementById('address-banner').style.display='none'); } catch {}
   });
+   // al final de initDomicilioForm:
+ensureAddressBannerButtons();
+
+}
+// ── Domicilio: asegurar botones en el banner aunque el HTML no los tenga ──
+function ensureAddressBannerButtons() {
+  const banner = document.getElementById('address-banner');
+  if (!banner) return;
+
+  // Si el usuario ya difirió por sesión, ocultar de entrada
+  try {
+    if (sessionStorage.getItem('addressBannerDeferred') === '1') {
+      banner.style.display = 'none';
+      return;
+    }
+  } catch {}
+
+  // Contenedor de acciones si existe, sino usa el banner
+  const actions = banner.querySelector('.prompt-actions') || banner;
+
+  // "Luego" (de sesión) → crea si falta
+  let later = document.getElementById('address-later-btn');
+  if (!later) {
+    later = document.createElement('button');
+    later.id = 'address-later-btn';
+    later.className = 'secondary-btn';
+    later.textContent = 'Luego';
+    later.style.marginLeft = '8px';
+    actions.appendChild(later);
+  }
+  if (!later._wired) {
+    later._wired = true;
+    later.addEventListener('click', () => {
+      try { sessionStorage.setItem('addressBannerDeferred', '1'); } catch {}
+      toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
+      banner.style.display = 'none';
+    });
+  }
+
+  // (Opcional) "No quiero" → persistente; lo dejo comentado para decisión de marketing
+  /*
+  let nogo = document.getElementById('address-nothanks-btn');
+  if (!nogo) {
+    nogo = document.createElement('button');
+    nogo.id = 'address-nothanks-btn';
+    nogo.className = 'link-btn';
+    nogo.textContent = 'No quiero';
+    nogo.style.marginLeft = '8px';
+    actions.appendChild(nogo);
+  }
+  if (!nogo._wired) {
+    nogo._wired = true;
+    nogo.addEventListener('click', () => {
+      try { localStorage.setItem('addressBannerDismissed','1'); } catch {}
+      banner.style.display = 'none';
+      toast('Listo, no vamos a pedirte domicilio.', 'info');
+    });
+  }
+  */
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -1472,3 +1536,4 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
+
