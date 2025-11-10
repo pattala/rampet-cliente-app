@@ -45,8 +45,9 @@ function bootstrapFirstSessionUX() {
       show($('notif-card'), false);
     }
 
-    // (opcional) re-habilitar banner domicilio sólo en este primer login
-    try { localStorage.removeItem('addressBannerDismissed'); } catch {}
+    // (⚠️ fantasma) Antes re-habilitábamos banner domicilio en primer login.
+    // Esto ROMPE el "No gracias" persistente. Lo dejamos comentado para depurar luego.
+    // try { localStorage.removeItem('addressBannerDismissed'); } catch {}
 
     // GEO: primero cablear botones del banner, luego evaluar UI sin prompt
     try { wireGeoButtonsOnce(); } catch {}
@@ -151,6 +152,11 @@ function showNotifHelpOverlay() {
    ──────────────────────────────────────────────────────────── */
 const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
+
+// NEW: Defer GEO banner solo por sesión
+const GEO_SS_DEFER_KEY = 'geoBannerDeferred'; // '1' => oculto hasta reload
+function isGeoDeferredThisSession(){ try { return sessionStorage.getItem(GEO_SS_DEFER_KEY) === '1'; } catch { return false; } }
+function deferGeoBannerThisSession(){ try { sessionStorage.setItem(GEO_SS_DEFER_KEY,'1'); } catch {} }
 
 let __notifReqInFlight = false;
 const SW_PATH = '/firebase-messaging-sw.js';
@@ -337,7 +343,9 @@ async function borrarTokenYOptOut() {
       notifUpdatedAt: new Date().toISOString()
     });
 
-    emit('rampet:consifcmTokenent:notif-opt-out', { source: 'ui' });
+    // FIX: typo en nombre de evento (antes estaba mal ‘consifcmTokenent’)
+    emit('rampet:consent:notif-opt-out', { source: 'ui' });
+
     showNotifOffBanner(true);
     console.log('🔕 Opt-out FCM aplicado.');
   } catch (e) {
@@ -918,9 +926,9 @@ function setGeoMarketingUI(on) {
   if (!later._wired) {
     later._wired = true;
     later.onclick = () => {
-      try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
-      show(banner, false);
-      // No activamos nada, solo cerramos hasta próxima sesión/visita
+      // NEW: “Luego” solo por sesión (no tocar localStorage/LS_GEO_STATE)
+      deferGeoBannerThisSession();
+      show(banner, false); // oculto hasta recarga
     };
   }
 
@@ -943,17 +951,14 @@ function setGeoMarketingUI(on) {
         geoEnabled: false,
         geoUpdatedAt: new Date().toISOString()
       }).catch(()=>{});
-      // Elegí UNO de estos dos comportamientos:
-
-      // A) Mostrar estado “opt-out” suave con re-CTA:
+      // Estado “opt-out” suave con re-CTA:
       setGeoOffByUserUI();
 
-      // B) O directamente ocultar el banner por completo:
+      // Si preferís ocultarlo del todo, cambiar por:
       // show(banner, false);
     };
   }
 }
-
 
 function setGeoRegularUI(state) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
@@ -1009,6 +1014,9 @@ async function detectGeoPermission() {
 }
 
 async function updateGeoUI() {
+  // NEW: “Luego” de GEO oculta banner solo en la sesión
+  if (isGeoDeferredThisSession()) { hideGeoBanner(); return; }
+
   const state = await detectGeoPermission();
   const hide = await shouldHideGeoBanner();
 
@@ -1088,6 +1096,8 @@ async function handleGeoEnable() {
 }
 
 function handleGeoDisable() {
+  // Nota: este "desactivar" del banner queda como "deferred" (sesión corta).
+  // Para un opt-out real y persistente, el botón “No gracias” maneja LS_GEO_STATE='blocked'.
   try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
   emit('rampet:geo:disabled', { method: 'ui' });
 
@@ -1325,7 +1335,11 @@ export async function initDomicilioForm() {
   });
 
   g('address-skip')?.addEventListener('click', () => {
+    // NEW: "Luego" de domicilio solo por sesión
+    try { sessionStorage.setItem('addressBannerDeferred','1'); } catch {}
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
+    // Ocultar el banner de domicilio si existe (ajustar ID si usás otro)
+    try { document.getElementById('address-banner')?.style && (document.getElementById('address-banner').style.display='none'); } catch {}
   });
 }
 
@@ -1458,4 +1472,3 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
-
