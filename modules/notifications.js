@@ -151,7 +151,7 @@ function deferGeoBannerThisSession(){ try { sessionStorage.setItem(GEO_SS_DEFER_
 let __notifReqInFlight = false;
 const SW_PATH = '/firebase-messaging-sw.js';
 let __tailRetryScheduled = false; // evita múltiples reintentos “silenciosos”
-
+let __tokenProvisionPending = false; // evita “flash” de UI durante provisión de token
 /* ───────── Aggressive re-subscribe (opcional, solo reingreso) ─────── */
 const AUTO_RESUBSCRIBE = true;
 
@@ -448,71 +448,83 @@ async function obtenerYGuardarTokenOneShot() {
     return null;
   }
 
-  let tok = null;
+  __tokenProvisionPending = true;       // <<< NUEVO
   try {
-    tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 3); // un poco más tolerante
-  } catch (e) {
-    console.warn('[FCM] one-shot getToken falló:', e?.message || e);
-    return null; // sin toast
-  }
+    let tok = null;
+    try {
+      tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 3); // un poco más tolerante
+    } catch (e) {
+      console.warn('[FCM] one-shot getToken falló:', e?.message || e);
+      return null; // sin toast
+    }
 
-  if (!tok) {
-    console.warn('[FCM] one-shot getToken vacío');
-    return null;
-  }
+    if (!tok) {
+      console.warn('[FCM] one-shot getToken vacío');
+      return null;
+    }
 
-  await guardarTokenEnMiDoc(tok);
-  try { refreshNotifUIFromPermission?.(); } catch {}
-  return tok;
+    await guardarTokenEnMiDoc(tok);
+    try { refreshNotifUIFromPermission?.(); } catch {}
+    return tok;
+
+  } finally {
+    __tokenProvisionPending = false;    // <<< NUEVO
+  }
 }
 
 /*  Normal (con retries y toasts) → CTA / switch */
 async function obtenerYGuardarToken() {
   __tailRetryScheduled = false; // reset por si venimos de un intento anterior
+  __tokenProvisionPending = true;       // <<< NUEVO
   await ensureMessagingCompatLoaded();
 
-  const reg = await waitForActiveSW();
-  if (!reg || !(reg.active)) {
-    console.warn('[FCM] No hay ServiceWorker ACTIVO todavía.');
-    toast('No se pudo activar notificaciones (SW no activo).', 'error');
-    try {
-      const once = () => {
-        navigator.serviceWorker.removeEventListener('controllerchange', once);
-        setTimeout(() => { obtenerYGuardarToken().catch(()=>{}); }, 300);
-      };
-      navigator.serviceWorker.addEventListener('controllerchange', once, { once: true });
-    } catch {}
-    throw new Error('SW no activo');
-  }
-
-  let tok = null;
   try {
-    tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 6);
-  } catch (e) {
-    if (isTransientIdbError(e) && !__tailRetryScheduled) {
-      __tailRetryScheduled = true;
-      console.warn('[FCM] getToken falló por IndexedDB; reintento silencioso en 1500ms…');
-      setTimeout(() => { obtenerYGuardarToken().catch(()=>{}); }, 1500);
+    const reg = await waitForActiveSW();
+    if (!reg || !(reg.active)) {
+      console.warn('[FCM] No hay ServiceWorker ACTIVO todavía.');
+      toast('No se pudo activar notificaciones (SW no activo).', 'error');
+      try {
+        const once = () => {
+          navigator.serviceWorker.removeEventListener('controllerchange', once);
+          setTimeout(() => { obtenerYGuardarToken().catch(()=>{}); }, 300);
+        };
+        navigator.serviceWorker.addEventListener('controllerchange', once, { once: true });
+      } catch {}
+      throw new Error('SW no activo');
+    }
+
+    let tok = null;
+    try {
+      tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 6);
+    } catch (e) {
+      if (isTransientIdbError(e) && !__tailRetryScheduled) {
+        __tailRetryScheduled = true;
+        console.warn('[FCM] getToken falló por IndexedDB; reintento silencioso en 1500ms…');
+        setTimeout(() => { obtenerYGuardarToken().catch(()=>{}); }, 1500);
+        throw e;
+      }
+      console.warn('[FCM] getToken() falló (tras retry):', e?.message || e);
+      toast('No se pudo activar notificaciones.', 'error');
       throw e;
     }
-    console.warn('[FCM] getToken() falló (tras retry):', e?.message || e);
-    toast('No se pudo activar notificaciones.', 'error');
-    throw e;
+
+    if (!tok) {
+      console.warn('[FCM] getToken() devolvió vacío. Revisar VAPID/permiso.');
+      toast('No se pudo activar notificaciones (token vacío).', 'warning');
+      throw new Error('token vacío');
+    }
+
+    console.log('[FCM] Token OK:', tok.slice(0, 12) + '…');
+    await guardarTokenEnMiDoc(tok);
+    __tailRetryScheduled = false; // éxito → limpiar
+    toast('Notificaciones activadas ✅', 'success');
+
+    try { refreshNotifUIFromPermission?.(); } catch {}
+    return tok;
+
+  } finally {
+    __tokenProvisionPending = false;    // <<< NUEVO: siempre liberar flag
   }
-
-  if (!tok) {
-    console.warn('[FCM] getToken() devolvió vacío. Revisar VAPID/permiso.');
-    toast('No se pudo activar notificaciones (token vacío).', 'warning');
-    throw new Error('token vacío');
-  }
-
-  console.log('[FCM] Token OK:', tok.slice(0, 12) + '…');
-  await guardarTokenEnMiDoc(tok);
-  __tailRetryScheduled = false; // éxito → limpiar
-  toast('Notificaciones activadas ✅', 'success');
-
-  try { refreshNotifUIFromPermission?.(); } catch {}
-  return tok;
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -536,10 +548,15 @@ function refreshNotifUIFromPermission() {
 
   if (!hasNotif) return;
 
+  // <<< NUEVO: estado “pendiente” para evitar flash de UI
+  const pending = __tokenProvisionPending || !!__tokenReqLock || __notifReqInFlight;
+
   if (perm === 'granted') {
     if (switchEl) switchEl.checked = !!hasToken;
     try { localStorage.setItem(LS_NOTIF_STATE, hasToken ? 'accepted' : 'deferred'); } catch {}
-    if (!hasToken) show(cardSwitch, true);
+    if (!hasToken && !pending) {        // <<< solo mostramos switch si NO está pendiente
+      show(cardSwitch, true);
+    }
   } else if (perm === 'denied') {
     if (switchEl) switchEl.checked = false;
     try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
@@ -551,7 +568,7 @@ function refreshNotifUIFromPermission() {
       if (switchEl) switchEl.checked = false;
     } else if (state === 'deferred') {
       if (switchEl) switchEl.checked = false;
-      show(cardSwitch, true);
+      if (!pending) show(cardSwitch, true);  // <<< también evitamos flash en “deferred”
     } else if (state === 'accepted' && hasToken) {
       if (switchEl) switchEl.checked = true;
     } else {
