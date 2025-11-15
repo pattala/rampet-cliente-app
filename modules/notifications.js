@@ -32,7 +32,7 @@ function toast(msg, type='info') {
 /** Bootstrap de primera sesión (pestaña/log-in actual)
  * - No dispara prompts del navegador.
  * - Si es primera vez real de notifs: muestra el card comercial (no el switch).
- * - En GEO: evalúa banner domicilio vs. geo banner (coherente con updateGeoUI()).
+ * - En GEO/DOMICILIO: cablea y evalúa UI sin prompt.
  */
 function bootstrapFirstSessionUX() {
   try {
@@ -45,13 +45,12 @@ function bootstrapFirstSessionUX() {
       show($('notif-card'), false);
     }
 
-    // (dejamos respetado el "No quiero" del domicilio)
+    // No reiniciamos el "No quiero" del domicilio
     // try { localStorage.removeItem('addressBannerDismissed'); } catch {}
 
-    // GEO / DOMICILIO: cablear + evaluar UI sin prompt
+    // GEO / DOMICILIO
     try { wireGeoButtonsOnce(); } catch {}
     try { ensureAddressBannerButtons(); } catch {}
-
     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
 
     // Refrescar UI de notifs sin solicitar permisos
@@ -102,16 +101,9 @@ function ensureNotifOffBanner() {
   }
   return el;
 }
+function showNotifOffBanner(on) { const el = ensureNotifOffBanner(); if (el) el.style.display = on ? 'block' : 'none'; }
 
-function showNotifOffBanner(on) {
-  const el = ensureNotifOffBanner();
-  if (!el) return;
-  el.style.display = on ? 'block' : 'none';
-}
-
-/* ────────────────────────────────────────────────────────────
-   Quiet UI / Ayuda  (solo si permiso = DENIED)
-   ──────────────────────────────────────────────────────────── */
+/* Overlay de ayuda (DENIED) */
 function showNotifHelpOverlay() {
   const warned = document.getElementById('notif-blocked-warning');
   if (warned) {
@@ -147,6 +139,10 @@ function showNotifHelpOverlay() {
   div.querySelector('#__notif_help_close__')?.addEventListener('click', close);
   document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape') close(); }, { once: true });
 }
+function hideNotifHelpOverlay(){
+  try { document.getElementById('__notif_help_overlay__')?.remove(); } catch {}
+  try { const w = document.getElementById('notif-blocked-warning'); if (w) w.style.display = 'none'; } catch {}
+}
 
 /* ────────────────────────────────────────────────────────────
    ESTADO LOCAL / CONSTANTES
@@ -161,6 +157,7 @@ function deferGeoBannerThisSession(){ try { sessionStorage.setItem(GEO_SS_DEFER_
 
 let __notifReqInFlight = false;
 const SW_PATH = '/firebase-messaging-sw.js';
+let __tailRetryScheduled = false; // evita múltiples reintentos “silenciosos”
 
 /* ───────── Aggressive re-subscribe (opcional, solo reingreso) ─────── */
 const AUTO_RESUBSCRIBE = true;
@@ -328,6 +325,8 @@ async function guardarTokenEnMiDoc(token) {
   try { localStorage.setItem('fcmToken', token); } catch {}
   try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
   emit('rampet:consent:notif-opt-in', { source: 'ui' });
+  hideNotifHelpOverlay();
+  showNotifOffBanner(false);
   console.log('✅ Token FCM guardado en clientes/' + clienteId);
 }
 
@@ -345,7 +344,6 @@ async function borrarTokenYOptOut() {
     });
 
     emit('rampet:consent:notif-opt-out', { source: 'ui' });
-
     showNotifOffBanner(true);
     console.log('🔕 Opt-out FCM aplicado.');
   } catch (e) {
@@ -357,8 +355,20 @@ async function borrarTokenYOptOut() {
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 let __tokenReqLock = null; // evita solapamientos
 
-async function getTokenWithRetry(reg, vapidKey, maxTries = 4) {
-  // Evitar múltiples getToken simultáneos (Edge cierra la DB si se pisan)
+function isTransientIdbError(e){
+  const msg = (e?.message || String(e || '')).toLowerCase();
+  const name = (e?.name || '').toLowerCase();
+  return (
+    name.includes('invalidstateerror') ||
+    msg.includes('database connection is closing') ||
+    msg.includes('a mutation operation was attempted') ||
+    msg.includes('the database is closing') ||
+    msg.includes("failed to execute 'transaction'")
+  );
+}
+
+async function getTokenWithRetry(reg, vapidKey, maxTries = 6) {
+  // Evitar múltiples getToken simultáneos (Edge/Chromium cierran la DB si se pisan)
   while (__tokenReqLock) { await __tokenReqLock.catch(()=>{}); }
 
   let attempt = 0;
@@ -366,8 +376,9 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 4) {
     for (;;) {
       attempt++;
       try {
-        // Aseguramos SW realmente ACTIVADO entre intentos
+        // Reconfirmar SW ACTIVADO entre intentos
         reg = await waitForActiveSW() || reg;
+        await navigator.serviceWorker.ready.catch(()=>{});
 
         const tok = await firebase.messaging().getToken({
           vapidKey,
@@ -375,21 +386,8 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 4) {
         });
         return tok; // éxito
       } catch (e) {
-        const msg = (e?.message || '').toLowerCase();
-        const name = (e?.name || '').toLowerCase();
-
-        // Errores transitorios típicos
-        const transient =
-          name.includes('invalidstateerror') ||
-          msg.includes('database connection is closing') ||
-          msg.includes('a mutation operation was attempted') ||
-          msg.includes('the database is closing') ||
-          msg.includes('failed to execute \'transaction\'');
-
-        if (!transient || attempt >= maxTries) throw e;
-
-        // Backoff exponencial suave (200→400→800→1200ms)
-        const delay = Math.min(200 * (2 ** (attempt - 1)), 1200);
+        if (!isTransientIdbError(e) || attempt >= maxTries) throw e;
+        const delay = Math.min(200 * (2 ** (attempt - 1)), 2400);
         console.warn(`[FCM] getToken retry #${attempt} en ${delay}ms… (${e?.message||e})`);
         await sleep(delay);
       }
@@ -408,12 +406,12 @@ async function obtenerYGuardarTokenOneShot() {
   const reg = await waitForActiveSW();
   if (!reg || !(reg.active)) {
     console.warn('[FCM] SW no activo (one-shot): no se re-suscribe');
-    return null; // silencio: dejamos el CTA visible
+    return null;
   }
 
   let tok = null;
   try {
-    tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 1); // 1 intento exacto
+    tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 3); // un poco más tolerante
   } catch (e) {
     console.warn('[FCM] one-shot getToken falló:', e?.message || e);
     return null; // sin toast
@@ -440,7 +438,7 @@ async function obtenerYGuardarToken() {
     try {
       const once = () => {
         navigator.serviceWorker.removeEventListener('controllerchange', once);
-        setTimeout(() => { obtenerYGuardarToken().catch(()=>{}); }, 250);
+        setTimeout(() => { obtenerYGuardarToken().catch(()=>{}); }, 300);
       };
       navigator.serviceWorker.addEventListener('controllerchange', once, { once: true });
     } catch {}
@@ -449,10 +447,18 @@ async function obtenerYGuardarToken() {
 
   let tok = null;
   try {
-    tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 4);
+    tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 6);
   } catch (e) {
+    // Si es un error transitorio de IndexedDB, planificamos UN reintento silencioso
+    if (isTransientIdbError(e) && !__tailRetryScheduled) {
+      __tailRetryScheduled = true;
+      console.warn('[FCM] getToken falló por IndexedDB; reintento silencioso en 1500ms…');
+      setTimeout(() => { obtenerYGuardarToken().catch(()=>{}); }, 1500);
+      // no toasteamos error aquí
+      throw e;
+    }
     console.warn('[FCM] getToken() falló (tras retry):', e?.message || e);
-    toast('No se pudo activar notificaciones (getToken).', 'error');
+    toast('No se pudo activar notificaciones.', 'error');
     throw e;
   }
 
@@ -893,10 +899,7 @@ async function shouldHideGeoBanner() {
   return await hasDomicilioOnServer();
 }
 
-function hideGeoBanner() {
-  const { banner } = geoEls();
-  if (banner) banner.style.display = 'none';
-}
+function hideGeoBanner() { const { banner } = geoEls(); if (banner) banner.style.display = 'none'; }
 
 function setGeoMarketingUI(on) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
@@ -910,7 +913,6 @@ function setGeoMarketingUI(on) {
   showInline(btnOff, false);
   showInline(btnHelp, false);
 
-  // Contenedor de acciones (o el banner mismo como fallback)
   const actions = banner.querySelector('.prompt-actions') || banner;
 
   // Botón “Luego” (solo sesión)
@@ -925,10 +927,7 @@ function setGeoMarketingUI(on) {
   }
   if (!later._wired) {
     later._wired = true;
-    later.onclick = () => {
-      deferGeoBannerThisSession();
-      show(banner, false); // oculto hasta recarga
-    };
+    later.onclick = () => { deferGeoBannerThisSession(); show(banner, false); };
   }
 
   // Botón “No gracias” (persistente)
@@ -946,11 +945,8 @@ function setGeoMarketingUI(on) {
     nogo.onclick = async () => {
       try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
       stopGeoWatch();
-      await setClienteConfigPatch({
-        geoEnabled: false,
-        geoUpdatedAt: new Date().toISOString()
-      }).catch(()=>{});
-      setGeoOffByUserUI(); // recordatorio suave
+      await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }).catch(()=>{});
+      setGeoOffByUserUI();
     };
   }
 }
@@ -966,9 +962,7 @@ function setGeoRegularUI(state) {
   if (state === 'granted') {
     try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
     if (txt) txt.textContent = 'Listo: ya podés recibir ofertas y beneficios cerca tuyo.';
-    showInline(btnOn,false);
-    showInline(btnOff,false);
-    showInline(btnHelp,false);
+    showInline(btnOn,false); showInline(btnOff,false); showInline(btnHelp,false);
     return;
   }
 
@@ -988,14 +982,10 @@ function setGeoOffByUserUI() {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
   show(banner, true);
-
   const later = document.getElementById('geo-later-btn');
   if (later) later.style.display = 'none';
-
   if (txt) txt.textContent = 'No vas a recibir beneficios en tu zona. Podés activarlo cuando quieras.';
-  showInline(btnOn, true);
-  showInline(btnOff, false);
-  showInline(btnHelp, false);
+  showInline(btnOn, true); showInline(btnOff, false); showInline(btnHelp, false);
 }
 
 async function detectGeoPermission() {
@@ -1009,7 +999,6 @@ async function detectGeoPermission() {
 }
 
 async function updateGeoUI() {
-  // “Luego” de GEO oculta banner solo en la sesión
   if (isGeoDeferredThisSession()) { hideGeoBanner(); return; }
 
   const state = await detectGeoPermission();
@@ -1018,11 +1007,8 @@ async function updateGeoUI() {
   // Si bloqueó desde perfil, nunca activamos aunque permiso sea granted
   if (isGeoBlockedLocally()) {
     stopGeoWatch();
-    await setClienteConfigPatch({
-      geoEnabled: false,
-      geoUpdatedAt: new Date().toISOString()
-    });
-    setGeoOffByUserUI(); // recordatorio suave
+    await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() });
+    setGeoOffByUserUI();
     return;
   }
 
@@ -1045,10 +1031,7 @@ async function updateGeoUI() {
   stopGeoWatch();
 
   if (state === 'denied') {
-    await setClienteConfigPatch({
-      geoEnabled: false,
-      geoUpdatedAt: new Date().toISOString()
-    });
+    await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() });
     if (hide) { hideGeoBanner(); }
     else { setGeoMarketingUI(false); setGeoRegularUI('denied'); }
     return;
@@ -1078,11 +1061,7 @@ async function handleGeoEnable() {
       if (!navigator.geolocation?.getCurrentPosition) return resolve();
       let settled = false;
       const done = () => { if (settled) return; settled = true; resolve(); };
-      navigator.geolocation.getCurrentPosition(
-        () => { done(); },
-        () => { done(); },
-        { timeout: 3000, maximumAge: 120000, enableHighAccuracy: false }
-      );
+      navigator.geolocation.getCurrentPosition(() => { done(); }, () => { done(); }, { timeout: 3000, maximumAge: 120000, enableHighAccuracy: false });
       setTimeout(done, 3500);
     });
   } catch {}
@@ -1091,16 +1070,10 @@ async function handleGeoEnable() {
 }
 
 function handleGeoDisable() {
-  // Nota: este "desactivar" del banner queda como "deferred" (sesión corta).
-  // Para un opt-out real y persistente, el botón “No gracias” maneja LS_GEO_STATE='blocked'.
+  // “Desactivar” del banner → diferido de sesión (para opt-out persistente usar “No gracias”)
   try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
   emit('rampet:geo:disabled', { method: 'ui' });
-
-  setClienteConfigPatch({
-    geoEnabled: false,
-    geoUpdatedAt: new Date().toISOString()
-  }).catch(() => {});
-
+  setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }).catch(()=>{});
   updateGeoUI();
 }
 
@@ -1175,15 +1148,10 @@ async function writeGeoSamples(lat, lng) {
     const now = firebase.firestore.FieldValue.serverTimestamp();
 
     await db.collection('clientes').doc(clienteId)
-      .collection('geo_raw').doc().set({
-        lat, lng, capturedAt: now, source: 'pwa'
-      }, { merge: false });
+      .collection('geo_raw').doc().set({ lat, lng, capturedAt: now, source: 'pwa' }, { merge: false });
 
     await db.collection('public_geo').doc(uid)
-      .collection('samples').doc().set({
-        lat3: round3(lat), lng3: round3(lng),
-        capturedAt: now, rounded: true, source: 'pwa'
-      }, { merge: false });
+      .collection('samples').doc().set({ lat3: round3(lat), lng3: round3(lng), capturedAt: now, rounded: true, source: 'pwa' }, { merge: false });
 
     incDailyCount();
   } catch (e) {
@@ -1250,12 +1218,8 @@ function buildAddressLine(c) {
   if (c.calle) parts.push(c.calle + (c.numero ? ' ' + c.numero : ''));
   const pisoDto = [c.piso, c.depto].filter(Boolean).join(' ');
   if (pisoDto) parts.push(pisoDto);
-  if (c.codigoPostal || c.localidad) {
-    parts.push([c.codigoPostal, c.localidad].filter(Boolean).join(' '));
-  }
-  if (c.provincia) {
-    parts.push(c.provincia === 'CABA' ? 'CABA' : `Provincia de ${c.provincia}`);
-  }
+  if (c.codigoPostal || c.localidad) parts.push([c.codigoPostal, c.localidad].filter(Boolean).join(' '));
+  if (c.provincia) parts.push(c.provincia === 'CABA' ? 'CABA' : `Provincia de ${c.provincia}`);
   return parts.filter(Boolean).join(', ');
 }
 
@@ -1329,43 +1293,50 @@ export async function initDomicilioForm() {
     }
   });
 
-  g('address-skip')?.addEventListener('click', () => {
-    // "Luego" de domicilio solo por sesión
-    try { sessionStorage.setItem('addressBannerDeferred','1'); } catch {}
-    toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
-    try { document.getElementById('address-banner')?.style && (document.getElementById('address-banner').style.display='none'); } catch {}
-  });
+  // Si el HTML trae un “Luego” nativo (#address-skip), cablearlo
+  const skipBtn = g('address-skip');
+  if (skipBtn && !skipBtn._wired) {
+    skipBtn._wired = true;
+    skipBtn.addEventListener('click', () => {
+      try { sessionStorage.setItem('addressBannerDeferred','1'); } catch {}
+      toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
+      try { document.getElementById('address-banner')?.style && (document.getElementById('address-banner').style.display='none'); } catch {}
+    });
+  }
 
-  // NO volvemos a llamar ensureAddressBannerButtons() acá para evitar duplicados
+  // NO llamamos ensureAddressBannerButtons() aquí (para evitar duplicados).
 }
 
-// ── Domicilio: asegurar botones en el banner y wiring anti-duplicado ──
+/* ── Domicilio: asegurar botones y wiring anti-duplicado ── */
 function ensureAddressBannerButtons() {
   const banner = document.getElementById('address-banner');
   if (!banner) return;
   if (banner._wired) return; // evita duplicados
   banner._wired = true;
 
-  // Si el usuario ya difirió por sesión o rechazó persistente, ocultar de entrada
+  // Si ya difirió por sesión o rechazó persistente, ocultar de entrada
   try {
-    if (sessionStorage.getItem('addressBannerDeferred') === '1') {
-      banner.style.display = 'none';
-      return;
-    }
-    if (localStorage.getItem('addressBannerDismissed') === '1') {
-      banner.style.display = 'none';
-      return;
-    }
+    if (sessionStorage.getItem('addressBannerDeferred') === '1') { banner.style.display = 'none'; return; }
+    if (localStorage.getItem('addressBannerDismissed') === '1') { banner.style.display = 'none'; return; }
   } catch {}
 
-  // Contenedor de acciones si existe, sino usa el banner
+  // Contenedor de acciones
   const actions = banner.querySelector('.prompt-actions') || banner;
 
-  // "Agregar domicilio" debería existir en el HTML (ej: #address-save). Si no existe, no lo creamos acá.
+  // Si existe un “Luego” preexistente (#address-skip), SOLO cablearlo y NO crear otro
+  const preLater = document.getElementById('address-skip');
+  if (preLater && !preLater._wired) {
+    preLater._wired = true;
+    preLater.addEventListener('click', () => {
+      try { sessionStorage.setItem('addressBannerDeferred', '1'); } catch {}
+      toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
+      banner.style.display = 'none';
+    });
+  }
 
-  // "Luego" (de sesión)
+  // Crear “Luego” sólo si NO hay ninguno (ni #address-skip ni #address-later-btn)
   let later = document.getElementById('address-later-btn');
-  if (!later) {
+  if (!preLater && !later) {
     later = document.createElement('button');
     later.id = 'address-later-btn';
     later.className = 'secondary-btn';
@@ -1373,7 +1344,7 @@ function ensureAddressBannerButtons() {
     later.style.marginLeft = '8px';
     actions.appendChild(later);
   }
-  if (!later._wired) {
+  if (later && !later._wired) {
     later._wired = true;
     later.addEventListener('click', () => {
       try { sessionStorage.setItem('addressBannerDeferred', '1'); } catch {}
@@ -1382,7 +1353,7 @@ function ensureAddressBannerButtons() {
     });
   }
 
-  // "No quiero" (persistente)
+  // “No quiero” (persistente), crear sólo si falta
   let nogo = document.getElementById('address-nothanks-btn');
   if (!nogo) {
     nogo = document.createElement('button');
@@ -1435,20 +1406,13 @@ export async function syncProfileGeoUI() {
 export async function handleProfileGeoToggle(checked) {
   if (checked) {
     try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
-    await setClienteConfigPatch({
-      geoEnabled: true,
-      geoOptInSource: 'ui',
-      geoUpdatedAt: new Date().toISOString()
-    });
+    await setClienteConfigPatch({ geoEnabled: true, geoOptInSource: 'ui', geoUpdatedAt: new Date().toISOString() });
     startGeoWatch();
     emit('rampet:geo:changed', { enabled: true });
     updateGeoUI().catch(()=>{});
   } else {
     try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
-    await setClienteConfigPatch({
-      geoEnabled: false,
-      geoUpdatedAt: new Date().toISOString()
-    });
+    await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() });
     stopGeoWatch();
     emit('rampet:geo:changed', { enabled: false });
     updateGeoUI().catch(()=>{});
