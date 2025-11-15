@@ -14,6 +14,7 @@
   <script>
     window.__RAMPET__ = {
       VAPID_PUBLIC: 'BF-KoL99dP_eOzjYisObou-0jHHayo4QNKAcqRWDAPLYSspsNWvCSyY3H4gJd2hF3g8TRDchT0JrxM-4RGf7Lv4'
+    GEO_COOLDOWN_DAYS: 30 // <- podés cambiarlo (p.ej. 30, 45, etc.)
     };
   </script>
 
@@ -207,7 +208,7 @@
           <p style="margin:0;">📍 Sumá tu domicilio para recibir promos en tu zona. Opcional.</p>
           <div style="display:flex; gap:8px;">
             <button id="address-open-btn" class="primary-btn" type="button">Agregar domicilio</button>
-            <button id="address-dismiss" class="secondary-btn" type="button">Luego</button>
+            <button id="address-skip" class="secondary-btn" type="button">Luego</button>
           </div>
         </div>
       </div>
@@ -307,6 +308,8 @@
         <div id="cliente-saldo">$ 5.00</div>
         <p class="info-message">Se acumula con compras que no alcanzan a sumar un punto.</p>
       </div>
+<!-- ⬇️ Slot para inyectar el mini-prompt contextual de GEO -->
+<div id="geo-context-slot"></div>
 
       <!-- Carrusel de campañas -->
       <div id="carrusel-campanas-container" class="carrusel-container" style="display:none;">
@@ -484,6 +487,32 @@
       }
     })();
   </script>
+  <script>
+  // Llamamos al mini-prompt contextual cuando la app está lista/visible
+  function tryShowGeoPrompt() {
+    try { window.maybeShowGeoContextPrompt?.('geo-context-slot'); } catch {}
+  }
+
+  // 1) Al cargar el DOM
+  if (document.readyState === 'complete' || document.readyState === 'interactive') {
+    setTimeout(tryShowGeoPrompt, 0);
+  } else {
+    document.addEventListener('DOMContentLoaded', () => setTimeout(tryShowGeoPrompt, 0));
+  }
+
+  // 2) Cada vez que vuelve a primer plano
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') tryShowGeoPrompt();
+  });
+
+  // 3) Cuando cambie el estado de geo (on/off) re-evaluamos
+  document.addEventListener('rampet:geo:changed', tryShowGeoPrompt);
+
+  // 4) Si tu router muestra/se oculta pantallas por CSS, podés llamar manualmente:
+  //    tryShowGeoPrompt(); después de renderizar “beneficios” o la home.
+</script>
+
 </body>
 </html>
+
 
