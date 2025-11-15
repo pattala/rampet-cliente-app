@@ -29,11 +29,7 @@ function toast(msg, type='info') {
   if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
 }
 
-/** Bootstrap de primera sesión (pestaña/log-in actual)
- * - No dispara prompts del navegador.
- * - Si es primera vez real de notifs: muestra el card comercial (no el switch).
- * - En GEO/DOMICILIO: cablea y evalúa UI sin prompt.
- */
+/** Bootstrap de primera sesión (pestaña/log-in actual) */
 function bootstrapFirstSessionUX() {
   try {
     if (sessionStorage.getItem('rampet:firstSessionDone') === '1') return;
@@ -45,15 +41,12 @@ function bootstrapFirstSessionUX() {
       show($('notif-card'), false);
     }
 
-    // No reiniciamos el "No quiero" del domicilio
-    // try { localStorage.removeItem('addressBannerDismissed'); } catch {}
-
     // GEO / DOMICILIO
     try { wireGeoButtonsOnce(); } catch {}
     try { ensureAddressBannerButtons(); } catch {}
     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
 
-    // Refrescar UI de notifs sin solicitar permisos
+    // UI notifs sin solicitar permisos
     setTimeout(() => { refreshNotifUIFromPermission(); }, 0);
 
     sessionStorage.setItem('rampet:firstSessionDone', '1');
@@ -354,12 +347,12 @@ async function borrarTokenYOptOut() {
 /* Retries para errores transitorios de IndexedDB / SW recién activado */
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 let __tokenReqLock = null; // evita solapamientos
+
 // === Manejo de errores 400 en DELETE fcmregistrations (hard reset controlado) ===
 let __hardResetAttempted = false;
 
 function isBadRequestOnDelete(e){
   const m = (e?.message || '').toLowerCase();
-  // cubrimos mensajes distintos según navegador y SDK
   return m.includes('fcmregistrations') || m.includes('unsubscribe') || (m.includes('400') && m.includes('delete'));
 }
 
@@ -387,10 +380,8 @@ function deleteDb(name){
 // Borra residuos locales y re-registra el SW para pedir un token "limpio"
 async function hardResetFcmStores(){
   try { localStorage.removeItem('fcmToken'); } catch {}
-  // Mensajería e instalaciones (nombres estándar)
   await deleteDb('firebase-messaging-database');
   await deleteDb('firebase-installations-database');
-  // Re-registrar SW de FCM para asegurar estado limpio
   try {
     const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
     if (reg) { try { await reg.unregister(); } catch {} }
@@ -398,18 +389,6 @@ async function hardResetFcmStores(){
     await navigator.serviceWorker.ready;
   } catch {}
   await sleep(300);
-}
-
-function isTransientIdbError(e){
-  const msg = (e?.message || String(e || '')).toLowerCase();
-  const name = (e?.name || '').toLowerCase();
-  return (
-    name.includes('invalidstateerror') ||
-    msg.includes('database connection is closing') ||
-    msg.includes('a mutation operation was attempted') ||
-    msg.includes('the database is closing') ||
-    msg.includes("failed to execute 'transaction'")
-  );
 }
 
 async function getTokenWithRetry(reg, vapidKey, maxTries = 6) {
@@ -430,28 +409,27 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 6) {
           serviceWorkerRegistration: reg
         });
         return tok; // éxito
-      } } catch (e) {
-  // 2.1) Si es error transitorio de IndexedDB → backoff
-  if (isTransientIdbError(e) && attempt < maxTries) {
-    const delay = Math.min(200 * (2 ** (attempt - 1)), 2400);
-    console.warn(`[FCM] getToken retry #${attempt} en ${delay}ms… (${e?.message||e})`);
-    await sleep(delay);
-    continue;
-  }
+      } catch (e) {
+        // 2.1) Si es error transitorio de IndexedDB → backoff
+        if (isTransientIdbError(e) && attempt < maxTries) {
+          const delay = Math.min(200 * (2 ** (attempt - 1)), 2400);
+          console.warn(`[FCM] getToken retry #${attempt} en ${delay}ms… (${e?.message||e})`);
+          await sleep(delay);
+          continue;
+        }
 
-  // 2.2) Si es 400 en DELETE fcmregistrations → hard reset (una sola vez)
-  if (isBadRequestOnDelete(e) && !__hardResetAttempted) {
-    __hardResetAttempted = true;
-    console.warn('[FCM] 400 en DELETE de registro previo. Haciendo hard reset local y reintentando…');
-    await hardResetFcmStores();
-    attempt = 0;     // reiniciar ciclo de reintentos
-    continue;
-  }
+        // 2.2) Si es 400 en DELETE fcmregistrations → hard reset (una sola vez)
+        if (isBadRequestOnDelete(e) && !__hardResetAttempted) {
+          __hardResetAttempted = true;
+          console.warn('[FCM] 400 en DELETE de registro previo. Haciendo hard reset local y reintentando…');
+          await hardResetFcmStores();
+          attempt = 0;     // reiniciar ciclo de reintentos
+          continue;
+        }
 
-  // 2.3) Cualquier otro caso → propagar
-  throw e;
-}
-
+        // 2.3) Cualquier otro caso → propagar
+        throw e;
+      }
     }
   })();
 
@@ -490,6 +468,7 @@ async function obtenerYGuardarTokenOneShot() {
 
 /*  Normal (con retries y toasts) → CTA / switch */
 async function obtenerYGuardarToken() {
+  __tailRetryScheduled = false; // reset por si venimos de un intento anterior
   await ensureMessagingCompatLoaded();
 
   const reg = await waitForActiveSW();
@@ -510,12 +489,10 @@ async function obtenerYGuardarToken() {
   try {
     tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 6);
   } catch (e) {
-    // Si es un error transitorio de IndexedDB, planificamos UN reintento silencioso
     if (isTransientIdbError(e) && !__tailRetryScheduled) {
       __tailRetryScheduled = true;
       console.warn('[FCM] getToken falló por IndexedDB; reintento silencioso en 1500ms…');
       setTimeout(() => { obtenerYGuardarToken().catch(()=>{}); }, 1500);
-      // no toasteamos error aquí
       throw e;
     }
     console.warn('[FCM] getToken() falló (tras retry):', e?.message || e);
@@ -531,6 +508,7 @@ async function obtenerYGuardarToken() {
 
   console.log('[FCM] Token OK:', tok.slice(0, 12) + '…');
   await guardarTokenEnMiDoc(tok);
+  __tailRetryScheduled = false; // éxito → limpiar
   toast('Notificaciones activadas ✅', 'success');
 
   try { refreshNotifUIFromPermission?.(); } catch {}
@@ -1556,5 +1534,3 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
-
-
