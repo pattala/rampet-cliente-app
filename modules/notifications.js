@@ -430,12 +430,28 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 6) {
           serviceWorkerRegistration: reg
         });
         return tok; // éxito
-      } catch (e) {
-        if (!isTransientIdbError(e) || attempt >= maxTries) throw e;
-        const delay = Math.min(200 * (2 ** (attempt - 1)), 2400);
-        console.warn(`[FCM] getToken retry #${attempt} en ${delay}ms… (${e?.message||e})`);
-        await sleep(delay);
-      }
+      } } catch (e) {
+  // 2.1) Si es error transitorio de IndexedDB → backoff
+  if (isTransientIdbError(e) && attempt < maxTries) {
+    const delay = Math.min(200 * (2 ** (attempt - 1)), 2400);
+    console.warn(`[FCM] getToken retry #${attempt} en ${delay}ms… (${e?.message||e})`);
+    await sleep(delay);
+    continue;
+  }
+
+  // 2.2) Si es 400 en DELETE fcmregistrations → hard reset (una sola vez)
+  if (isBadRequestOnDelete(e) && !__hardResetAttempted) {
+    __hardResetAttempted = true;
+    console.warn('[FCM] 400 en DELETE de registro previo. Haciendo hard reset local y reintentando…');
+    await hardResetFcmStores();
+    attempt = 0;     // reiniciar ciclo de reintentos
+    continue;
+  }
+
+  // 2.3) Cualquier otro caso → propagar
+  throw e;
+}
+
     }
   })();
 
@@ -1540,4 +1556,5 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
+
 
