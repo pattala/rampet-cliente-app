@@ -354,6 +354,51 @@ async function borrarTokenYOptOut() {
 /* Retries para errores transitorios de IndexedDB / SW recién activado */
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 let __tokenReqLock = null; // evita solapamientos
+// === Manejo de errores 400 en DELETE fcmregistrations (hard reset controlado) ===
+let __hardResetAttempted = false;
+
+function isBadRequestOnDelete(e){
+  const m = (e?.message || '').toLowerCase();
+  // cubrimos mensajes distintos según navegador y SDK
+  return m.includes('fcmregistrations') || m.includes('unsubscribe') || (m.includes('400') && m.includes('delete'));
+}
+
+function isTransientIdbError(e){
+  const msg = (e?.message || String(e || '')).toLowerCase();
+  const name = (e?.name || '').toLowerCase();
+  return (
+    name.includes('invalidstateerror') ||
+    msg.includes('database connection is closing') ||
+    msg.includes('a mutation operation was attempted') ||
+    msg.includes('the database is closing') ||
+    msg.includes("failed to execute 'transaction'")
+  );
+}
+
+function deleteDb(name){
+  return new Promise((resolve) => {
+    try {
+      const req = indexedDB.deleteDatabase(name);
+      req.onsuccess = req.onerror = req.onblocked = () => resolve();
+    } catch { resolve(); }
+  });
+}
+
+// Borra residuos locales y re-registra el SW para pedir un token "limpio"
+async function hardResetFcmStores(){
+  try { localStorage.removeItem('fcmToken'); } catch {}
+  // Mensajería e instalaciones (nombres estándar)
+  await deleteDb('firebase-messaging-database');
+  await deleteDb('firebase-installations-database');
+  // Re-registrar SW de FCM para asegurar estado limpio
+  try {
+    const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
+    if (reg) { try { await reg.unregister(); } catch {} }
+    await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+    await navigator.serviceWorker.ready;
+  } catch {}
+  await sleep(300);
+}
 
 function isTransientIdbError(e){
   const msg = (e?.message || String(e || '')).toLowerCase();
@@ -1495,3 +1540,4 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
+
