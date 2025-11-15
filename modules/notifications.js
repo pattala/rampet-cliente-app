@@ -52,11 +52,9 @@ function bootstrapFirstSessionUX() {
     // GEO: primero cablear botones del banner, luego evaluar UI sin prompt
     try { wireGeoButtonsOnce(); } catch {}
     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
-     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
 
-// NEW: asegurar CTA de domicilio aunque el HTML no lo haya puesto
-setTimeout(() => { ensureAddressBannerButtons(); }, 0);
-
+    // NEW: asegurar CTA de domicilio aunque el HTML no lo haya puesto
+    setTimeout(() => { ensureAddressBannerButtons(); }, 0);
 
     // Refrescar UI de notifs sin solicitar permisos
     setTimeout(() => { refreshNotifUIFromPermission(); }, 0);
@@ -383,7 +381,7 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 4) {
         const msg = (e?.message || '').toLowerCase();
         const name = (e?.name || '').toLowerCase();
 
-        // Errores transitorios típicos
+        // Errores transitorios
         const transient =
           name.includes('invalidstateerror') ||
           msg.includes('database connection is closing') ||
@@ -1101,9 +1099,8 @@ async function handleGeoEnable() {
 }
 
 function handleGeoDisable() {
-  // Nota: este "desactivar" del banner queda como "deferred" (sesión corta).
-  // Para un opt-out real y persistente, el botón “No gracias” maneja LS_GEO_STATE='blocked'.
-  try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
+  // Desactivar desde el banner → defer solo por sesión (no persistente)
+  deferGeoBannerThisSession();
   emit('rampet:geo:disabled', { method: 'ui' });
 
   setClienteConfigPatch({
@@ -1340,16 +1337,17 @@ export async function initDomicilioForm() {
   });
 
   g('address-skip')?.addEventListener('click', () => {
-    // NEW: "Luego" de domicilio solo por sesión
+    // "Luego" de domicilio solo por sesión
     try { sessionStorage.setItem('addressBannerDeferred','1'); } catch {}
     toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
     // Ocultar el banner de domicilio si existe (ajustar ID si usás otro)
     try { document.getElementById('address-banner')?.style && (document.getElementById('address-banner').style.display='none'); } catch {}
   });
-   // al final de initDomicilioForm:
-ensureAddressBannerButtons();
 
+  // asegurar CTA de domicilio aunque el HTML no lo haya puesto
+  ensureAddressBannerButtons();
 }
+
 // ── Domicilio: asegurar botones en el banner aunque el HTML no los tenga ──
 function ensureAddressBannerButtons() {
   const banner = document.getElementById('address-banner');
@@ -1536,4 +1534,3 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
-
