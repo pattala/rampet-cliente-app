@@ -29,22 +29,10 @@ function toast(msg, type='info') {
   if (!window.UI?.showToast) console.log(`[${type}] ${msg}`);
 }
 
-/* Helpers banner/overlay notifs */
-function removeNotifHelpOverlay(){
-  try { document.getElementById('__notif_help_overlay__')?.remove(); } catch {}
-  try {
-    const warned = document.getElementById('notif-blocked-warning');
-    if (warned) warned.style.display = 'none';
-  } catch {}
-}
-function hideNotifOffBannerNow(){
-  try { showNotifOffBanner(false); } catch {}
-}
-
 /** Bootstrap de primera sesión (pestaña/log-in actual)
  * - No dispara prompts del navegador.
  * - Si es primera vez real de notifs: muestra el card comercial (no el switch).
- * - En GEO/Domicilio: cablea y ajusta UI sin prompt.
+ * - En GEO: evalúa banner domicilio vs. geo banner (coherente con updateGeoUI()).
  */
 function bootstrapFirstSessionUX() {
   try {
@@ -57,12 +45,16 @@ function bootstrapFirstSessionUX() {
       show($('notif-card'), false);
     }
 
-    // Cableado UI GEO + Domicilio (idempotente)
+    // (dejamos respetado el "No quiero" del domicilio)
+    // try { localStorage.removeItem('addressBannerDismissed'); } catch {}
+
+    // GEO / DOMICILIO: cablear + evaluar UI sin prompt
     try { wireGeoButtonsOnce(); } catch {}
     try { ensureAddressBannerButtons(); } catch {}
 
-    // Evaluar UIs sin pedir permisos
     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
+
+    // Refrescar UI de notifs sin solicitar permisos
     setTimeout(() => { refreshNotifUIFromPermission(); }, 0);
 
     sessionStorage.setItem('rampet:firstSessionDone', '1');
@@ -162,7 +154,7 @@ function showNotifHelpOverlay() {
 const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
 
-// GEO: Defer banner solo por sesión
+// GEO: Defer del banner solo por sesión
 const GEO_SS_DEFER_KEY = 'geoBannerDeferred'; // '1' => oculto hasta reload
 function isGeoDeferredThisSession(){ try { return sessionStorage.getItem(GEO_SS_DEFER_KEY) === '1'; } catch { return false; } }
 function deferGeoBannerThisSession(){ try { sessionStorage.setItem(GEO_SS_DEFER_KEY,'1'); } catch {} }
@@ -170,7 +162,7 @@ function deferGeoBannerThisSession(){ try { sessionStorage.setItem(GEO_SS_DEFER_
 let __notifReqInFlight = false;
 const SW_PATH = '/firebase-messaging-sw.js';
 
-/* Re-suscripción silenciosa (one-shot en reingreso) */
+/* ───────── Aggressive re-subscribe (opcional, solo reingreso) ─────── */
 const AUTO_RESUBSCRIBE = true;
 
 function hasPriorAppConsent() {
@@ -336,11 +328,6 @@ async function guardarTokenEnMiDoc(token) {
   try { localStorage.setItem('fcmToken', token); } catch {}
   try { localStorage.setItem(LS_NOTIF_STATE, 'accepted'); } catch {}
   emit('rampet:consent:notif-opt-in', { source: 'ui' });
-
-  // Asegurar cierre inmediato de banners/overlays anteriores
-  hideNotifOffBannerNow();
-  removeNotifHelpOverlay();
-
   console.log('✅ Token FCM guardado en clientes/' + clienteId);
 }
 
@@ -371,6 +358,7 @@ function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
 let __tokenReqLock = null; // evita solapamientos
 
 async function getTokenWithRetry(reg, vapidKey, maxTries = 4) {
+  // Evitar múltiples getToken simultáneos (Edge cierra la DB si se pisan)
   while (__tokenReqLock) { await __tokenReqLock.catch(()=>{}); }
 
   let attempt = 0;
@@ -378,6 +366,7 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 4) {
     for (;;) {
       attempt++;
       try {
+        // Aseguramos SW realmente ACTIVADO entre intentos
         reg = await waitForActiveSW() || reg;
 
         const tok = await firebase.messaging().getToken({
@@ -389,6 +378,7 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 4) {
         const msg = (e?.message || '').toLowerCase();
         const name = (e?.name || '').toLowerCase();
 
+        // Errores transitorios típicos
         const transient =
           name.includes('invalidstateerror') ||
           msg.includes('database connection is closing') ||
@@ -398,6 +388,7 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 4) {
 
         if (!transient || attempt >= maxTries) throw e;
 
+        // Backoff exponencial suave (200→400→800→1200ms)
         const delay = Math.min(200 * (2 ** (attempt - 1)), 1200);
         console.warn(`[FCM] getToken retry #${attempt} en ${delay}ms… (${e?.message||e})`);
         await sleep(delay);
@@ -417,16 +408,17 @@ async function obtenerYGuardarTokenOneShot() {
   const reg = await waitForActiveSW();
   if (!reg || !(reg.active)) {
     console.warn('[FCM] SW no activo (one-shot): no se re-suscribe');
-    return null;
+    return null; // silencio: dejamos el CTA visible
   }
 
   let tok = null;
   try {
-    tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 1); // 1 intento
+    tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 1); // 1 intento exacto
   } catch (e) {
     console.warn('[FCM] one-shot getToken falló:', e?.message || e);
-    return null;
+    return null; // sin toast
   }
+
   if (!tok) {
     console.warn('[FCM] one-shot getToken vacío');
     return null;
@@ -500,10 +492,6 @@ function refreshNotifUIFromPermission() {
   if (!hasNotif) return;
 
   if (perm === 'granted') {
-    // Estado granted: aseguramos limpiar overlays/banners
-    removeNotifHelpOverlay();
-    hideNotifOffBannerNow();
-
     if (switchEl) switchEl.checked = !!hasToken;
     try { localStorage.setItem(LS_NOTIF_STATE, hasToken ? 'accepted' : 'deferred'); } catch {}
     if (!hasToken) show(cardSwitch, true);
@@ -511,26 +499,27 @@ function refreshNotifUIFromPermission() {
     if (switchEl) switchEl.checked = false;
     try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
     show(warnBlocked, true);
-    showNotifOffBanner(true);
   } else {
     const state = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
 
     if (state === 'blocked') {
       if (switchEl) switchEl.checked = false;
-      showNotifOffBanner(true);
     } else if (state === 'deferred') {
       if (switchEl) switchEl.checked = false;
       show(cardSwitch, true);
-      showNotifOffBanner(false);
     } else if (state === 'accepted' && hasToken) {
       if (switchEl) switchEl.checked = true;
-      showNotifOffBanner(false);
     } else {
       if (switchEl) switchEl.checked = false;
       show(cardMarketing, true);
-      showNotifOffBanner(false);
     }
   }
+
+  // Banner “🔕” sólo si el usuario hizo opt-out local
+  try {
+    const st = localStorage.getItem(LS_NOTIF_STATE);
+    showNotifOffBanner(st === 'blocked');
+  } catch {}
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -548,9 +537,10 @@ function startNotifPermissionWatcher(){
         .then((permStatus) => {
           __permWatcher.last = permStatus.state; // 'granted' | 'denied' | 'prompt'
 
+          // SIEMPRE: refrescar UI
           refreshNotifUIFromPermission();
 
-          // One-shot re-subscribe
+          // Re-suscripción agresiva (one-shot), nunca primera suscripción
           if (
             AUTO_RESUBSCRIBE &&
             permStatus.state === 'granted' &&
@@ -561,6 +551,7 @@ function startNotifPermissionWatcher(){
             obtenerYGuardarTokenOneShot().catch(()=>{});
           }
 
+          // Cambios de permiso en caliente
           permStatus.onchange = () => {
             __permWatcher.last = permStatus.state;
             refreshNotifUIFromPermission();
@@ -592,6 +583,7 @@ function startPollingWatcher(){
     const cur = (window.Notification?.permission) || 'default';
     if (cur === __permWatcher.last) return;
     __permWatcher.last = cur;
+
     refreshNotifUIFromPermission();
 
     if (
@@ -638,7 +630,7 @@ export async function handlePermissionRequest() {
         return;
       }
       await obtenerYGuardarToken();
-      hideNotifOffBannerNow();
+      showNotifOffBanner(false);
       refreshNotifUIFromPermission();
       return;
     }
@@ -661,8 +653,7 @@ export async function handlePermissionRequest() {
         showNotifOffBanner(true);
       } else {
         await obtenerYGuardarToken();
-        hideNotifOffBannerNow();
-        removeNotifHelpOverlay();
+        showNotifOffBanner(false);
       }
     } else if (status === 'denied') {
       try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
@@ -713,11 +704,11 @@ export async function handlePermissionSwitch(e) {
 
   if (checked) {
     if (before === 'granted') {
-      try { await obtenerYGuardarToken(); hideNotifOffBannerNow(); removeNotifHelpOverlay(); } catch {}
+      try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {}
     } else if (before === 'default') {
       const status = await Notification.requestPermission();
       if (status === 'granted') {
-        try { await obtenerYGuardarToken(); hideNotifOffBannerNow(); removeNotifHelpOverlay(); } catch {}
+        try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {}
       } else if (status === 'denied') {
         try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
         toast('Notificaciones bloqueadas en el navegador.', 'warning');
@@ -836,12 +827,12 @@ export async function syncProfileConsentUI() {
 export async function handleProfileConsentToggle(checked) {
   if (checked) {
     if (('Notification' in window) && Notification.permission === 'granted') {
-      try { await obtenerYGuardarToken(); hideNotifOffBannerNow(); removeNotifHelpOverlay(); } catch {}
+      try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {}
     } else {
       try {
         const status = await Notification.requestPermission();
         if (status === 'granted') {
-          try { await obtenerYGuardarToken(); hideNotifOffBannerNow(); removeNotifHelpOverlay(); } catch {}
+          try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {}
         } else if (status === 'denied') {
           try { localStorage.setItem(LS_NOTIF_STATE, 'blocked'); } catch {}
           toast('Notificaciones bloqueadas en el navegador.', 'warning');
@@ -922,7 +913,7 @@ function setGeoMarketingUI(on) {
   // Contenedor de acciones (o el banner mismo como fallback)
   const actions = banner.querySelector('.prompt-actions') || banner;
 
-  // Botón “Luego” (de sesión) — idempotente
+  // Botón “Luego” (solo sesión)
   let later = document.getElementById('geo-later-btn');
   if (!later) {
     later = document.createElement('button');
@@ -940,7 +931,7 @@ function setGeoMarketingUI(on) {
     };
   }
 
-  // Botón “No gracias” — persistente
+  // Botón “No gracias” (persistente)
   let nogo = document.getElementById('geo-nothanks-btn');
   if (!nogo) {
     nogo = document.createElement('button');
@@ -968,6 +959,7 @@ function setGeoRegularUI(state) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
   show(banner,true);
+
   const later = document.getElementById('geo-later-btn');
   if (later) later.style.display = 'none';
 
@@ -996,8 +988,10 @@ function setGeoOffByUserUI() {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
   show(banner, true);
+
   const later = document.getElementById('geo-later-btn');
   if (later) later.style.display = 'none';
+
   if (txt) txt.textContent = 'No vas a recibir beneficios en tu zona. Podés activarlo cuando quieras.';
   showInline(btnOn, true);
   showInline(btnOff, false);
@@ -1097,7 +1091,8 @@ async function handleGeoEnable() {
 }
 
 function handleGeoDisable() {
-  // Desactivar desde banner: defer por sesión (no persistente)
+  // Nota: este "desactivar" del banner queda como "deferred" (sesión corta).
+  // Para un opt-out real y persistente, el botón “No gracias” maneja LS_GEO_STATE='blocked'.
   try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
   emit('rampet:geo:disabled', { method: 'ui' });
 
@@ -1297,7 +1292,6 @@ export async function initDomicilioForm() {
           g('dom-depto').value = dom.depto || '';
           g('dom-localidad').value = dom.localidad || '';
           g('dom-partido').value = dom.partido || '';
-          g('dom-provigincia'); // noop para evitar typos antiguos
           g('dom-provincia').value = dom.provincia || '';
           g('dom-cp').value = dom.codigoPostal || '';
           g('dom-pais').value = dom.pais || 'Argentina';
@@ -1307,7 +1301,6 @@ export async function initDomicilioForm() {
     }
   } catch {}
 
-  // Guardar
   g('address-save')?.addEventListener('click', async () => {
     try {
       const uid = firebase.auth().currentUser?.uid;
@@ -1327,8 +1320,6 @@ export async function initDomicilioForm() {
 
       try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
       toast('Domicilio guardado. ¡Gracias!', 'success');
-      // Ocultar banner si existe
-      try { document.getElementById('address-banner')?.style && (document.getElementById('address-banner').style.display='none'); } catch {}
       hideGeoBanner();
       updateGeoUI().catch(()=>{});
       emit('rampet:geo:changed', { enabled: true });
@@ -1338,33 +1329,42 @@ export async function initDomicilioForm() {
     }
   });
 
-  // IMPORTANTE: NO volvemos a cablear aquí address-skip (“Luego”)
-  // El botón “Luego” lo maneja ensureAddressBannerButtons() de forma idempotente.
+  g('address-skip')?.addEventListener('click', () => {
+    // "Luego" de domicilio solo por sesión
+    try { sessionStorage.setItem('addressBannerDeferred','1'); } catch {}
+    toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
+    try { document.getElementById('address-banner')?.style && (document.getElementById('address-banner').style.display='none'); } catch {}
+  });
 
-  // Asegurar CTA/wiring del banner una única vez
-  ensureAddressBannerButtons();
+  // NO volvemos a llamar ensureAddressBannerButtons() acá para evitar duplicados
 }
 
-// ── Domicilio: asegurar/wirear botones del banner de forma idempotente ──
+// ── Domicilio: asegurar botones en el banner y wiring anti-duplicado ──
 function ensureAddressBannerButtons() {
   const banner = document.getElementById('address-banner');
-  if (!banner || banner._wired) return;
+  if (!banner) return;
+  if (banner._wired) return; // evita duplicados
   banner._wired = true;
 
-  // Ocultar si el usuario ya difirió por sesión
+  // Si el usuario ya difirió por sesión o rechazó persistente, ocultar de entrada
   try {
     if (sessionStorage.getItem('addressBannerDeferred') === '1') {
       banner.style.display = 'none';
       return;
     }
+    if (localStorage.getItem('addressBannerDismissed') === '1') {
+      banner.style.display = 'none';
+      return;
+    }
   } catch {}
 
+  // Contenedor de acciones si existe, sino usa el banner
   const actions = banner.querySelector('.prompt-actions') || banner;
 
-  // PRIORIDAD: si ya existe #address-skip en el HTML, lo tratamos como “Luego”
-  let later = document.getElementById('address-skip') || document.getElementById('address-later-btn');
+  // "Agregar domicilio" debería existir en el HTML (ej: #address-save). Si no existe, no lo creamos acá.
 
-  // Si no hay botón existente, creamos uno
+  // "Luego" (de sesión)
+  let later = document.getElementById('address-later-btn');
   if (!later) {
     later = document.createElement('button');
     later.id = 'address-later-btn';
@@ -1382,8 +1382,7 @@ function ensureAddressBannerButtons() {
     });
   }
 
-  // (Opcional) “No quiero” → persistente; queda comentado para decisión marketing:
-  /*
+  // "No quiero" (persistente)
   let nogo = document.getElementById('address-nothanks-btn');
   if (!nogo) {
     nogo = document.createElement('button');
@@ -1401,7 +1400,6 @@ function ensureAddressBannerButtons() {
       toast('Listo, no vamos a pedirte domicilio.', 'info');
     });
   }
-  */
 }
 
 /* ────────────────────────────────────────────────────────────
