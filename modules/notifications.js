@@ -142,6 +142,21 @@ function hideNotifHelpOverlay(){
    ──────────────────────────────────────────────────────────── */
 const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
+// Cool-down GEO (re-planteo no intrusivo pasado un tiempo)
+const LS_GEO_SUPPRESS_UNTIL = 'geoSuppressUntil'; // almacena epoch ms (número)
+const GEO_COOLDOWN_DAYS = (window.__RAMPET__?.GEO_COOLDOWN_DAYS ?? 60); // configurable, por defecto 60 días
+
+function _nowMs(){ return Date.now(); }
+function setGeoSuppress(days = GEO_COOLDOWN_DAYS){
+  try { localStorage.setItem(LS_GEO_SUPPRESS_UNTIL, String(_nowMs() + days*24*60*60*1000)); } catch {}
+}
+function clearGeoSuppress(){
+  try { localStorage.removeItem(LS_GEO_SUPPRESS_UNTIL); } catch {}
+}
+function isGeoSuppressedNow(){
+  try { const until = +localStorage.getItem(LS_GEO_SUPPRESS_UNTIL) || 0; return until > _nowMs(); }
+  catch { return false; }
+}
 
 // GEO: Defer del banner solo por sesión
 const GEO_SS_DEFER_KEY = 'geoBannerDeferred'; // '1' => oculto hasta reload
@@ -948,6 +963,9 @@ async function hasDomicilioOnServer() {
 
 // Mostrar/ocultar banner GEO según permiso/domicilio/opt-out
 async function shouldHideGeoBanner() {
+// Si está suprimido por cool-down, escondemos banner global
+if (isGeoSuppressedNow()) return true;
+   
   if (isGeoBlockedLocally()) return false; // recordatorio visible
   const perm = await detectGeoPermission(); // 'granted' | 'denied' | 'prompt' | 'unknown'
   if (perm !== 'granted') return false;
@@ -999,11 +1017,14 @@ function setGeoMarketingUI(on) {
   if (!nogo._wired) {
     nogo._wired = true;
     nogo.onclick = async () => {
-      try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
-      stopGeoWatch();
-      await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }).catch(()=>{});
-      setGeoOffByUserUI();
-    };
+  try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
+  setGeoSuppress(GEO_COOLDOWN_DAYS); // ⟵ suprimir global por X días
+  stopGeoWatch();
+  await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }).catch(()=>{});
+  hideGeoBanner(); // ⟵ se va el banner global
+  toast(`No vamos a volver a pedirlo por ahora. Podés activarlo desde tu Perfil.`, 'info');
+};
+
   }
 }
 
@@ -1055,6 +1076,9 @@ async function detectGeoPermission() {
 }
 
 async function updateGeoUI() {
+// Si estamos en cool-down, no mostrar nada global
+if (isGeoSuppressedNow()) { hideGeoBanner(); return; }
+   
   if (isGeoDeferredThisSession()) { hideGeoBanner(); return; }
 
   const state = await detectGeoPermission();
@@ -1097,12 +1121,74 @@ async function updateGeoUI() {
   if (hide) { hideGeoBanner(); }
   else { setGeoMarketingUI(true); }
 }
+// ────────────────────────────────────────────────────────────
+// GEO — Mini card contextual (p. ej. en "Beneficios cerca")
+// ────────────────────────────────────────────────────────────
+export function maybeShowGeoContextPrompt(slotId) {
+  try {
+    const slot = document.getElementById(slotId);
+    if (!slot || slot.dataset.geoMiniShown === '1') return;
+    if (isGeoSuppressedNow()) return;     // cooldown activo → no mostramos
+    if (isGeoBlockedLocally()) return;    // opt-out local → no insistir
+
+    (async () => {
+      const state = await detectGeoPermission(); // 'granted' | 'denied' | 'prompt' | 'unknown'
+      if (state === 'granted') return; // ya tiene permiso → no mostrar mini-card
+
+      const card = document.createElement('div');
+      card.className = 'geo-mini-card';
+      card.style.cssText = 'margin:12px 0;padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;';
+      card.innerHTML = `
+        <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
+          <div>
+            <strong>Beneficios cerca tuyo</strong><br/>
+            <small>Activá tu ubicación para ver promos de tu zona.</small>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <button id="geo-mini-activate" class="primary-btn" type="button">Activar</button>
+            <button id="geo-mini-later" class="secondary-btn" type="button">No por ahora</button>
+          </div>
+        </div>
+      `;
+      slot.appendChild(card);
+      slot.dataset.geoMiniShown = '1';
+
+      const act = card.querySelector('#geo-mini-activate');
+      const later = card.querySelector('#geo-mini-later');
+
+      if (act && !act._wired) {
+        act._wired = true;
+        act.addEventListener('click', async () => {
+          try {
+            clearGeoSuppress();          // al aceptar, limpiamos cualquier cooldown
+            await handleGeoEnable();      // reutilizamos tu flujo de enable
+          } finally {
+            try { card.remove(); } catch {}
+            slot.dataset.geoMiniShown = '0';
+          }
+        });
+      }
+
+      if (later && !later._wired) {
+        later._wired = true;
+        later.addEventListener('click', () => {
+          setGeoSuppress(GEO_COOLDOWN_DAYS);  // re-recordatorio en X días
+          try { card.remove(); } catch {}
+          slot.dataset.geoMiniShown = '0';
+          toast('Ok, te lo recordamos más adelante.', 'info');
+        });
+      }
+    })();
+  } catch {}
+}
 
 async function handleGeoEnable() {
   const { banner } = geoEls();
 
   try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
-  emit('rampet:geo:enabled', { method: 'ui' });
+clearGeoSuppress(); // si acepta, levantamos cualquier cool-down previo
+
+   emit('rampet:geo:enabled', { method: 'ui' });
   show(banner, false);
   startGeoWatch();
 
@@ -1461,6 +1547,7 @@ export async function syncProfileGeoUI() {
 
 export async function handleProfileGeoToggle(checked) {
   if (checked) {
+     clearGeoSuppress();
     try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
     await setClienteConfigPatch({ geoEnabled: true, geoOptInSource: 'ui', geoUpdatedAt: new Date().toISOString() });
     startGeoWatch();
@@ -1486,6 +1573,7 @@ try {
   window.handleProfileConsentToggle = handleProfileConsentToggle;
   window.syncProfileGeoUI = syncProfileGeoUI;
   window.handleProfileGeoToggle = handleProfileGeoToggle;
+   window.maybeShowGeoContextPrompt = maybeShowGeoContextPrompt;
 } catch {}
 
 document.addEventListener('rampet:consent:notif-opt-in',  () => { syncProfileConsentUI(); });
@@ -1551,3 +1639,4 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
+
