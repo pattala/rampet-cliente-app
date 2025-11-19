@@ -668,10 +668,12 @@ function wireAddressDatalists(prefix = 'dom-') {
 }
 
 // —— Address/banner wiring
+// —— Address/banner wiring
 async function setupAddressSection() {
   const banner = document.getElementById('address-banner');
   const card   = document.getElementById('address-card');
 
+  // Banner: solo abrir la card. El resto (Luego/No quiero) lo maneja notifications.js
   if (banner && !banner.dataset.wired) {
     banner.dataset.wired = '1';
     document.getElementById('address-open-btn')?.addEventListener('click', () => {
@@ -679,28 +681,39 @@ async function setupAddressSection() {
       banner.style.display = 'none';
       try { window.scrollTo({ top: card.offsetTop - 20, behavior: 'smooth' }); } catch {}
     });
-    document.getElementById('address-dismiss')?.addEventListener('click', () => {
-      banner.style.display = 'none';
-      try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
-    });
   }
-  document.getElementById('address-skip')?.addEventListener('click', () => {
+
+  // Card: "Guardar" y "Luego" propios de la card
+  document.getElementById('address-cancel')?.addEventListener('click', () => {
+    // Cierra la card y vuelve a mostrar el banner (si no fue descartado)
     if (card) card.style.display = 'none';
     const b = document.getElementById('address-banner');
-    if (b) b.style.display = 'block';
-    try { localStorage.removeItem('addressBannerDismissed'); } catch {}
+    const dismissed = localStorage.getItem('addressBannerDismissed') === '1';
+    if (b && !dismissed) b.style.display = 'block';
   });
+
   document.getElementById('address-save')?.addEventListener('click', () => {
+    // Después de guardar, marcamos como "no insistir" y cerramos card
     setTimeout(() => {
       try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
       if (card) card.style.display = 'none';
+      const b = document.getElementById('address-banner');
+      if (b) b.style.display = 'none';
     }, 600);
   });
 
+  // Datalists y form
   wireAddressDatalists('dom-');
 
-  try { await import('./modules/notifications.js').then(m => m.initDomicilioForm?.()); } catch {}
+  // Cargamos el form con valores existentes y wiring interno
+  try {
+    // Opción A: import dinámico (como tenías)
+    await import('./modules/notifications.js').then(m => m.initDomicilioForm?.());
+    // Opción B (alternativa más simple): importar initDomicilioForm de forma estática arriba y llamar directo:
+    // await initDomicilioForm();
+  } catch {}
 
+  // Mostrar banner/card según estado actual
   const justSignedUp = localStorage.getItem('justSignedUp') === '1';
   const addrProvidedAtSignup = localStorage.getItem('addressProvidedAtSignup') === '1';
 
@@ -867,6 +880,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
 
 
