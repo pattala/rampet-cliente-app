@@ -43,7 +43,7 @@ function bootstrapFirstSessionUX() {
 
     // GEO / DOMICILIO
     try { wireGeoButtonsOnce(); } catch {}
-    try { ; } catch {}
+    try { ensureAddressBannerButtons(); } catch {}
     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
 
     // UI notifs sin solicitar permisos
@@ -62,11 +62,11 @@ function ensureNotifOffBanner() {
 
   el = document.createElement('div');
   el.id = 'notif-off-banner';
-  el.style.cssText =
-    'display:none;margin:12px 0;padding:10px 12px;border-radius:10px;' +
-    'background:#fff7ed;border:1px solid #fed7aa;color:#7c2d12;font-size:14px;';
+  el.className = 'card'; // usar tu estética de card
+  el.style.cssText = 'display:none; margin:12px 0;';
+
   el.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;">
+    <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;">
       <div style="display:flex;gap:10px;align-items:center;">
         <span aria-hidden="true" style="font-size:18px;">🔕</span>
         <div>
@@ -79,17 +79,22 @@ function ensureNotifOffBanner() {
       </div>
     </div>
   `;
+
+  // Montar dentro de tu layout real para que no quede full-width
   const mountAt =
-    document.getElementById('main') ||
-    document.querySelector('.content') ||
+    document.querySelector('.container') ||
+    document.getElementById('main-app-screen') ||
     document.body;
+
   mountAt.insertBefore(el, mountAt.firstChild);
 
   const btn = el.querySelector('#notif-off-go-profile');
   if (btn && !btn._wired) {
     btn._wired = true;
     btn.addEventListener('click', () => {
-      try { window.UI?.openTab?.('perfil'); } catch {}
+      // Abrir modal de perfil o fallback al botón “Mi perfil”
+      try { window.UI?.openProfileModal?.(); } catch {}
+      try { document.getElementById('edit-profile-btn')?.click(); } catch {}
     });
   }
   return el;
@@ -463,11 +468,11 @@ async function obtenerYGuardarTokenOneShot() {
     return null;
   }
 
-  __tokenProvisionPending = true;       // <<< NUEVO
+  __tokenProvisionPending = true;
   try {
     let tok = null;
     try {
-      tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 3); // un poco más tolerante
+      tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 3);
     } catch (e) {
       console.warn('[FCM] one-shot getToken falló:', e?.message || e);
       return null; // sin toast
@@ -483,14 +488,14 @@ async function obtenerYGuardarTokenOneShot() {
     return tok;
 
   } finally {
-    __tokenProvisionPending = false;    // <<< NUEVO
+    __tokenProvisionPending = false;
   }
 }
 
 /*  Normal (con retries y toasts) → CTA / switch */
 async function obtenerYGuardarToken() {
   __tailRetryScheduled = false; // reset por si venimos de un intento anterior
-  __tokenProvisionPending = true;       // <<< NUEVO
+  __tokenProvisionPending = true;
   await ensureMessagingCompatLoaded();
 
   try {
@@ -538,7 +543,7 @@ async function obtenerYGuardarToken() {
     return tok;
 
   } finally {
-    __tokenProvisionPending = false;    // <<< NUEVO: siempre liberar flag
+    __tokenProvisionPending = false;
   }
 }
 
@@ -563,13 +568,13 @@ function refreshNotifUIFromPermission() {
 
   if (!hasNotif) return;
 
-  // <<< NUEVO: estado “pendiente” para evitar flash de UI
+  // Estado “pendiente” para evitar flash de UI mientras se provisiona el token
   const pending = __tokenProvisionPending || !!__tokenReqLock || __notifReqInFlight;
 
   if (perm === 'granted') {
     if (switchEl) switchEl.checked = !!hasToken;
     try { localStorage.setItem(LS_NOTIF_STATE, hasToken ? 'accepted' : 'deferred'); } catch {}
-    if (!hasToken && !pending) {        // <<< solo mostramos switch si NO está pendiente
+    if (!hasToken && !pending) {
       show(cardSwitch, true);
     }
   } else if (perm === 'denied') {
@@ -583,7 +588,7 @@ function refreshNotifUIFromPermission() {
       if (switchEl) switchEl.checked = false;
     } else if (state === 'deferred') {
       if (switchEl) switchEl.checked = false;
-      if (!pending) show(cardSwitch, true);  // <<< también evitamos flash en “deferred”
+      if (!pending) show(cardSwitch, true);
     } else if (state === 'accepted' && hasToken) {
       if (switchEl) switchEl.checked = true;
     } else {
@@ -592,10 +597,11 @@ function refreshNotifUIFromPermission() {
     }
   }
 
-  // Banner “🔕” sólo si el usuario hizo opt-out local
+  // Banner “🔕” sólo si el usuario hizo opt-out local (blocked) y NO hay token
   try {
     const st = localStorage.getItem(LS_NOTIF_STATE);
-    showNotifOffBanner(st === 'blocked');
+    const shouldShow = (st === 'blocked') && !hasToken;
+    showNotifOffBanner(shouldShow);
   } catch {}
 }
 
@@ -654,8 +660,6 @@ function startNotifPermissionWatcher(){
 
 function startPollingWatcher(){
   if (__permWatcher.timer) return;
-  __permWatcher.last = (window.Notification?.permission) || 'default';
-
   __permWatcher.timer = setInterval(() => {
     const cur = (window.Notification?.permission) || 'default';
     if (cur === __permWatcher.last) return;
@@ -963,9 +967,9 @@ async function hasDomicilioOnServer() {
 
 // Mostrar/ocultar banner GEO según permiso/domicilio/opt-out
 async function shouldHideGeoBanner() {
-// Si está suprimido por cool-down, escondemos banner global
-if (isGeoSuppressedNow()) return true;
-   
+  // Si está suprimido por cool-down, escondemos banner global
+  if (isGeoSuppressedNow()) return true;
+
   if (isGeoBlockedLocally()) return false; // recordatorio visible
   const perm = await detectGeoPermission(); // 'granted' | 'denied' | 'prompt' | 'unknown'
   if (perm !== 'granted') return false;
@@ -1017,14 +1021,13 @@ function setGeoMarketingUI(on) {
   if (!nogo._wired) {
     nogo._wired = true;
     nogo.onclick = async () => {
-  try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
-  setGeoSuppress(GEO_COOLDOWN_DAYS); // ⟵ suprimir global por X días
-  stopGeoWatch();
-  await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }).catch(()=>{});
-  hideGeoBanner(); // ⟵ se va el banner global
-  toast(`No vamos a volver a pedirlo por ahora. Podés activarlo desde tu Perfil.`, 'info');
-};
-
+      try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
+      setGeoSuppress(GEO_COOLDOWN_DAYS);
+      stopGeoWatch();
+      await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }).catch(()=>{});
+      hideGeoBanner();
+      toast(`No vamos a volver a pedirlo por ahora. Podés activarlo desde tu Perfil.`, 'info');
+    };
   }
 }
 
@@ -1076,9 +1079,9 @@ async function detectGeoPermission() {
 }
 
 async function updateGeoUI() {
-// Si estamos en cool-down, no mostrar nada global
-if (isGeoSuppressedNow()) { hideGeoBanner(); return; }
-   
+  // Cool-down global
+  if (isGeoSuppressedNow()) { hideGeoBanner(); return; }
+
   if (isGeoDeferredThisSession()) { hideGeoBanner(); return; }
 
   const state = await detectGeoPermission();
@@ -1129,9 +1132,9 @@ async function handleGeoEnable() {
   const { banner } = geoEls();
 
   try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
-clearGeoSuppress(); // si acepta, levantamos cualquier cool-down previo
+  clearGeoSuppress(); // si acepta, levantamos cualquier cool-down previo
 
-   emit('rampet:geo:enabled', { method: 'ui' });
+  emit('rampet:geo:enabled', { method: 'ui' });
   show(banner, false);
   startGeoWatch();
 
@@ -1174,7 +1177,11 @@ function wireGeoButtonsOnce() {
   btnHelp?.addEventListener('click', handleGeoHelp);
 }
 
-export async function ensureGeoOnStartup(){ wireGeoButtonsOnce(); await updateGeoUI(); }
+export async function ensureGeoOnStartup(){ 
+  wireGeoButtonsOnce(); 
+  await updateGeoUI(); 
+  try { await ensureGeoWatchIfPermitted(); } catch {}
+}
 export async function maybeRefreshIfStale(){ await updateGeoUI(); }
 try { window.ensureGeoOnStartup = ensureGeoOnStartup; window.maybeRefreshIfStale = maybeRefreshIfStale; } catch {}
 
@@ -1285,14 +1292,18 @@ function stopGeoWatch() {
   geoWatchId = null;
 }
 
+// ✅ FIX: no iniciar watchPosition si no hay permiso concedido
+async function ensureGeoWatchIfPermitted() {
+  try {
+    if (document.visibilityState !== 'visible' || isGeoBlockedLocally()) { stopGeoWatch(); return; }
+    const perm = await detectGeoPermission();
+    if (perm === 'granted') startGeoWatch();
+    else stopGeoWatch();
+  } catch { stopGeoWatch(); }
+}
+
 try {
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') {
-      if (!isGeoBlockedLocally()) startGeoWatch();
-    } else {
-      stopGeoWatch();
-    }
-  });
+  document.addEventListener('visibilitychange', () => { ensureGeoWatchIfPermitted(); });
 } catch {}
 
 /* ────────────────────────────────────────────────────────────
@@ -1378,18 +1389,17 @@ export async function initDomicilioForm() {
     }
   });
 
-  // Si el HTML trae un “Luego” nativo (#address-skip), cablearlo
-  const skipBtn = g('address-skip');
+  // “Luego” del formulario (acepta #address-cancel o #address-skip)
+  const skipBtn = g('address-cancel') || g('address-skip');
   if (skipBtn && !skipBtn._wired) {
     skipBtn._wired = true;
     skipBtn.addEventListener('click', () => {
       try { sessionStorage.setItem('addressBannerDeferred','1'); } catch {}
       toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
-      try { document.getElementById('address-banner')?.style && (document.getElementById('address-banner').style.display='none'); } catch {}
+      try { document.getElementById('address-card')?.style && (document.getElementById('address-card').style.display='none'); } catch {}
+      try { document.getElementById('address-banner')?.style && (document.getElementById('address-banner').style.display='block'); } catch {}
     });
   }
-
-  // NO llamamos  aquí (para evitar duplicados).
 }
 
 /* ── Domicilio: asegurar botones y wiring anti-duplicado ── */
@@ -1548,42 +1558,6 @@ export async function maybeShowGeoContextPrompt(slotId = 'geo-context-slot') {
   });
 }
 
-// Exponer para uso desde index/app
-try { window.maybeShowGeoContextPrompt = maybeShowGeoContextPrompt; } catch {}
-
-export async function syncProfileGeoUI() {
-  const cb = $('prof-consent-geo');
-  if (!cb) return;
-
-  if (isGeoBlockedLocally()) { cb.checked = false; return; }
-
-  let serverOn = null;
-  try { serverOn = await fetchServerGeoEnabled(); } catch {}
-
-  if (serverOn === true) { cb.checked = true; return; }
-  if (serverOn === false) { cb.checked = false; return; }
-
-  const perm = await detectGeoPermission();
-  cb.checked = (perm === 'granted');
-}
-
-export async function handleProfileGeoToggle(checked) {
-  if (checked) {
-     clearGeoSuppress();
-    try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
-    await setClienteConfigPatch({ geoEnabled: true, geoOptInSource: 'ui', geoUpdatedAt: new Date().toISOString() });
-    startGeoWatch();
-    emit('rampet:geo:changed', { enabled: true });
-    updateGeoUI().catch(()=>{});
-  } else {
-    try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
-    await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() });
-    stopGeoWatch();
-    emit('rampet:geo:changed', { enabled: false });
-    updateGeoUI().catch(()=>{});
-  }
-}
-
 /* ────────────────────────────────────────────────────────────
    Exposiciones y sincronías globales
    ──────────────────────────────────────────────────────────── */
@@ -1595,7 +1569,8 @@ try {
   window.handleProfileConsentToggle = handleProfileConsentToggle;
   window.syncProfileGeoUI = syncProfileGeoUI;
   window.handleProfileGeoToggle = handleProfileGeoToggle;
-   window.maybeShowGeoContextPrompt = maybeShowGeoContextPrompt;
+  // Guard para evitar redefinir si el módulo se carga 2 veces en dev
+  if (!window.maybeShowGeoContextPrompt) window.maybeShowGeoContextPrompt = maybeShowGeoContextPrompt;
 } catch {}
 
 document.addEventListener('rampet:consent:notif-opt-in',  () => { syncProfileConsentUI(); });
@@ -1661,6 +1636,3 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
-
-
-
