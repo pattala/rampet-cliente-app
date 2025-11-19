@@ -673,7 +673,7 @@ async function setupAddressSection() {
   const banner = document.getElementById('address-banner');
   const card   = document.getElementById('address-card');
 
-  // Banner: solo abrir la card. El resto (Luego/No quiero) lo maneja notifications.js
+  // Banner: solo abrir la card (el resto lo maneja notifications.js)
   if (banner && !banner.dataset.wired) {
     banner.dataset.wired = '1';
     document.getElementById('address-open-btn')?.addEventListener('click', () => {
@@ -683,40 +683,21 @@ async function setupAddressSection() {
     });
   }
 
-  // Card: "Guardar" y "Luego" propios de la card
-  document.getElementById('address-cancel')?.addEventListener('click', () => {
-    // Cierra la card y vuelve a mostrar el banner (si no fue descartado)
-    if (card) card.style.display = 'none';
-    const b = document.getElementById('address-banner');
-    const dismissed = localStorage.getItem('addressBannerDismissed') === '1';
-    if (b && !dismissed) b.style.display = 'block';
-  });
+  // ⚠️ NO añadimos listeners propios para "Luego" ni "Guardar".
+  //     Eso ya lo hace notifications.initDomicilioForm().
 
-  document.getElementById('address-save')?.addEventListener('click', () => {
-    // Después de guardar, marcamos como "no insistir" y cerramos card
-    setTimeout(() => {
-      try { localStorage.setItem('addressBannerDismissed', '1'); } catch {}
-      if (card) card.style.display = 'none';
-      const b = document.getElementById('address-banner');
-      if (b) b.style.display = 'none';
-    }, 600);
-  });
-
-  // Datalists y form
+  // Datalists + orden de campos
   wireAddressDatalists('dom-');
 
-  // Cargamos el form con valores existentes y wiring interno
+  // Cargar form y cablear botones internos del domicilio (save/skip)
   try {
-    // Opción A: import dinámico (como tenías)
-    await import('./modules/notifications.js').then(m => m.initDomicilioForm?.());
-    // Opción B (alternativa más simple): importar initDomicilioForm de forma estática arriba y llamar directo:
-    // await initDomicilioForm();
+    const mod = await import('./modules/notifications.js');
+    await mod.initDomicilioForm?.();
   } catch {}
 
-  // Mostrar banner/card según estado actual
+  // Mostrar banner/card según estado actual (sin duplicar lógica de notifications.js)
   const justSignedUp = localStorage.getItem('justSignedUp') === '1';
   const addrProvidedAtSignup = localStorage.getItem('addressProvidedAtSignup') === '1';
-
   if (justSignedUp && !addrProvidedAtSignup) {
     if (card) card.style.display = 'block';
     if (banner) banner.style.display = 'none';
@@ -725,6 +706,7 @@ async function setupAddressSection() {
   }
   try { localStorage.removeItem('addressProvidedAtSignup'); } catch {}
 
+  // Chequeo rápido si ya hay domicilio
   let hasAddress = false;
   try {
     const u = auth.currentUser;
@@ -742,10 +724,10 @@ async function setupAddressSection() {
 
   if (!hasAddress && !dismissed) {
     if (banner) banner.style.display = 'block';
-    if (card) card.style.display = 'none';
+    if (card)   card.style.display = 'none';
   } else {
     if (banner) banner.style.display = 'none';
-    if (card) card.style.display = 'none';
+    if (card)   card.style.display = 'none';
   }
 }
 
@@ -880,6 +862,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
 
 
