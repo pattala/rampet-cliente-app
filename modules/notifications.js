@@ -62,7 +62,7 @@ function ensureNotifOffBanner() {
 
   el = document.createElement('div');
   el.id = 'notif-off-banner';
-  el.className = 'card'; // usar tu estética de card
+  el.className = 'card';
   el.style.cssText = 'display:none; margin:12px 0;';
 
   el.innerHTML = `
@@ -80,7 +80,6 @@ function ensureNotifOffBanner() {
     </div>
   `;
 
-  // Montar dentro de tu layout real para que no quede full-width
   const mountAt =
     document.querySelector('.container') ||
     document.getElementById('main-app-screen') ||
@@ -92,9 +91,8 @@ function ensureNotifOffBanner() {
   if (btn && !btn._wired) {
     btn._wired = true;
     btn.addEventListener('click', () => {
-      // Abrir modal de perfil o fallback al botón “Mi perfil”
       try { window.UI?.openProfileModal?.(); } catch {}
-      try { document.getElementById('edit-profile-btn')?.click(); } catch {}
+      try { window.syncProfileConsentUI?.(); window.syncProfileGeoUI?.(); } catch {}
     });
   }
   return el;
@@ -147,9 +145,8 @@ function hideNotifHelpOverlay(){
    ──────────────────────────────────────────────────────────── */
 const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
-// Cool-down GEO (re-planteo no intrusivo pasado un tiempo)
-const LS_GEO_SUPPRESS_UNTIL = 'geoSuppressUntil'; // almacena epoch ms (número)
-const GEO_COOLDOWN_DAYS = (window.__RAMPET__?.GEO_COOLDOWN_DAYS ?? 60); // configurable, por defecto 60 días
+const LS_GEO_SUPPRESS_UNTIL = 'geoSuppressUntil'; // epoch ms
+const GEO_COOLDOWN_DAYS = (window.__RAMPET__?.GEO_COOLDOWN_DAYS ?? 60);
 
 function _nowMs(){ return Date.now(); }
 function setGeoSuppress(days = GEO_COOLDOWN_DAYS){
@@ -164,15 +161,15 @@ function isGeoSuppressedNow(){
 }
 
 // GEO: Defer del banner solo por sesión
-const GEO_SS_DEFER_KEY = 'geoBannerDeferred'; // '1' => oculto hasta reload
+const GEO_SS_DEFER_KEY = 'geoBannerDeferred';
 function isGeoDeferredThisSession(){ try { return sessionStorage.getItem(GEO_SS_DEFER_KEY) === '1'; } catch { return false; } }
 function deferGeoBannerThisSession(){ try { sessionStorage.setItem(GEO_SS_DEFER_KEY,'1'); } catch {} }
 
 let __notifReqInFlight = false;
 const SW_PATH = '/firebase-messaging-sw.js';
-let __tailRetryScheduled = false; // evita múltiples reintentos “silenciosos”
-let __tokenProvisionPending = false; // evita “flash” de UI durante provisión de token
-/* ───────── Aggressive re-subscribe (opcional, solo reingreso) ─────── */
+let __tailRetryScheduled = false;
+let __tokenProvisionPending = false;
+/* ───────── Aggressive re-subscribe ─────── */
 const AUTO_RESUBSCRIBE = true;
 
 function hasPriorAppConsent() {
@@ -366,9 +363,9 @@ async function borrarTokenYOptOut() {
 
 /* Retries para errores transitorios de IndexedDB / SW recién activado */
 function sleep(ms){ return new Promise(r => setTimeout(r, ms)); }
-let __tokenReqLock = null; // evita solapamientos
+let __tokenReqLock = null;
 
-// === Manejo de errores 400 en DELETE fcmregistrations (hard reset controlado) ===
+// === Manejo de errores 400 en DELETE fcmregistrations (hard reset) ===
 let __hardResetAttempted = false;
 
 function isBadRequestOnDelete(e){
@@ -397,7 +394,6 @@ function deleteDb(name){
   });
 }
 
-// Borra residuos locales y re-registra el SW para pedir un token "limpio"
 async function hardResetFcmStores(){
   try { localStorage.removeItem('fcmToken'); } catch {}
   await deleteDb('firebase-messaging-database');
@@ -412,7 +408,6 @@ async function hardResetFcmStores(){
 }
 
 async function getTokenWithRetry(reg, vapidKey, maxTries = 6) {
-  // Evitar múltiples getToken simultáneos (Edge/Chromium cierran la DB si se pisan)
   while (__tokenReqLock) { await __tokenReqLock.catch(()=>{}); }
 
   let attempt = 0;
@@ -420,7 +415,6 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 6) {
     for (;;) {
       attempt++;
       try {
-        // Reconfirmar SW ACTIVADO entre intentos
         reg = await waitForActiveSW() || reg;
         await navigator.serviceWorker.ready.catch(()=>{});
 
@@ -428,9 +422,8 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 6) {
           vapidKey,
           serviceWorkerRegistration: reg
         });
-        return tok; // éxito
+        return tok;
       } catch (e) {
-        // 2.1) Si es error transitorio de IndexedDB → backoff
         if (isTransientIdbError(e) && attempt < maxTries) {
           const delay = Math.min(200 * (2 ** (attempt - 1)), 2400);
           console.warn(`[FCM] getToken retry #${attempt} en ${delay}ms… (${e?.message||e})`);
@@ -438,16 +431,14 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 6) {
           continue;
         }
 
-        // 2.2) Si es 400 en DELETE fcmregistrations → hard reset (una sola vez)
         if (isBadRequestOnDelete(e) && !__hardResetAttempted) {
           __hardResetAttempted = true;
-          console.warn('[FCM] 400 en DELETE de registro previo. Haciendo hard reset local y reintentando…');
+          console.warn('[FCM] 400 DELETE previo. Hard reset local y reintento…');
           await hardResetFcmStores();
-          attempt = 0;     // reiniciar ciclo de reintentos
+          attempt = 0;
           continue;
         }
 
-        // 2.3) Cualquier otro caso → propagar
         throw e;
       }
     }
@@ -458,7 +449,7 @@ async function getTokenWithRetry(reg, vapidKey, maxTries = 6) {
   finally { __tokenReqLock = null; }
 }
 
-/*  One-shot para re-suscripción silenciosa (sin loops) */
+/* One-shot para re-suscripción silenciosa */
 async function obtenerYGuardarTokenOneShot() {
   await ensureMessagingCompatLoaded();
 
@@ -475,7 +466,7 @@ async function obtenerYGuardarTokenOneShot() {
       tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 3);
     } catch (e) {
       console.warn('[FCM] one-shot getToken falló:', e?.message || e);
-      return null; // sin toast
+      return null;
     }
 
     if (!tok) {
@@ -492,9 +483,9 @@ async function obtenerYGuardarTokenOneShot() {
   }
 }
 
-/*  Normal (con retries y toasts) → CTA / switch */
+/* Normal (con retries y toasts) → CTA / switch */
 async function obtenerYGuardarToken() {
-  __tailRetryScheduled = false; // reset por si venimos de un intento anterior
+  __tailRetryScheduled = false;
   __tokenProvisionPending = true;
   await ensureMessagingCompatLoaded();
 
@@ -536,7 +527,7 @@ async function obtenerYGuardarToken() {
 
     console.log('[FCM] Token OK:', tok.slice(0, 12) + '…');
     await guardarTokenEnMiDoc(tok);
-    __tailRetryScheduled = false; // éxito → limpiar
+    __tailRetryScheduled = false;
     toast('Notificaciones activadas ✅', 'success');
 
     try { refreshNotifUIFromPermission?.(); } catch {}
@@ -568,7 +559,6 @@ function refreshNotifUIFromPermission() {
 
   if (!hasNotif) return;
 
-  // Estado “pendiente” para evitar flash de UI mientras se provisiona el token
   const pending = __tokenProvisionPending || !!__tokenReqLock || __notifReqInFlight;
 
   if (perm === 'granted') {
@@ -597,7 +587,6 @@ function refreshNotifUIFromPermission() {
     }
   }
 
-  // Banner “🔕” sólo si el usuario hizo opt-out local (blocked) y NO hay token
   try {
     const st = localStorage.getItem(LS_NOTIF_STATE);
     const shouldShow = (st === 'blocked') && !hasToken;
@@ -622,6 +611,7 @@ function startNotifPermissionWatcher(){
 
           // SIEMPRE: refrescar UI
           refreshNotifUIFromPermission();
+          try { syncProfileConsentUI(); } catch {}
 
           // Re-suscripción agresiva (one-shot), nunca primera suscripción
           if (
@@ -638,6 +628,7 @@ function startNotifPermissionWatcher(){
           permStatus.onchange = () => {
             __permWatcher.last = permStatus.state;
             refreshNotifUIFromPermission();
+            try { syncProfileConsentUI(); } catch {}
 
             if (
               AUTO_RESUBSCRIBE &&
@@ -666,6 +657,7 @@ function startPollingWatcher(){
     __permWatcher.last = cur;
 
     refreshNotifUIFromPermission();
+    try { syncProfileConsentUI(); } catch {}
 
     if (
       AUTO_RESUBSCRIBE &&
@@ -873,7 +865,7 @@ function wirePushButtonsOnce() {
 }
 
 /* ────────────────────────────────────────────────────────────
-   Sincro con “Mi Perfil” (checkbox) — NOTIFS
+   Sincro con “Mi Perfil” — NOTIFS
    ──────────────────────────────────────────────────────────── */
 function isNotifEnabledLocally() {
   try { return !!localStorage.getItem('fcmToken'); }
@@ -897,12 +889,19 @@ export async function syncProfileConsentUI() {
   const cb = $('prof-consent-notif');
   if (!cb) return;
 
-  const localOn = isNotifEnabledLocally();
+  const hasNotif = ('Notification' in window);
+  const perm = hasNotif ? Notification.permission : 'unsupported';
+  const lsState = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
 
+  const localOn = isNotifEnabledLocally();
   let serverOn = null;
   try { serverOn = await fetchServerNotifEnabled(); } catch {}
 
-  cb.checked = !!(localOn || serverOn);
+  let checked = !!(localOn || serverOn);
+  if (perm === 'denied' || lsState === 'blocked') checked = false;
+
+  cb.checked = checked;
+  cb.dataset.perm = perm;
 }
 
 export async function handleProfileConsentToggle(checked) {
@@ -967,7 +966,6 @@ async function hasDomicilioOnServer() {
 
 // Mostrar/ocultar banner GEO según permiso/domicilio/opt-out
 async function shouldHideGeoBanner() {
-  // Si está suprimido por cool-down, escondemos banner global
   if (isGeoSuppressedNow()) return true;
 
   if (isGeoBlockedLocally()) return false; // recordatorio visible
@@ -1027,6 +1025,7 @@ function setGeoMarketingUI(on) {
       await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }).catch(()=>{});
       hideGeoBanner();
       toast(`No vamos a volver a pedirlo por ahora. Podés activarlo desde tu Perfil.`, 'info');
+      emit('rampet:geo:changed', { enabled: false });
     };
   }
 }
@@ -1057,7 +1056,6 @@ function setGeoRegularUI(state) {
   showInline(btnOn,true); showInline(btnOff,false); showInline(btnHelp,false);
 }
 
-// UI cuando el usuario lo desactivó desde el Perfil (bloqueo local)
 function setGeoOffByUserUI() {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
@@ -1078,16 +1076,67 @@ async function detectGeoPermission() {
   return 'unknown';
 }
 
-async function updateGeoUI() {
-  // Cool-down global
-  if (isGeoSuppressedNow()) { hideGeoBanner(); return; }
+/* ────────────────────────────────────────────────────────────
+   GEO — Perfil (switch) + estado de servidor
+   ──────────────────────────────────────────────────────────── */
+async function fetchServerGeoEnabled() {
+  try {
+    const uid = firebase.auth().currentUser?.uid;
+    if (!uid) return null;
+    const clienteId = await getClienteDocIdPorUID(uid) || uid;
+    const snap = await firebase.firestore().collection('clientes').doc(clienteId).get();
+    const data = snap.exists ? snap.data() : null;
+    return !!data?.config?.geoEnabled;
+  } catch { return null; }
+}
 
+/*  ✅ AHORA AQUÍ: la función existe y se exporta antes de exponerla en window.* */
+export async function syncProfileGeoUI() {
+  const cb = $('prof-consent-geo');
+  if (!cb) return;
+
+  const perm = await detectGeoPermission(); // 'granted' | 'denied' | 'prompt' | 'unknown'
+  if (isGeoBlockedLocally() || perm === 'denied') { cb.checked = false; return; }
+
+  let serverOn = null;
+  try { serverOn = await fetchServerGeoEnabled(); } catch {}
+
+  if (serverOn === true)  { cb.checked = true;  return; }
+  if (serverOn === false) { cb.checked = false; return; }
+
+  cb.checked = (perm === 'granted');
+}
+
+/*  Toggle del switch GEO en “Mi Perfil” */
+export async function handleProfileGeoToggle(checked) {
+  if (checked) {
+    // activar → sigue el flujo estándar (pide permiso al tocar "Activar")
+    try {
+      await handleGeoEnable();
+    } catch {}
+  } else {
+    // opt-out local persistente
+    try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
+    setGeoSuppress(GEO_COOLDOWN_DAYS);
+    stopGeoWatch();
+    await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }).catch(()=>{});
+    setGeoOffByUserUI();
+    emit('rampet:geo:changed', { enabled: false });
+  }
+  try { await updateGeoUI(); } catch {}
+  try { await syncProfileGeoUI(); } catch {}
+}
+
+/* ────────────────────────────────────────────────────────────
+   UI GEO general
+   ──────────────────────────────────────────────────────────── */
+async function updateGeoUI() {
+  if (isGeoSuppressedNow()) { hideGeoBanner(); return; }
   if (isGeoDeferredThisSession()) { hideGeoBanner(); return; }
 
   const state = await detectGeoPermission();
   const hide = await shouldHideGeoBanner();
 
-  // Si bloqueó desde perfil, nunca activamos aunque permiso sea granted
   if (isGeoBlockedLocally()) {
     stopGeoWatch();
     await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() });
@@ -1110,7 +1159,6 @@ async function updateGeoUI() {
     return;
   }
 
-  // No granted → asegurar apagado
   stopGeoWatch();
 
   if (state === 'denied') {
@@ -1120,19 +1168,19 @@ async function updateGeoUI() {
     return;
   }
 
-  // state === 'prompt' | 'unknown'
   if (hide) { hideGeoBanner(); }
   else { setGeoMarketingUI(true); }
 }
-// ────────────────────────────────────────────────────────────
-// GEO — Mini card contextual (p. ej. en "Beneficios cerca")
-// ────────────────────────────────────────────────────────────
+
+/* ────────────────────────────────────────────────────────────
+   GEO — Mini card contextual (p. ej. en "Beneficios cerca")
+   ──────────────────────────────────────────────────────────── */
 
 async function handleGeoEnable() {
   const { banner } = geoEls();
 
   try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
-  clearGeoSuppress(); // si acepta, levantamos cualquier cool-down previo
+  clearGeoSuppress();
 
   emit('rampet:geo:enabled', { method: 'ui' });
   show(banner, false);
@@ -1158,7 +1206,6 @@ async function handleGeoEnable() {
 }
 
 function handleGeoDisable() {
-  // “Desactivar” del banner → diferido de sesión (para opt-out persistente usar “No gracias”)
   try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
   emit('rampet:geo:disabled', { method: 'ui' });
   setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }).catch(()=>{});
@@ -1278,7 +1325,7 @@ function onGeoPosError(_) {}
 
 function startGeoWatch() {
   if (!navigator.geolocation || geoWatchId != null) return;
-  if (isGeoBlockedLocally()) return; // respetar opt-out del perfil
+  if (isGeoBlockedLocally()) return;
   if (document.visibilityState !== 'visible') return;
   try {
     geoWatchId = navigator.geolocation.watchPosition(
@@ -1292,7 +1339,6 @@ function stopGeoWatch() {
   geoWatchId = null;
 }
 
-// ✅ FIX: no iniciar watchPosition si no hay permiso concedido
 async function ensureGeoWatchIfPermitted() {
   try {
     if (document.visibilityState !== 'visible' || isGeoBlockedLocally()) { stopGeoWatch(); return; }
@@ -1389,7 +1435,6 @@ export async function initDomicilioForm() {
     }
   });
 
-  // “Luego” del formulario (acepta #address-cancel o #address-skip)
   const skipBtn = g('address-cancel') || g('address-skip');
   if (skipBtn && !skipBtn._wired) {
     skipBtn._wired = true;
@@ -1406,19 +1451,16 @@ export async function initDomicilioForm() {
 function ensureAddressBannerButtons() {
   const banner = document.getElementById('address-banner');
   if (!banner) return;
-  if (banner._wired) return; // evita duplicados
+  if (banner._wired) return;
   banner._wired = true;
 
-  // Si ya difirió por sesión o rechazó persistente, ocultar de entrada
   try {
     if (sessionStorage.getItem('addressBannerDeferred') === '1') { banner.style.display = 'none'; return; }
     if (localStorage.getItem('addressBannerDismissed') === '1') { banner.style.display = 'none'; return; }
   } catch {}
 
-  // Contenedor de acciones
   const actions = banner.querySelector('.prompt-actions') || banner;
 
-  // Si existe un “Luego” preexistente (#address-skip), SOLO cablearlo y NO crear otro
   const preLater = document.getElementById('address-skip');
   if (preLater && !preLater._wired) {
     preLater._wired = true;
@@ -1429,7 +1471,6 @@ function ensureAddressBannerButtons() {
     });
   }
 
-  // Crear “Luego” sólo si NO hay ninguno (ni #address-skip ni #address-later-btn)
   let later = document.getElementById('address-later-btn');
   if (!preLater && !later) {
     later = document.createElement('button');
@@ -1448,7 +1489,6 @@ function ensureAddressBannerButtons() {
     });
   }
 
-  // “No quiero” (persistente), crear sólo si falta
   let nogo = document.getElementById('address-nothanks-btn');
   if (!nogo) {
     nogo = document.createElement('button');
@@ -1469,34 +1509,43 @@ function ensureAddressBannerButtons() {
 }
 
 /* ────────────────────────────────────────────────────────────
-   GEO — Perfil (switch)
+   Exposiciones y sincronías globales
    ──────────────────────────────────────────────────────────── */
-async function fetchServerGeoEnabled() {
-  try {
-    const uid = firebase.auth().currentUser?.uid;
-    if (!uid) return null;
-    const clienteId = await getClienteDocIdPorUID(uid) || uid;
-    const snap = await firebase.firestore().collection('clientes').doc(clienteId).get();
-    const data = snap.exists ? snap.data() : null;
-    return !!data?.config?.geoEnabled;
-  } catch { return null; }
-}
+try {
+  window.handlePermissionRequest = handlePermissionRequest;
+  window.handlePermissionSwitch = (e) => handlePermissionSwitch(e);
+  window.handlePermissionBlockClick = handlePermissionBlockClick;
+  window.syncProfileConsentUI = syncProfileConsentUI;
+  window.handleProfileConsentToggle = handleProfileConsentToggle;
+  window.syncProfileGeoUI = syncProfileGeoUI;
+  window.handleProfileGeoToggle = handleProfileGeoToggle;
+  if (!window.maybeShowGeoContextPrompt) window.maybeShowGeoContextPrompt = maybeShowGeoContextPrompt;
+} catch {}
+
+document.addEventListener('rampet:consent:notif-opt-in',  () => { syncProfileConsentUI(); });
+document.addEventListener('rampet:consent:notif-opt-out', () => { syncProfileConsentUI(); });
+document.addEventListener('rampet:geo:changed', () => { try { syncProfileGeoUI(); } catch {} });
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    syncProfileConsentUI();
+    syncProfileGeoUI();
+  }
+});
+
 /* ────────────────────────────────────────────────────────────
    MINI-PROMPT GEO CONTEXTUAL (slot #geo-context-slot)
    ──────────────────────────────────────────────────────────── */
 function __isVisible(el){ try { return !!el && getComputedStyle(el).display !== 'none'; } catch { return false; } }
 
 export async function maybeShowGeoContextPrompt(slotId = 'geo-context-slot') {
-  // 0) Slot válido
   const slot = document.getElementById(slotId);
   if (!slot) return;
 
-  // 1) Respeto de supresiones / diferidos / bloqueos
-  if (isGeoSuppressedNow()) { slot.innerHTML = ''; return; }          // cool-down activo
-  if (isGeoDeferredThisSession()) { slot.innerHTML = ''; return; }     // diferido por sesión
-  if (isGeoBlockedLocally()) { slot.innerHTML = ''; return; }          // opt-out desde Perfil o "No gracias"
+  if (isGeoSuppressedNow()) { slot.innerHTML = ''; return; }
+  if (isGeoDeferredThisSession()) { slot.innerHTML = ''; return; }
+  if (isGeoBlockedLocally()) { slot.innerHTML = ''; return; }
 
-  // 2) Evitar solapar con banners grandes ya visibles
   const addressBanner = document.getElementById('address-banner');
   const geoBanner     = document.getElementById('geo-banner');
   if (__isVisible(addressBanner) || __isVisible(geoBanner)) {
@@ -1504,15 +1553,13 @@ export async function maybeShowGeoContextPrompt(slotId = 'geo-context-slot') {
     return;
   }
 
-  // 3) Estado actual: si ya hay permiso o ya cargó domicilio, no mostramos
-  const perm = await detectGeoPermission(); // 'granted' | 'denied' | 'prompt' | 'unknown'
+  const perm = await detectGeoPermission();
   const hasAddr = await hasDomicilioOnServer();
   if (perm === 'granted' || hasAddr) {
     slot.innerHTML = '';
     return;
   }
 
-  // 4) Render (idempotente)
   if (slot.querySelector('#geo-context-prompt')) return;
   slot.innerHTML = `
     <div id="geo-context-prompt" class="card" style="margin:12px 0; padding:12px; border:1px solid #e5e7eb; border-radius:12px;">
@@ -1532,21 +1579,18 @@ export async function maybeShowGeoContextPrompt(slotId = 'geo-context-slot') {
 
   const byId = (id) => slot.querySelector('#' + id);
 
-  // Activar → usa el flujo normal (respeta LS_GEO_STATE, config, watch, etc.)
   byId('geo-context-activate')?.addEventListener('click', async () => {
     try { await handleGeoEnable(); } catch {}
     try { clearGeoSuppress(); } catch {}
     slot.innerHTML = '';
   });
 
-  // Luego → diferimos solo por sesión (igual que el banner grande)
   byId('geo-context-later')?.addEventListener('click', () => {
     try { deferGeoBannerThisSession(); } catch {}
     slot.innerHTML = '';
     toast('Podés activarlo cuando quieras desde tu Perfil.', 'info');
   });
 
-  // No gracias → bloqueo local + cool-down
   byId('geo-context-nothanks')?.addEventListener('click', async () => {
     try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
     try { setGeoSuppress(GEO_COOLDOWN_DAYS); } catch {}
@@ -1557,31 +1601,6 @@ export async function maybeShowGeoContextPrompt(slotId = 'geo-context-slot') {
     emit('rampet:geo:changed', { enabled: false });
   });
 }
-
-/* ────────────────────────────────────────────────────────────
-   Exposiciones y sincronías globales
-   ──────────────────────────────────────────────────────────── */
-try {
-  window.handlePermissionRequest = handlePermissionRequest;
-  window.handlePermissionSwitch = (e) => handlePermissionSwitch(e);
-  window.handlePermissionBlockClick = handlePermissionBlockClick;
-  window.syncProfileConsentUI = syncProfileConsentUI;
-  window.handleProfileConsentToggle = handleProfileConsentToggle;
-  window.syncProfileGeoUI = syncProfileGeoUI;
-  window.handleProfileGeoToggle = handleProfileGeoToggle;
-  // Guard para evitar redefinir si el módulo se carga 2 veces en dev
-  if (!window.maybeShowGeoContextPrompt) window.maybeShowGeoContextPrompt = maybeShowGeoContextPrompt;
-} catch {}
-
-document.addEventListener('rampet:consent:notif-opt-in',  () => { syncProfileConsentUI(); });
-document.addEventListener('rampet:consent:notif-opt-out', () => { syncProfileConsentUI(); });
-
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') {
-    syncProfileConsentUI();
-    syncProfileGeoUI();
-  }
-});
 
 /* ────────────────────────────────────────────────────────────
    INIT (se llama desde app.js al loguearse)
@@ -1596,7 +1615,6 @@ export async function initNotificationsOnce() {
   // 2) Watcher (solo UI) + re-suscripción one-shot si corresponde
   startNotifPermissionWatcher();
 
-  // Re-suscripción agresiva (one-shot) también al iniciar
   if (
     AUTO_RESUBSCRIBE &&
     ('Notification' in window) &&
