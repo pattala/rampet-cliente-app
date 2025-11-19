@@ -522,5 +522,10 @@ header h1 { margin: 0; line-height: 1.1; }
   text-decoration: underline;      /* feedback visual accesible */
 }
 
+<style>
+  .card { max-width: 960px; margin: 12px auto; border: 1px solid #e5e7eb; border-radius: 12px; padding: 12px; background: #fff; }
+  .info-banner.card { margin-bottom: 12px; }
+</style>
+
 
 
