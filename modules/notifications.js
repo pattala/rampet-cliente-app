@@ -43,7 +43,7 @@ function bootstrapFirstSessionUX() {
 
     // GEO / DOMICILIO
     try { wireGeoButtonsOnce(); } catch {}
-    try { ensureAddressBannerButtons(); } catch {}
+    try { ; } catch {}
     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
 
     // UI notifs sin solicitar permisos
@@ -1446,7 +1446,7 @@ export async function initDomicilioForm() {
     });
   }
 
-  // NO llamamos ensureAddressBannerButtons() aquí (para evitar duplicados).
+  // NO llamamos  aquí (para evitar duplicados).
 }
 
 /* ── Domicilio: asegurar botones y wiring anti-duplicado ── */
@@ -1528,6 +1528,85 @@ async function fetchServerGeoEnabled() {
     return !!data?.config?.geoEnabled;
   } catch { return null; }
 }
+/* ────────────────────────────────────────────────────────────
+   MINI-PROMPT GEO CONTEXTUAL (slot #geo-context-slot)
+   ──────────────────────────────────────────────────────────── */
+function __isVisible(el){ try { return !!el && getComputedStyle(el).display !== 'none'; } catch { return false; } }
+
+export async function maybeShowGeoContextPrompt(slotId = 'geo-context-slot') {
+  // 0) Slot válido
+  const slot = document.getElementById(slotId);
+  if (!slot) return;
+
+  // 1) Respeto de supresiones / diferidos / bloqueos
+  if (isGeoSuppressedNow()) { slot.innerHTML = ''; return; }          // cool-down activo
+  if (isGeoDeferredThisSession()) { slot.innerHTML = ''; return; }     // diferido por sesión
+  if (isGeoBlockedLocally()) { slot.innerHTML = ''; return; }          // opt-out desde Perfil o "No gracias"
+
+  // 2) Evitar solapar con banners grandes ya visibles
+  const addressBanner = document.getElementById('address-banner');
+  const geoBanner     = document.getElementById('geo-banner');
+  if (__isVisible(addressBanner) || __isVisible(geoBanner)) {
+    slot.innerHTML = '';
+    return;
+  }
+
+  // 3) Estado actual: si ya hay permiso o ya cargó domicilio, no mostramos
+  const perm = await detectGeoPermission(); // 'granted' | 'denied' | 'prompt' | 'unknown'
+  const hasAddr = await hasDomicilioOnServer();
+  if (perm === 'granted' || hasAddr) {
+    slot.innerHTML = '';
+    return;
+  }
+
+  // 4) Render (idempotente)
+  if (slot.querySelector('#geo-context-prompt')) return;
+  slot.innerHTML = `
+    <div id="geo-context-prompt" class="card" style="margin:12px 0; padding:12px; border:1px solid #e5e7eb; border-radius:12px;">
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+        <div style="flex:1;">
+          <div style="font-weight:600;">Promos cerca tuyo</div>
+          <div style="font-size:14px; opacity:.8;">Activá ubicación para ver beneficios cerca de vos. Podés apagarlo cuando quieras.</div>
+        </div>
+        <button id="geo-context-activate" class="primary-btn" type="button">Activar</button>
+      </div>
+      <div style="margin-top:10px; display:flex; gap:8px;">
+        <button id="geo-context-later" class="secondary-btn" type="button">Luego</button>
+        <button id="geo-context-nothanks" class="link-btn" type="button">No gracias</button>
+      </div>
+    </div>
+  `;
+
+  const byId = (id) => slot.querySelector('#' + id);
+
+  // Activar → usa el flujo normal (respeta LS_GEO_STATE, config, watch, etc.)
+  byId('geo-context-activate')?.addEventListener('click', async () => {
+    try { await handleGeoEnable(); } catch {}
+    try { clearGeoSuppress(); } catch {}
+    slot.innerHTML = '';
+  });
+
+  // Luego → diferimos solo por sesión (igual que el banner grande)
+  byId('geo-context-later')?.addEventListener('click', () => {
+    try { deferGeoBannerThisSession(); } catch {}
+    slot.innerHTML = '';
+    toast('Podés activarlo cuando quieras desde tu Perfil.', 'info');
+  });
+
+  // No gracias → bloqueo local + cool-down
+  byId('geo-context-nothanks')?.addEventListener('click', async () => {
+    try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
+    try { setGeoSuppress(GEO_COOLDOWN_DAYS); } catch {}
+    try { stopGeoWatch(); } catch {}
+    try { await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }); } catch {}
+    slot.innerHTML = '';
+    toast('Listo, no vamos a insistir por un tiempo. Podés activarlo desde tu Perfil.', 'info');
+    emit('rampet:geo:changed', { enabled: false });
+  });
+}
+
+// Exponer para uso desde index/app
+try { window.maybeShowGeoContextPrompt = maybeShowGeoContextPrompt; } catch {}
 
 export async function syncProfileGeoUI() {
   const cb = $('prof-consent-geo');
@@ -1639,4 +1718,5 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
+
 
