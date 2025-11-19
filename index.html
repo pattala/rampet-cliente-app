@@ -490,7 +490,8 @@
   <script>
   // Llamamos al mini-prompt contextual cuando la app está lista/visible
   function tryShowGeoPrompt() {
-    try { window.maybeShowGeoContextPrompt?.('geo-context-slot'); } catch {}
+    try { window.maybeShowGeoContextPrompt = maybeShowGeoContextPrompt; } catch {}
+
   }
 
   // 1) Al cargar el DOM
@@ -514,6 +515,7 @@
 
 </body>
 </html>
+
 
 
 
