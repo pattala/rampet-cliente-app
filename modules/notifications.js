@@ -1124,63 +1124,6 @@ if (isGeoSuppressedNow()) { hideGeoBanner(); return; }
 // ────────────────────────────────────────────────────────────
 // GEO — Mini card contextual (p. ej. en "Beneficios cerca")
 // ────────────────────────────────────────────────────────────
-export function maybeShowGeoContextPrompt(slotId) {
-  try {
-    const slot = document.getElementById(slotId);
-    if (!slot || slot.dataset.geoMiniShown === '1') return;
-    if (isGeoSuppressedNow()) return;     // cooldown activo → no mostramos
-    if (isGeoBlockedLocally()) return;    // opt-out local → no insistir
-
-    (async () => {
-      const state = await detectGeoPermission(); // 'granted' | 'denied' | 'prompt' | 'unknown'
-      if (state === 'granted') return; // ya tiene permiso → no mostrar mini-card
-
-      const card = document.createElement('div');
-      card.className = 'geo-mini-card';
-      card.style.cssText = 'margin:12px 0;padding:12px;border:1px solid #e5e7eb;border-radius:10px;background:#fff;';
-      card.innerHTML = `
-        <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;">
-          <div>
-            <strong>Beneficios cerca tuyo</strong><br/>
-            <small>Activá tu ubicación para ver promos de tu zona.</small>
-          </div>
-          <div style="display:flex;gap:8px;">
-            <button id="geo-mini-activate" class="primary-btn" type="button">Activar</button>
-            <button id="geo-mini-later" class="secondary-btn" type="button">No por ahora</button>
-          </div>
-        </div>
-      `;
-      slot.appendChild(card);
-      slot.dataset.geoMiniShown = '1';
-
-      const act = card.querySelector('#geo-mini-activate');
-      const later = card.querySelector('#geo-mini-later');
-
-      if (act && !act._wired) {
-        act._wired = true;
-        act.addEventListener('click', async () => {
-          try {
-            clearGeoSuppress();          // al aceptar, limpiamos cualquier cooldown
-            await handleGeoEnable();      // reutilizamos tu flujo de enable
-          } finally {
-            try { card.remove(); } catch {}
-            slot.dataset.geoMiniShown = '0';
-          }
-        });
-      }
-
-      if (later && !later._wired) {
-        later._wired = true;
-        later.addEventListener('click', () => {
-          setGeoSuppress(GEO_COOLDOWN_DAYS);  // re-recordatorio en X días
-          try { card.remove(); } catch {}
-          slot.dataset.geoMiniShown = '0';
-          toast('Ok, te lo recordamos más adelante.', 'info');
-        });
-      }
-    })();
-  } catch {}
-}
 
 async function handleGeoEnable() {
   const { banner } = geoEls();
@@ -1718,5 +1661,6 @@ export async function handleSignOutCleanup() {
   try { localStorage.removeItem('fcmToken'); } catch {}
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
 }
+
 
 
