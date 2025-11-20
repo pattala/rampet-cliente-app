@@ -7,10 +7,6 @@
 const VAPID_PUBLIC = (window.__RAMPET__ && window.__RAMPET__.VAPID_PUBLIC) || '';
 if (!VAPID_PUBLIC) console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en index.html');
 
-if (!window.isSecureContext) {
-  console.warn('[FCM] El sitio NO está en contexto seguro (https o localhost). Notificaciones serán bloqueadas.');
-}
-
 function $(id){ return document.getElementById(id); }
 function show(el, on){ if (el) el.style.display = on ? 'block' : 'none'; }
 function showInline(el, on){ if (el) el.style.display = on ? 'inline-block' : 'none'; }
@@ -22,7 +18,7 @@ function bootstrapFirstSessionUX() {
   try {
     if (sessionStorage.getItem('rampet:firstSessionDone') === '1') return;
 
-    // NOTIFS → primera vez: card comercial
+    // NOTIFS → primera vez: card comercial (si nunca hubo estado)
     const st = (() => { try { return localStorage.getItem(LS_NOTIF_STATE); } catch { return null; } })();
     if (st == null) { show($('notif-prompt-card'), true); show($('notif-card'), false); }
 
@@ -381,12 +377,10 @@ export function dismissPermissionRequest() {
   try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
   show($('notif-prompt-card'), false);
   emit('rampet:consent:notif-dismissed',{});
-
-  // Asegurar UI y server en OFF
+  // Forzar OFF en UI y server
   const sw = $('notif-switch'); if (sw) sw.checked = false;
   const pcb = $('prof-consent-notif'); if (pcb) pcb.checked = false;
   setClienteConfigPatch({ notifEnabled:false, notifUpdatedAt:new Date().toISOString() }).catch(()=>{});
-
   show($('notif-card'), true);
 }
 export async function handlePermissionSwitch(e) {
@@ -449,7 +443,7 @@ export async function syncProfileConsentUI() {
   const perm = hasNotif ? Notification.permission : 'unsupported';
   const lsState = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
 
-  // ✅ “Luego” → SIEMPRE OFF en el Perfil
+  // Si el usuario puso "Luego" (deferred) → SIEMPRE OFF en el Perfil
   if (lsState === 'deferred') { cb.checked = false; cb.dataset.perm = perm; return; }
 
   const localOn = isNotifEnabledLocally();
@@ -483,6 +477,18 @@ export async function handleProfileConsentToggle(checked) {
    ──────────────────────────────────────────────────────────── */
 function geoEls(){ return { banner: $('geo-banner'), txt: $('geo-banner-text'), btnOn: $('geo-enable-btn'), btnOff: $('geo-disable-btn'), btnHelp: $('geo-help-btn') }; }
 function isGeoBlockedLocally(){ try { return localStorage.getItem(LS_GEO_STATE)==='blocked'; } catch { return false; } }
+
+// GEO: marcar "deferred" (Luego) de forma consistente
+async function setGeoDeferredOFF(reason = 'later') {
+  try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
+  stopGeoWatch();
+  try { 
+    await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() });
+  } catch {}
+  try { await syncProfileGeoUI(); } catch {}
+  try { await updateGeoUI(); } catch {}
+  try { emit('rampet:geo:changed', { enabled: false, reason }); } catch {}
+}
 
 async function hasDomicilioOnServer() {
   try {
@@ -542,7 +548,7 @@ async function maybeShowGeoOffReminder(){
   showGeoOffReminder(blocked && perm!=='granted' && !addr);
 }
 
-/* ── Banner principal GEO (copy correcto, sin “Luego”) ── */
+/* ── Banner principal GEO (marketing copy correcto) ── */
 function setGeoMarketingUI(on) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
@@ -595,7 +601,7 @@ function setGeoRegularUI(state) {
   if (state === 'denied') {
     try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
     if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
-    showInline(btnOn,false); showInline(btnOff,false); showInline(btnHelp,true);
+    showInline(btnOn,false); showInline(btnOff, false); showInline(btnHelp,true);
     return;
   }
   if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.';
@@ -621,16 +627,18 @@ async function fetchServerGeoEnabled() {
 }
 export async function syncProfileGeoUI() {
   const cb=$('prof-consent-geo'); if (!cb) return;
-
-  // ✅ Prioridad: “deferred” → OFF
   const ls = (() => { try { return localStorage.getItem(LS_GEO_STATE) || null; } catch { return null; } })();
-  if (ls === 'deferred') { cb.checked = false; return; }
+  // Prioridades fuertes de app
+  if (ls === 'blocked')  { cb.checked=false; return; }
+  if (ls === 'deferred') { cb.checked=false; return; }
 
-  const perm=await detectGeoPermission();
-  if (isGeoBlockedLocally() || perm==='denied'){ cb.checked=false; return; }
+  // Estado servidor
   let serverOn=null; try { serverOn=await fetchServerGeoEnabled(); } catch {}
   if (serverOn===true){ cb.checked=true; return; }
   if (serverOn===false){ cb.checked=false; return; }
+
+  // Fallback (solo si no hay decisión previa de app/config)
+  const perm=await detectGeoPermission();
   cb.checked = (perm==='granted');
 }
 export async function handleProfileGeoToggle(checked) {
@@ -656,6 +664,16 @@ function setGeoOffByUserUI(){
    UI GEO general
    ──────────────────────────────────────────────────────────── */
 async function updateGeoUI() {
+  // Si el usuario eligió "Luego" (deferred) → no mostramos banner ni habilitamos nada
+  const ls = (() => { try { return localStorage.getItem(LS_GEO_STATE) || null; } catch { return null; } })();
+  if (ls === 'deferred') {
+    hideGeoBanner();
+    stopGeoWatch();
+    try { await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }); } catch {}
+    await syncProfileGeoUI().catch(()=>{});
+    return;
+  }
+
   if (isGeoDeferredThisSession()) { hideGeoBanner(); await maybeShowGeoOffReminder(); return; }
 
   const state = await detectGeoPermission();
@@ -696,8 +714,7 @@ const LS_GEO_DAY='geoDay', LS_GEO_COUNT='geoCount';
 let geoWatchId=null, lastSample={ t:0, lat:null, lng:null };
 
 function round3(n){ return Math.round((+n)*1e3)/1e3; }
-function haversineMeters(a,b){ if(!a||!b) return Infinity; const R=6371000,toRad=d=>d*Math.PI/180; const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0)); const la1=toRad(a.lat||0), la2=toRad(b.lat||0); const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h));
-}
+function haversineMeters(a,b){ if(!a||!b) return Infinity; const R=6371000,toRad=d=>d*Math.PI/180; const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0)); const la1=toRad(a.lat||0), la2=toRad(b.lat||0); const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
 function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function incDailyCount(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); if (curDay!==day){ localStorage.setItem(LS_GEO_DAY,day); localStorage.setItem(LS_GEO_COUNT,'0'); } const c=+localStorage.getItem(LS_GEO_COUNT)||0; localStorage.setItem(LS_GEO_COUNT,String(c+1)); return c+1; }
 function canWriteMoreToday(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); const c=+localStorage.getItem(LS_GEO_COUNT)||0; return (curDay!==day)||(c<GEO_CONF.DAILY_CAP); }
@@ -765,14 +782,16 @@ export async function initDomicilioForm() {
     } catch(e){ console.error('save domicilio error', e); toast('No pudimos guardar el domicilio','error'); }
   });
 
-  const skipBtn = g('address-cancel') || g('address-skip');
+  const skipBtn = g('address-cancel') || g('address-skip') || g('address-later-btn');
   if (skipBtn && !skipBtn._wired){
     skipBtn._wired=true;
-    skipBtn.addEventListener('click', ()=>{
+    skipBtn.addEventListener('click', async ()=>{
       try { sessionStorage.setItem('addressBannerDeferred','1'); } catch {}
       toast('Podés cargarlo cuando quieras desde tu perfil.','info');
       try { $('address-card').style.display='none'; } catch {}
       try { $('address-banner').style.display='block'; } catch {}
+      // Dejar GEO en "deferred" para que el checkbox del Perfil quede OFF
+      await setGeoDeferredOFF('address-form-later');
     });
   }
 }
@@ -787,12 +806,20 @@ function ensureAddressBannerButtons() {
   } catch {}
   const actions=banner.querySelector('.prompt-actions') || banner;
 
-  // Si existe #address-skip (Luego) solo cablear
-  const preLater=$('address-skip');
-  if (preLater && !preLater._wired) {
-    preLater._wired=true;
-    preLater.addEventListener('click', ()=>{ try{ sessionStorage.setItem('addressBannerDeferred','1'); }catch{} toast('Podés cargarlo cuando quieras desde tu perfil.','info'); banner.style.display='none'; });
-  }
+  // LUEGO: admitir #address-skip y/o #address-later-btn
+  const wireLater = (btn) => {
+    if (!btn || btn._wired) return;
+    btn._wired = true;
+    btn.addEventListener('click', async () => {
+      try { sessionStorage.setItem('addressBannerDeferred', '1'); } catch {}
+      toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
+      banner.style.display = 'none';
+      // Dejar GEO "deferred" → Perfil OFF
+      await setGeoDeferredOFF('address-banner-later');
+    });
+  };
+  wireLater($('address-skip'));
+  wireLater($('address-later-btn'));
 
   // “No quiero” (persistente) — asegurar que exista
   let nogo=$('address-nothanks-btn');
@@ -806,7 +833,17 @@ function ensureAddressBannerButtons() {
   }
   if (!nogo._wired){
     nogo._wired=true;
-    nogo.addEventListener('click', ()=>{ try { localStorage.setItem('addressBannerDismissed','1'); } catch {} banner.style.display='none'; toast('Listo, no vamos a pedirte domicilio.','info'); });
+    nogo.addEventListener('click', async ()=>{
+      try { localStorage.setItem('addressBannerDismissed','1'); } catch {}
+      banner.style.display='none';
+      toast('Listo, no vamos a pedirte domicilio.','info');
+      // GEO OFF definitivo (bloqueado) para no auto-marcar Perfil
+      try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
+      stopGeoWatch();
+      await setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }).catch(()=>{});
+      await syncProfileGeoUI().catch(()=>{});
+      await updateGeoUI().catch(()=>{});
+    });
   }
 }
 
@@ -814,6 +851,53 @@ function ensureAddressBannerButtons() {
    GEO — Mini-prompt contextual (ELIMINADO)
    ──────────────────────────────────────────────────────────── */
 export async function maybeShowGeoContextPrompt(/*slotId*/){ const slot=$('geo-context-slot'); if (slot) slot.innerHTML=''; return; }
+
+/* ────────────────────────────────────────────────────────────
+   Wire de botones GEO banner
+   ──────────────────────────────────────────────────────────── */
+function handleGeoHelp() {
+  alert('Para activarlo:\n\n1) Abrí configuración del navegador.\n2) Permisos → Activar ubicación.\n3) Recargá la página.');
+}
+async function handleGeoEnable() {
+  const { banner } = geoEls();
+
+  try { localStorage.setItem(LS_GEO_STATE, 'accepted'); } catch {}
+  clearGeoSuppress(); // si acepta, levantamos cualquier cool-down previo
+  emit('rampet:geo:enabled', { method: 'ui' });
+  show(banner, false);
+  startGeoWatch();
+
+  await setClienteConfigPatch({
+    geoEnabled: true,
+    geoOptInSource: 'ui',
+    geoUpdatedAt: new Date().toISOString()
+  });
+
+  try {
+    await new Promise((resolve) => {
+      if (!navigator.geolocation?.getCurrentPosition) return resolve();
+      let settled = false;
+      const done = () => { if (settled) return; settled = true; resolve(); };
+      navigator.geolocation.getCurrentPosition(() => { done(); }, () => { done(); }, { timeout: 3000, maximumAge: 120000, enableHighAccuracy: false });
+      setTimeout(done, 3500);
+    });
+  } catch {}
+
+  setTimeout(() => { updateGeoUI(); }, 0);
+}
+function handleGeoDisable() {
+  try { localStorage.setItem(LS_GEO_STATE, 'deferred'); } catch {}
+  emit('rampet:geo:disabled', { method: 'ui' });
+  setClienteConfigPatch({ geoEnabled: false, geoUpdatedAt: new Date().toISOString() }).catch(()=>{});
+  updateGeoUI();
+}
+function wireGeoButtonsOnce() {
+  const { banner, btnOn, btnOff, btnHelp } = geoEls();
+  if (!banner || banner._wired) return; banner._wired = true;
+  btnOn?.addEventListener('click', ()=>{ handleGeoEnable(); });
+  btnOff?.addEventListener('click', ()=>{ handleGeoDisable(); });
+  btnHelp?.addEventListener('click', ()=>{ handleGeoHelp(); });
+}
 
 /* ────────────────────────────────────────────────────────────
    Exposiciones y sincronías globales
@@ -831,7 +915,6 @@ try {
 
 document.addEventListener('rampet:consent:notif-opt-in',  ()=>{ syncProfileConsentUI(); });
 document.addEventListener('rampet:consent:notif-opt-out', ()=>{ syncProfileConsentUI(); });
-document.addEventListener('rampet:consent:notif-dismissed', ()=>{ syncProfileConsentUI(); });
 document.addEventListener('rampet:geo:changed', ()=>{ try { syncProfileGeoUI(); maybeShowGeoOffReminder(); } catch {} });
 
 document.addEventListener('visibilitychange', ()=>{
@@ -845,6 +928,10 @@ export async function initNotificationsOnce() {
   await registerSW(); await waitForActiveSW().catch(()=>{});
   bootstrapFirstSessionUX();
   startNotifPermissionWatcher();
+
+  // Kill cualquier mini-prompt remanente en el HTML
+  try { document.querySelectorAll('#geo-context-prompt').forEach(n => n.remove()); } catch {}
+
   if (AUTO_RESUBSCRIBE && ('Notification' in window) && Notification.permission==='granted' && hasPriorAppConsent() && !hasLocalToken() && (localStorage.getItem(LS_NOTIF_STATE)!=='blocked')) {
     await obtenerYGuardarTokenOneShot().catch(()=>{});
   }
@@ -867,3 +954,14 @@ export async function initNotificationsOnce() {
 export async function gestionarPermisoNotificaciones(){ refreshNotifUIFromPermission(); }
 export function handleBellClick(){ return Promise.resolve(); }
 export async function handleSignOutCleanup(){ try { localStorage.removeItem('fcmToken'); } catch {} try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {} }
+
+/* ────────────────────────────────────────────────────────────
+   Start GEO desde app.js si es visible
+   ──────────────────────────────────────────────────────────── */
+export async function ensureGeoOnStartup(){ 
+  wireGeoButtonsOnce(); 
+  await updateGeoUI(); 
+  try { await ensureGeoWatchIfPermitted(); } catch {}
+}
+export async function maybeRefreshIfStale(){ await updateGeoUI(); }
+try { window.ensureGeoOnStartup = ensureGeoOnStartup; window.maybeRefreshIfStale = maybeRefreshIfStale; } catch {}
