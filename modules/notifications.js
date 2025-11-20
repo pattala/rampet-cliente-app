@@ -379,7 +379,15 @@ export function handlePermissionBlockClick() {
 }
 export function dismissPermissionRequest() {
   try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
-  show($('notif-prompt-card'), false); emit('rampet:consent:notif-dismissed',{}); const sw=$('notif-switch'); if (sw) sw.checked=false; show($('notif-card'), true);
+  show($('notif-prompt-card'), false);
+  emit('rampet:consent:notif-dismissed',{});
+
+  // Asegurar UI y server en OFF
+  const sw = $('notif-switch'); if (sw) sw.checked = false;
+  const pcb = $('prof-consent-notif'); if (pcb) pcb.checked = false;
+  setClienteConfigPatch({ notifEnabled:false, notifUpdatedAt:new Date().toISOString() }).catch(()=>{});
+
+  show($('notif-card'), true);
 }
 export async function handlePermissionSwitch(e) {
   const checked=!!e?.target?.checked; if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
@@ -434,13 +442,28 @@ async function fetchServerNotifEnabled() {
   } catch { return null; }
 }
 export async function syncProfileConsentUI() {
-  const cb=$('prof-consent-notif'); if (!cb) return;
-  const hasNotif=('Notification' in window); const perm=hasNotif?Notification.permission:'unsupported';
-  const lsState=(()=>{ try { return localStorage.getItem(LS_NOTIF_STATE)||null; } catch { return null; } })();
-  const localOn=isNotifEnabledLocally(); let serverOn=null; try { serverOn=await fetchServerNotifEnabled(); } catch {}
-  let checked=!!(localOn||serverOn); if (perm==='denied'||lsState==='blocked') checked=false;
-  cb.checked=checked; cb.dataset.perm=perm;
+  const cb = $('prof-consent-notif');
+  if (!cb) return;
+
+  const hasNotif = ('Notification' in window);
+  const perm = hasNotif ? Notification.permission : 'unsupported';
+  const lsState = (() => { try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
+
+  // ✅ “Luego” → SIEMPRE OFF en el Perfil
+  if (lsState === 'deferred') { cb.checked = false; cb.dataset.perm = perm; return; }
+
+  const localOn = isNotifEnabledLocally();
+  let serverOn = null;
+  try { serverOn = await fetchServerNotifEnabled(); } catch {}
+
+  // Precedencias fuertes
+  let checked = !!(localOn || serverOn);
+  if (perm === 'denied' || lsState === 'blocked') checked = false;
+
+  cb.checked = checked;
+  cb.dataset.perm = perm;
 }
+
 export async function handleProfileConsentToggle(checked) {
   if (checked){
     if (('Notification' in window) && Notification.permission==='granted'){ try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {} }
@@ -519,7 +542,7 @@ async function maybeShowGeoOffReminder(){
   showGeoOffReminder(blocked && perm!=='granted' && !addr);
 }
 
-/* ── Banner principal GEO (marketing copy correcto) ── */
+/* ── Banner principal GEO (copy correcto, sin “Luego”) ── */
 function setGeoMarketingUI(on) {
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
@@ -572,8 +595,7 @@ function setGeoRegularUI(state) {
   if (state === 'denied') {
     try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
     if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
-    // 👇 FIX de tu error: coma en vez de dos puntos
-    showInline(btnOn,false); showInline(btnOff, false); showInline(btnHelp,true);
+    showInline(btnOn,false); showInline(btnOff,false); showInline(btnHelp,true);
     return;
   }
   if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.';
@@ -599,6 +621,11 @@ async function fetchServerGeoEnabled() {
 }
 export async function syncProfileGeoUI() {
   const cb=$('prof-consent-geo'); if (!cb) return;
+
+  // ✅ Prioridad: “deferred” → OFF
+  const ls = (() => { try { return localStorage.getItem(LS_GEO_STATE) || null; } catch { return null; } })();
+  if (ls === 'deferred') { cb.checked = false; return; }
+
   const perm=await detectGeoPermission();
   if (isGeoBlockedLocally() || perm==='denied'){ cb.checked=false; return; }
   let serverOn=null; try { serverOn=await fetchServerGeoEnabled(); } catch {}
@@ -669,7 +696,8 @@ const LS_GEO_DAY='geoDay', LS_GEO_COUNT='geoCount';
 let geoWatchId=null, lastSample={ t:0, lat:null, lng:null };
 
 function round3(n){ return Math.round((+n)*1e3)/1e3; }
-function haversineMeters(a,b){ if(!a||!b) return Infinity; const R=6371000,toRad=d=>d*Math.PI/180; const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0)); const la1=toRad(a.lat||0), la2=toRad(b.lat||0); const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
+function haversineMeters(a,b){ if(!a||!b) return Infinity; const R=6371000,toRad=d=>d*Math.PI/180; const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0)); const la1=toRad(a.lat||0), la2=toRad(b.lat||0); const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h));
+}
 function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function incDailyCount(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); if (curDay!==day){ localStorage.setItem(LS_GEO_DAY,day); localStorage.setItem(LS_GEO_COUNT,'0'); } const c=+localStorage.getItem(LS_GEO_COUNT)||0; localStorage.setItem(LS_GEO_COUNT,String(c+1)); return c+1; }
 function canWriteMoreToday(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); const c=+localStorage.getItem(LS_GEO_COUNT)||0; return (curDay!==day)||(c<GEO_CONF.DAILY_CAP); }
@@ -803,6 +831,7 @@ try {
 
 document.addEventListener('rampet:consent:notif-opt-in',  ()=>{ syncProfileConsentUI(); });
 document.addEventListener('rampet:consent:notif-opt-out', ()=>{ syncProfileConsentUI(); });
+document.addEventListener('rampet:consent:notif-dismissed', ()=>{ syncProfileConsentUI(); });
 document.addEventListener('rampet:geo:changed', ()=>{ try { syncProfileGeoUI(); maybeShowGeoOffReminder(); } catch {} });
 
 document.addEventListener('visibilitychange', ()=>{
