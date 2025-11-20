@@ -91,7 +91,7 @@ function setGeoSuppress(days = GEO_COOLDOWN_DAYS){
 function clearGeoSuppress(){ try { localStorage.removeItem(LS_GEO_SUPPRESS_UNTIL); } catch {} }
 function isGeoSuppressedNow(){ try { const until = +localStorage.getItem(LS_GEO_SUPPRESS_UNTIL) || 0; return until > _nowMs(); } catch { return false; } }
 
-// “defer por sesión” (solo oculta el banner grande por esta sesión)
+// “defer por sesión” (oculta el banner grande por esta sesión)
 const GEO_SS_DEFER_KEY = 'geoBannerDeferred';
 function isGeoDeferredThisSession(){ try { return sessionStorage.getItem(GEO_SS_DEFER_KEY) === '1'; } catch { return false; } }
 function deferGeoBannerThisSession(){ try { sessionStorage.setItem(GEO_SS_DEFER_KEY,'1'); } catch {} }
@@ -528,7 +528,7 @@ function setGeoMarketingUI(on) {
 
   if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.';
   showInline(btnOn, true);
-  showInline(btnOff, false);   // ya no usamos “Luego” aquí
+  showInline(btnOff, false);   // sin “Luego”
   showInline(btnHelp, false);
 
   // Elimino cualquier “Luego” previo si existiera
@@ -555,7 +555,7 @@ function setGeoMarketingUI(on) {
       hideGeoBanner();
       toast('Podés activarlo cuando quieras desde tu Perfil.', 'info');
       emit('rampet:geo:changed', { enabled: false });
-      showGeoOffReminder(true); // 👉 aparece el recordatorio chico
+      showGeoOffReminder(true); // 👉 recordatorio chico
     });
   }
 }
@@ -572,7 +572,8 @@ function setGeoRegularUI(state) {
   if (state === 'denied') {
     try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch {}
     if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
-    showInline(btnOn,false); showInline(btnOff:false); showInline(btnHelp,true);
+    // 👇 FIX de tu error: coma en vez de dos puntos
+    showInline(btnOn,false); showInline(btnOff, false); showInline(btnHelp,true);
     return;
   }
   if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.';
@@ -646,7 +647,7 @@ async function updateGeoUI() {
     return;
   }
 
-  // state prompt/unknown/denied (sin bloqueo local explícito)
+  // state prompt/unknown/denied
   stopGeoWatch();
   if (state === 'denied') {
     await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() });
@@ -784,7 +785,6 @@ function ensureAddressBannerButtons() {
 /* ────────────────────────────────────────────────────────────
    GEO — Mini-prompt contextual (ELIMINADO)
    ──────────────────────────────────────────────────────────── */
-// Dejamos el export como NO-OP por si algo lo llama.
 export async function maybeShowGeoContextPrompt(/*slotId*/){ const slot=$('geo-context-slot'); if (slot) slot.innerHTML=''; return; }
 
 /* ────────────────────────────────────────────────────────────
