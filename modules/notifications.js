@@ -28,7 +28,6 @@ function bootstrapFirstSessionUX() {
     setTimeout(()=>{ updateGeoUI().catch(()=>{}); },0);
 
     setTimeout(()=>{ refreshNotifUIFromPermission(); },0);
-
     sessionStorage.setItem('rampet:firstSessionDone', '1');
   } catch {}
 }
@@ -373,6 +372,7 @@ export function dismissPermissionRequest(){
   emit('rampet:consent:notif-dismissed',{});
   const sw=$('notif-switch'); if(sw) sw.checked=false;
   show($('notif-card'), true);
+  try { syncProfileConsentUI(); } catch {}
 }
 export async function handlePermissionSwitch(e){
   const checked=!!e?.target?.checked;
@@ -475,41 +475,29 @@ export async function handleProfileConsentToggle(checked){
    GEO — Helpers banner / Perfil
    ──────────────────────────────────────────────────────────── */
 function geoEls(){ return { banner:$('geo-banner'), txt:$('geo-banner-text'), btnOn:$('geo-enable-btn'), btnOff:$('geo-disable-btn'), btnHelp:$('geo-help-btn') }; }
-
 function isGeoBlockedLocally(){ try{ return localStorage.getItem(LS_GEO_STATE)==='blocked'; }catch{ return false; } }
 
-/** Dedupe/Normalización del banner GEO: deja solo “Activar ahora” + “No gracias” **/
+// Dedupe / normalizar botones del banner GEO
 function normalizeGeoBanner(){
   const { banner } = geoEls(); if(!banner) return;
   const actions = banner.querySelector('.prompt-actions') || banner;
 
-  // 1) Eliminar TODOS los “Luego” si existen
+  // Eliminar CUALQUIER “Luego”
   actions.querySelectorAll('#geo-later-btn, .geo-later').forEach(b => b.remove());
 
-  // 2) Asegurar UN solo “No gracias”
-  const allNo = actions.querySelectorAll('#geo-nothanks-btn, .geo-nothanks, button');
-  let found = false;
-  Array.from(allNo).forEach(btn=>{
-    const label = (btn.textContent||'').trim().toLowerCase();
-    const isNo = (btn.id==='geo-nothanks-btn') || (label==='no gracias');
-    if (!isNo) return;
-    if (found) { btn.remove(); return; }
-    found = true;
-    btn.id = 'geo-nothanks-btn';
-    btn.classList.add('geo-nothanks');
-  });
-
-  // 3) Si no había ninguno, crearlo
-  if (!actions.querySelector('#geo-nothanks-btn')){
-    const ng=document.createElement('button');
-    ng.id='geo-nothanks-btn'; ng.className='link-btn geo-nothanks'; ng.textContent='No gracias';
-    ng.style.marginLeft='8px';
-    actions.appendChild(ng);
+  // Asegurar 1 solo “No gracias”
+  const existing = actions.querySelectorAll('#geo-nothanks-btn, .geo-nothanks');
+  existing.forEach((b,i)=>{ if(i>0) b.remove(); });
+  let nogo = actions.querySelector('#geo-nothanks-btn');
+  if (!nogo){
+    nogo=document.createElement('button');
+    nogo.id='geo-nothanks-btn';
+    nogo.className='link-btn geo-nothanks';
+    nogo.textContent='No gracias';
+    nogo.style.marginLeft='8px';
+    actions.appendChild(nogo);
   }
-
-  // 4) Wiring idempotente
-  const nogo = actions.querySelector('#geo-nothanks-btn');
-  if (nogo && !nogo._wired){
+  if (!nogo._wired){
     nogo._wired=true;
     nogo.addEventListener('click', async ()=>{
       try{ localStorage.setItem(LS_GEO_STATE,'blocked'); }catch{}
@@ -524,7 +512,6 @@ function normalizeGeoBanner(){
   }
 }
 
-/** Pequeño recordatorio (cuando rechazó GEO) */
 function ensureGeoOffReminder(){
   let el=$('geo-off-reminder'); if(el) return el;
   el=document.createElement('div');
@@ -576,7 +563,6 @@ async function shouldHideGeoBanner(){
 }
 function hideGeoBanner(){ const {banner}=geoEls(); if(banner) banner.style.display='none'; }
 
-/** Banner GEO — marketing (sin “Luego”) */
 function setGeoMarketingUI(on){
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if(!banner) return;
@@ -587,17 +573,12 @@ function setGeoMarketingUI(on){
   showInline(btnOn,true);
   showInline(btnOff,false);
   showInline(btnHelp,false);
-
-  // Normalizar y asegurar 1 solo "No gracias"
   normalizeGeoBanner();
 }
-/** Banner GEO — estado regular (cuando hay permiso o está denegado) */
 function setGeoRegularUI(state){
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if(!banner) return;
   show(banner,true);
-
-  // normalizar siempre (quita “Luego” y duplicados)
   normalizeGeoBanner();
 
   if(state==='granted'){
@@ -782,18 +763,22 @@ export async function initDomicilioForm(){
       toast('Domicilio guardado. ¡Gracias!','success');
       hideGeoBanner(); updateGeoUI().catch(()=>{});
       emit('rampet:geo:changed',{enabled:true});
+      // si aceptó domicilio, geoEnabled sigue dependiendo del permiso GEO
     }catch(e){ console.error('save domicilio error', e); toast('No pudimos guardar el domicilio','error'); }
   });
 
-  // “Luego” del formulario
+  // “Luego” del formulario → diferido de sesión y geoEnabled=false (perfil OFF)
   const skipBtn=g('address-cancel') || g('address-skip');
   if (skipBtn && !skipBtn._wired){
     skipBtn._wired=true;
-    skipBtn.addEventListener('click', ()=>{
+    skipBtn.addEventListener('click', async ()=>{
       try{ sessionStorage.setItem('addressBannerDeferred','1'); }catch{}
+      try{ await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() }); }catch{}
       toast('Podés cargarlo cuando quieras desde tu perfil.','info');
       try{ $('address-card').style.display='none'; }catch{}
       try{ $('address-banner').style.display='block'; }catch{}
+      try { emit('rampet:geo:changed',{enabled:false}); } catch {}
+      try { await syncProfileGeoUI(); } catch {}
     });
   }
 }
@@ -810,18 +795,7 @@ function ensureAddressBannerButtons(){
 
   const actions=banner.querySelector('.prompt-actions') || banner;
 
-  // “Luego” preexistente (#address-skip) → sólo cableo
-  const preLater=$('address-skip');
-  if(preLater && !preLater._wired){
-    preLater._wired=true;
-    preLater.addEventListener('click', ()=>{
-      try{ sessionStorage.setItem('addressBannerDeferred','1'); }catch{}
-      toast('Podés cargarlo cuando quieras desde tu perfil.','info');
-      banner.style.display='none';
-    });
-  }
-
-  // “No quiero” persistente
+  // Asegurar “No quiero” persistente
   let nogo=$('address-nothanks-btn');
   if(!nogo){
     nogo=document.createElement('button');
@@ -833,10 +807,27 @@ function ensureAddressBannerButtons(){
   }
   if(!nogo._wired){
     nogo._wired=true;
-    nogo.addEventListener('click', ()=>{
+    nogo.addEventListener('click', async ()=>{
       try{ localStorage.setItem('addressBannerDismissed','1'); }catch{}
+      try{ await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() }); }catch{}
       banner.style.display='none';
+      emit('rampet:geo:changed',{enabled:false});
       toast('Listo, no vamos a pedirte domicilio.','info');
+      try { await syncProfileGeoUI(); } catch {}
+    });
+  }
+
+  // Si existe “Luego” (#address-skip), cablearlo también (ya maneja geoEnabled=false arriba)
+  const preLater=$('address-skip');
+  if(preLater && !preLater._wired){
+    preLater._wired=true;
+    preLater.addEventListener('click', async ()=>{
+      try{ sessionStorage.setItem('addressBannerDeferred','1'); }catch{}
+      try{ await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() }); }catch{}
+      banner.style.display='none';
+      emit('rampet:geo:changed',{enabled:false});
+      toast('Podés cargarlo cuando quieras desde tu perfil.','info');
+      try { await syncProfileGeoUI(); } catch {}
     });
   }
 }
@@ -869,7 +860,6 @@ document.addEventListener('visibilitychange', ()=>{
     syncProfileConsentUI();
     syncProfileGeoUI();
     maybeShowGeoOffReminder();
-    // si hay permiso, que no reaparezca el marketing
     hasPermissionGranted().then(granted=>{ if(granted) hideGeoBanner(); });
   }
 });
@@ -896,8 +886,7 @@ export async function initNotificationsOnce(){
   if(profGeo && !profGeo._wired){ profGeo._wired=true; profGeo.addEventListener('change', (e)=>handleProfileGeoToggle(!!e.target.checked)); }
   syncProfileGeoUI();
 
-  // Normalizar banners (quitar posibles duplicados si quedaron de sesiones previas)
-  normalizeGeoBanner();
+  normalizeGeoBanner(); // limpia duplicados si quedaron
   maybeShowGeoOffReminder();
 
   return true;
