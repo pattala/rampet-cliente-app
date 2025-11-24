@@ -57,7 +57,7 @@ function bootstrapFirstSessionUX(){
     if (st == null) { show($('notif-prompt-card'), true); show($('notif-card'), false); }
 
     // GEO / DOMICILIO
-    ensureAddressBannerButtons();
+    ensureAddressBannerButtons(); // (incluye wiring de "Luego" y "No quiero")
     wireGeoButtonsOnce();
     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
 
@@ -564,7 +564,7 @@ export async function handleProfileConsentToggle(checked){
         if (status === 'granted'){ try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {} }
         else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); showNotifOffBanner(true); }
         else { try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}; $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); }
-      } catch(e){ console.warn('[Perfil] requestPermission error:', e?.message || e); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); }
+      } catch(e){ console.warn('[Perfil] requestPermission error:', e?.message||e); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); }
     }
   } else {
     await borrarTokenYOptOut();
@@ -780,7 +780,7 @@ function setGeoOffByUserUI(){
   if (!banner) return;
   show(banner, true);
   if (txt) txt.textContent = 'No vas a recibir beneficios en tu zona. Podés activarlo cuando quieras.';
-  showInline(btnOn,true); showInline(btnOff,false); showInline(btnHelp,false);
+  showInline(btnOn,true); showInline(btnOff(false)); showInline(btnHelp,false);
 }
 
 /* GEO UI global */
@@ -827,7 +827,7 @@ const LS_GEO_DAY='geoDay', LS_GEO_COUNT='geoCount';
 let geoWatchId=null, lastSample={ t:0, lat:null, lng:null };
 
 function round3(n){ return Math.round((+n)*1e3)/1e3; }
-function haversineMeters(a,b){ if(!a||!b) return Infinity; const R=6371000,toRad=d=>d*Math.PI/180; const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0)); const la1=toRad(a.lat||0), la2=toRad(b.lat||0); const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
+function haversineMeters(a,b){ if(!a||!b) return Infinity; const R=6371000,toRad=d=>d*Math.PI/180; const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0)); const la1=toRad(a.lat||0), la2=toRad(b.lat||0); const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(Math.pow(Math.sin(dLng/2),2)); return 2*R*Math.asin(Math.sqrt(h)); }
 function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function incDailyCount(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); if (curDay!==day){ localStorage.setItem(LS_GEO_DAY,day); localStorage.setItem(LS_GEO_COUNT,'0'); } const c=+localStorage.getItem(LS_GEO_COUNT)||0; localStorage.setItem(LS_GEO_COUNT,String(c+1)); return c+1; }
 function canWriteMoreToday(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); const c=+localStorage.getItem(LS_GEO_COUNT)||0; return (curDay!==day)||(c<GEO_CONF.DAILY_CAP); }
@@ -929,6 +929,13 @@ function ensureAddressBannerButtons(){
       toast('Listo, no vamos a pedirte domicilio.','info');
     });
   }
+
+  // PATCH: wiring para botón superior que abre Perfil si existe en tu HTML
+  const goProfileTop = $('address-tip-open-profile') || $('address-open-profile');
+  if (goProfileTop && !goProfileTop._wired){
+    goProfileTop._wired = true;
+    goProfileTop.addEventListener('click', ()=>{ try { window.UI?.openProfileModal?.(); } catch {} });
+  }
 }
 
 /* Form DOMICILIO (precarga + guardar) */
@@ -1028,6 +1035,9 @@ try {
   window.handleProfileConsentToggle= handleProfileConsentToggle;
   window.syncProfileGeoUI          = syncProfileGeoUI;
   window.handleProfileGeoToggle    = handleProfileGeoToggle;
+  // PATCH: expongo helpers usados por tu app en otras pantallas
+  window.ensureGeoOnStartup = async ()=>{ wireGeoButtonsOnce(); ensureAddressBannerButtons(); await updateGeoUI(); try{ await ensureGeoWatchIfPermitted(); }catch{} };
+  window.maybeRefreshIfStale = async ()=>{ await updateGeoUI(); refreshNotifUIFromPermission(); };
   if (!window.maybeShowGeoContextPrompt) window.maybeShowGeoContextPrompt = maybeShowGeoContextPrompt;
 } catch {}
 
