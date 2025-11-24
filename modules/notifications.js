@@ -1,4 +1,4 @@
-// /modules/notifications.js — FCM + VAPID + Opt-In + Geo + Domicilio (lógica pactada)
+// /modules/notifications.js — FCM + VAPID + Opt-In + Geo + Domicilio (lógica pactada, limpia)
 'use strict';
 
 /* ────────────────────────────────────────────────────────────
@@ -45,7 +45,7 @@ function bootstrapFirstSessionUX(){
   try {
     if (sessionStorage.getItem('rampet:firstSessionDone') === '1') return;
 
-    // NOTIFS → primera vez sin estado local: card comercial
+    // NOTIFS → primera vez sin estado local: card de marketing (Aceptar / Luego / No gracias)
     const st = (() => { try { return localStorage.getItem(LS_NOTIF_STATE); } catch { return null; } })();
     if (st == null) { show($('notif-prompt-card'), true); show($('notif-card'), false); }
 
@@ -54,7 +54,7 @@ function bootstrapFirstSessionUX(){
     wireGeoButtonsOnce();
     setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
 
-    // UI de notifs sin pedir permiso
+    // UI notifs sin pedir permiso
     setTimeout(() => { refreshNotifUIFromPermission(); }, 0);
 
     sessionStorage.setItem('rampet:firstSessionDone', '1');
@@ -320,8 +320,8 @@ async function fetchServerNotifEnabled(){
 function refreshNotifUIFromPermission(){
   const hasNotif = ('Notification' in window);
   const perm     = hasNotif ? Notification.permission : 'unsupported';
-  const cardMarketing = $('notif-prompt-card');
-  const cardSwitch    = $('notif-card');
+  const cardMarketing = $('notif-prompt-card'); // Aceptar / Luego / No gracias
+  const cardSwitch    = $('notif-card');        // deslizante
   const warnBlocked   = $('notif-blocked-warning');
   const switchEl      = $('notif-switch');
 
@@ -335,6 +335,14 @@ function refreshNotifUIFromPermission(){
   const hasToken = (()=>{ try { return !!localStorage.getItem('fcmToken'); } catch { return false; } })();
   const pending = __tokenProvisionPending || !!__tokenReqLock || __notifReqInFlight;
 
+  // *** PRIMER USO: si lsState==null y permiso !== 'granted' → mostrar marketing, no el switch
+  if (lsState == null && perm !== 'granted'){
+    if (switchEl) switchEl.checked = false;
+    show(cardMarketing, true);
+    showNotifOffBanner(false);
+    return;
+  }
+
   // Precedencias duras
   if (lsState === 'blocked' || perm === 'denied'){
     if (switchEl) switchEl.checked = false;
@@ -343,9 +351,10 @@ function refreshNotifUIFromPermission(){
     return;
   }
 
+  // “Luego” (deferred) o permiso aún no ‘granted’ → switch visible OFF
   if (lsState === 'deferred' || perm !== 'granted'){
-    if (!pending) show(cardSwitch, true); // visible pero OFF
     if (switchEl) switchEl.checked = false;
+    if (!pending) show(cardSwitch, true);
     showNotifOffBanner(false);
     return;
   }
@@ -408,12 +417,13 @@ export async function handlePermissionRequest(){
 
     if (current === 'granted'){
       if (ls === 'blocked'){ showNotifOffBanner(true); refreshNotifUIFromPermission(); return; }
-      // UI: cerrar ya el card y tildar el switch visualmente
+      // cerrar card al toque y marcar switch
+      show($('notif-prompt-card'), false);
       show($('notif-card'), false);
       $('notif-switch') && ( $('notif-switch').checked = true );
       await obtenerYGuardarToken();
       showNotifOffBanner(false);
-      refreshNotifUIFromPermission();
+      refreshNotifUIFromPermission(); syncProfileConsentUI();
       return;
     }
 
@@ -421,16 +431,15 @@ export async function handlePermissionRequest(){
       try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out',{ source:'browser-denied' });
       showNotifOffBanner(true);
-      refreshNotifUIFromPermission();
+      refreshNotifUIFromPermission(); syncProfileConsentUI();
       return;
     }
 
-    // default → prompt por acción del usuario
+    // default → prompt por acción del usuario (Aceptar)
     const status = await Notification.requestPermission();
     if (status === 'granted'){
-      // Cerrar card al toque, el token puede demorar
       try { localStorage.setItem(LS_NOTIF_STATE,'accepted'); } catch {}
-      show($('notif-card'), false);
+      show($('notif-prompt-card'), false);
       $('notif-switch') && ( $('notif-switch').checked = true );
       await obtenerYGuardarToken();
       showNotifOffBanner(false);
@@ -441,6 +450,9 @@ export async function handlePermissionRequest(){
     } else {
       try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
       emit('rampet:consent:notif-dismissed',{});
+      // al “Luego” → mostrar switch OFF
+      show($('notif-card'), true);
+      $('notif-switch') && ( $('notif-switch').checked = false );
     }
     refreshNotifUIFromPermission(); syncProfileConsentUI();
   } catch(e){
@@ -451,12 +463,12 @@ export async function handlePermissionRequest(){
 export function handlePermissionBlockClick(){
   try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
   show($('notif-prompt-card'), false);
+  show($('notif-card'), false);
   const sw = $('notif-switch'); if (sw) sw.checked = false;
   setClienteConfigPatch({ notifEnabled:false, notifUpdatedAt:new Date().toISOString() }).catch(()=>{});
   emit('rampet:consent:notif-opt-out', { source:'ui-block' });
   toast('Podés volver a activarlas desde tu Perfil cuando quieras.','info');
-  refreshNotifUIFromPermission();
-  showNotifOffBanner(true);
+  refreshNotifUIFromPermission(); syncProfileConsentUI();
 }
 export function dismissPermissionRequest(){
   try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
@@ -472,7 +484,6 @@ export async function handlePermissionSwitch(e){
 
   if (checked){
     if (before === 'granted'){
-      // Cerrar card al toque, luego token
       show($('notif-card'), false);
       $('notif-switch') && ( $('notif-switch').checked = true );
       try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {}
@@ -536,7 +547,7 @@ function wirePushButtonsOnce(){
   const sw    = $('notif-switch');                 if (sw && !sw._wired){ sw._wired = true; sw.addEventListener('change', handlePermissionSwitch); }
 }
 
-/* Sincronía con Perfil — NOTIFS (precedencias duras y sin “fantasmas”) */
+/* Sincronía con Perfil — NOTIFS (precedencias duras) */
 export async function syncProfileConsentUI(){
   const cb = $('prof-consent-notif'); if (!cb) return;
 
@@ -544,12 +555,12 @@ export async function syncProfileConsentUI(){
   const perm = hasNotif ? Notification.permission : 'unsupported';
   const ls = (()=>{ try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
 
-  // 1) Si el browser no otorgó permiso o el LS está en blocked/deferred → SIEMPRE OFF
+  // Si el browser no otorgó permiso o el LS está en blocked/deferred → SIEMPRE OFF
   if (perm !== 'granted' || ls === 'blocked' || ls === 'deferred'){
     cb.checked = false; cb.dataset.perm = perm; return;
   }
 
-  // 2) Permiso granted → exige token local o confirmación de server
+  // Permiso granted → exige token local o confirmación del server
   const localOn  = isNotifEnabledLocally();
   let   serverOn = null; try { serverOn = await fetchServerNotifEnabled(); } catch {}
 
@@ -628,7 +639,7 @@ async function maybeShowGeoOffReminder(){
   showGeoOffReminder(blocked && perm!=='granted' && !addr);
 }
 
-/* Banner grande GEO (con “Luego” y “No gracias”) */
+/* Banner grande GEO (SOLO “Aceptar” y “No gracias”) */
 function setGeoMarketingUI(on){
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner) return;
@@ -637,7 +648,7 @@ function setGeoMarketingUI(on){
 
   if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.';
   showInline(btnOn, true);
-  showInline(btnOff, true);   // “Luego” visible acá
+  showInline(btnOff, false);  // no hay “Luego” en GEO
   showInline(btnHelp, false);
 
   // Asegurar “No gracias”
@@ -659,7 +670,7 @@ function setGeoMarketingUI(on){
       stopGeoWatch();
       await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() }).catch(()=>{});
       hideGeoBanner();
-      toast('Podés activarlo cuando quieras desde tu Perfil.','info');
+      toast('Estás perdiéndote beneficios cerca tuyo. Podés activarlo desde Mi Perfil.','info');
       emit('rampet:geo:changed', { enabled:false });
       showGeoOffReminder(true);
     });
@@ -678,12 +689,12 @@ function setGeoRegularUI(state){
   }
   if (state === 'denied'){
     try { localStorage.setItem(LS_GEO_STATE,'blocked'); } catch {}
-    if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
+    if (txt) txt.textContent = 'Para activarlo, habilitá ubicación en el navegador.';
     showInline(btnOn,false); showInline(btnOff,false); showInline(btnHelp,true);
     return;
   }
   if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.';
-  showInline(btnOn,true); showInline(btnOff,true); showInline(btnHelp,false);
+  showInline(btnOn,true); showInline(btnOff,false); showInline(btnHelp,false);
 }
 
 /* GEO Perfil (switch) + server */
@@ -730,7 +741,7 @@ function wireGeoButtonsOnce(){
   const { banner, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner || banner._wired) return; banner._wired = true;
   btnOn?.addEventListener('click', handleGeoEnable);
-  btnOff?.addEventListener('click', handleGeoDisable);
+  // btnOff oculto por UX pactada; no se cablea
   btnHelp?.addEventListener('click', ()=>{ alert('Para activarlo:\n\n1) Abrí configuración del navegador.\n2) Permisos → Activar ubicación.\n3) Recargá la página.'); });
 }
 async function handleGeoEnable(){
@@ -751,12 +762,6 @@ async function handleGeoEnable(){
   } catch {}
 
   setTimeout(()=>{ updateGeoUI(); }, 0);
-}
-function handleGeoDisable(){
-  try { localStorage.setItem(LS_GEO_STATE,'deferred'); } catch {}
-  emit('rampet:geo:disabled', { method:'ui' });
-  setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() }).catch(()=>{});
-  updateGeoUI();
 }
 function setGeoOffByUserUI(){
   const { banner, txt, btnOn, btnOff, btnHelp } = geoEls();
@@ -810,7 +815,7 @@ const LS_GEO_DAY='geoDay', LS_GEO_COUNT='geoCount';
 let geoWatchId=null, lastSample={ t:0, lat:null, lng:null };
 
 function round3(n){ return Math.round((+n)*1e3)/1e3; }
-function haversineMeters(a,b){ if(!a||!b) return Infinity; const R=6371000,toRad=d=>d*Math.PI/180; const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0)); const la1=toRad(a.lat||0), la2=toRad(b.lat||0); const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
+function haversineMeters(a,b){ if(!a||!b) return Infinity; const R=6371000,toRad=d=>d*Math.PI/180; const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0)); const la1=toRad(a.lat||0), la2=toRad(b.lat||0); const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(Math.sin(dLng/2)**2); return 2*R*Math.asin(Math.sqrt(h)); }
 function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function incDailyCount(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); if (curDay!==day){ localStorage.setItem(LS_GEO_DAY,day); localStorage.setItem(LS_GEO_COUNT,'0'); } const c=+localStorage.getItem(LS_GEO_COUNT)||0; localStorage.setItem(LS_GEO_COUNT,String(c+1)); return c+1; }
 function canWriteMoreToday(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); const c=+localStorage.getItem(LS_GEO_COUNT)||0; return (curDay!==day)||(c<GEO_CONF.DAILY_CAP); }
@@ -875,12 +880,10 @@ function ensureAddressBannerButtons(){
 
   const actions = banner.querySelector('.prompt-actions') || banner;
 
-  // “Luego”: si existen ambos (uno creado antes), me quedo con #address-skip y elimino el auto
+  // Normalizar “Luego” (no duplicar)
   const preLater = $('address-skip');
   const autoLater = $('address-later-btn');
   if (preLater && autoLater) { try { autoLater.remove(); } catch {} }
-
-  // Si no hay ninguno, creo fallback “Luego”
   let later = preLater || $('address-later-btn');
   if (!later){
     later = document.createElement('button');
@@ -899,7 +902,7 @@ function ensureAddressBannerButtons(){
     });
   }
 
-  // “No quiero” persistente (si falta, lo creo)
+  // “No quiero” persistente
   let nogo = $('address-nothanks-btn');
   if (!nogo){
     nogo = document.createElement('button');
@@ -926,7 +929,7 @@ function buildAddressLine(c){
   const pisoDto = [c.piso, c.depto].filter(Boolean).join(' '); if (pisoDto) parts.push(pisoDto);
   if (c.codigoPostal || c.localidad) parts.push([c.codigoPostal, c.localidad].filter(Boolean).join(' '));
   if (c.provincia) parts.push(c.provincia === 'CABA' ? 'CABA' : `Provincia de ${c.provincia}`);
-  return parts.filter(Boolean).join(', ');
+  return parts.filter(Boolean).join(', ';
 }
 export async function initDomicilioForm(){
   const card = $('address-card'); if (!card || card._wired) return; card._wired = true;
@@ -1001,7 +1004,7 @@ export async function initDomicilioForm(){
 }
 
 /* ────────────────────────────────────────────────────────────
-   MINI-PROMPT GEO contextual (desactivado por acuerdo)
+   MINI-PROMPT GEO contextual (desactivado)
    ──────────────────────────────────────────────────────────── */
 export async function maybeShowGeoContextPrompt(){ const slot = $('geo-context-slot'); if (slot) slot.innerHTML=''; return; }
 
