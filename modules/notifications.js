@@ -815,7 +815,19 @@ const LS_GEO_DAY='geoDay', LS_GEO_COUNT='geoCount';
 let geoWatchId=null, lastSample={ t:0, lat:null, lng:null };
 
 function round3(n){ return Math.round((+n)*1e3)/1e3; }
-function haversineMeters(a,b){ if(!a||!b) return Infinity; const R=6371000,toRad=d=>d*Math.PI/180; const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0)); const la1=toRad(a.lat||0), la2=toRad(b.lat||0); const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(Math.sin(dLng/2)**2); return 2*R*Math.asin(Math.sqrt(h)); }
+// Reemplazá COMPLETO esta función
+function haversineMeters(a, b) {
+  if (!a || !b) return Infinity;
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad((b.lat || 0) - (a.lat || 0));
+  const dLng = toRad((b.lng || 0) - (a.lng || 0));
+  const la1 = toRad(a.lat || 0), la2 = toRad(b.lat || 0);
+  const h = (Math.sin(dLat / 2) ** 2)
+          + Math.cos(la1) * Math.cos(la2) * (Math.sin(dLng / 2) ** 2);
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
 function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function incDailyCount(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); if (curDay!==day){ localStorage.setItem(LS_GEO_DAY,day); localStorage.setItem(LS_GEO_COUNT,'0'); } const c=+localStorage.getItem(LS_GEO_COUNT)||0; localStorage.setItem(LS_GEO_COUNT,String(c+1)); return c+1; }
 function canWriteMoreToday(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); const c=+localStorage.getItem(LS_GEO_COUNT)||0; return (curDay!==day)||(c<GEO_CONF.DAILY_CAP); }
@@ -923,14 +935,17 @@ function ensureAddressBannerButtons(){
 }
 
 /* Form DOMICILIO (precarga + guardar) */
-function buildAddressLine(c){
+// Reemplazá COMPLETO este helper
+function buildAddressLine(c) {
   const parts = [];
   if (c.calle) parts.push(c.calle + (c.numero ? ' ' + c.numero : ''));
-  const pisoDto = [c.piso, c.depto].filter(Boolean).join(' '); if (pisoDto) parts.push(pisoDto);
+  const pisoDto = [c.piso, c.depto].filter(Boolean).join(' ');
+  if (pisoDto) parts.push(pisoDto);
   if (c.codigoPostal || c.localidad) parts.push([c.codigoPostal, c.localidad].filter(Boolean).join(' '));
   if (c.provincia) parts.push(c.provincia === 'CABA' ? 'CABA' : `Provincia de ${c.provincia}`);
-  return parts.filter(Boolean).join(', ';
+  return parts.filter(Boolean).join(', ');
 }
+
 export async function initDomicilioForm(){
   const card = $('address-card'); if (!card || card._wired) return; card._wired = true;
   const g = id => $(id);
@@ -1074,3 +1089,4 @@ export async function handleSignOutCleanup(){ try { localStorage.removeItem('fcm
 
 /* helpers menores */
 function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
