@@ -12,6 +12,18 @@ function show(el, on){ if (el) el.style.display = on ? 'block' : 'none'; }
 function showInline(el, on){ if (el) el.style.display = on ? 'inline-block' : 'none'; }
 function emit(name, detail){ try { document.dispatchEvent(new CustomEvent(name, { detail })); } catch {} }
 function toast(msg, type='info'){ try { window.UI?.showToast?.(msg, type); } catch {} }
+function disable(el, on){ if (el) el.disabled = !!on; }
+
+/* UI helpers */
+function hideNotifCards(){
+  show($('notif-prompt-card'), false);
+  show($('notif-card'), false);
+}
+function hardSyncUI(){
+  try { refreshNotifUIFromPermission(); } catch {}
+  try { syncProfileConsentUI(); } catch {}
+  try { syncProfileGeoUI(); } catch {}
+}
 
 /* ────────────────────────────────────────────────────────────
    ESTADO LOCAL / CONSTANTES
@@ -23,8 +35,12 @@ const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | nu
 const LS_GEO_SUPPRESS_UNTIL = 'geoSuppressUntil'; // epoch ms
 const GEO_COOLDOWN_DAYS = (window.__RAMPET__?.GEO_COOLDOWN_DAYS ?? 60);
 
-// GEO: “defer por sesión” (oculta banner grande solo hasta recargar)
+// GEO: “defer por sesión” (oculta solo hasta recargar)
 const GEO_SS_DEFER_KEY = 'geoBannerDeferred';
+
+// DOMICILIO: “defer por sesión” (para el botón LUEGO)
+const LS_ADDR_DEFERRED = 'addressBannerDeferred';       // sessionStorage
+const LS_ADDR_DISMISSED= 'addressBannerDismissed';      // localStorage (No quiero)
 
 function _nowMs(){ return Date.now(); }
 function setGeoSuppress(days = GEO_COOLDOWN_DAYS){
@@ -53,18 +69,18 @@ function bootstrapFirstSessionUX(){
     if (sessionStorage.getItem('rampet:firstSessionDone') === '1') return;
 
     // NOTIFS → primera vez sin estado local: muestro card comercial
-    const st = (() => { try { return localStorage.getItem(LS_NOTIF_STATE); } catch { return null; } })();
+    const st = (()=>{ try { return localStorage.getItem(LS_NOTIF_STATE); } catch { return null; } })();
     if (st == null) { show($('notif-prompt-card'), true); show($('notif-card'), false); }
 
-    // GEO / DOMICILIO
-    ensureAddressBannerButtons(); // (incluye wiring de "Luego" y "No quiero")
+    // GEO + DOMICILIO
+    ensureAddressBannerButtons();  // con LUEGO (sesión) y NO QUIERO (persistente)
     wireGeoButtonsOnce();
-    setTimeout(() => { updateGeoUI().catch(()=>{}); }, 0);
+    setTimeout(()=>{ updateGeoUI().catch(()=>{}); },0);
 
-    // UI de notifs sin pedir permiso
-    setTimeout(() => { refreshNotifUIFromPermission(); }, 0);
+    // UI notifs sin pedir permiso
+    setTimeout(()=>{ refreshNotifUIFromPermission(); },0);
 
-    sessionStorage.setItem('rampet:firstSessionDone', '1');
+    sessionStorage.setItem('rampet:firstSessionDone','1');
   } catch {}
 }
 
@@ -97,7 +113,7 @@ function ensureNotifOffBanner(){
 
   $('#notif-off-go-profile')?.addEventListener('click', ()=>{
     try { window.UI?.openProfileModal?.(); } catch {}
-    try { syncProfileConsentUI(); syncProfileGeoUI(); } catch {}
+    hardSyncUI();
   });
 
   return el;
@@ -342,7 +358,7 @@ function refreshNotifUIFromPermission(){
   const hasToken = (()=>{ try { return !!localStorage.getItem('fcmToken'); } catch { return false; } })();
   const pending = __tokenProvisionPending || !!__tokenReqLock || __notifReqInFlight;
 
-  // Regla fuerte: “blocked” → no mostrar marketing ni switch ON
+  // blocked / denied → todo OFF + banner pequeño
   if (lsState === 'blocked' || perm === 'denied'){
     if (switchEl) switchEl.checked = false;
     show(warnBlocked, true);
@@ -350,10 +366,10 @@ function refreshNotifUIFromPermission(){
     return;
   }
 
-  // “deferred” (Luego) → switch visible OFF, marketing oculto
+  // deferred → muestro switch OFF (sin marketing)
   if (lsState === 'deferred'){
-    if (!pending) show(cardSwitch, true);
     if (switchEl) switchEl.checked = false;
+    if (!pending) show(cardSwitch, true);
     showNotifOffBanner(false);
     return;
   }
@@ -361,8 +377,8 @@ function refreshNotifUIFromPermission(){
   // granted
   if (perm === 'granted'){
     if (switchEl) switchEl.checked = !!hasToken;
-    if (!hasToken && !pending) show(cardSwitch, true);
-    showNotifOffBanner(!hasToken);
+    if (hasToken){ hideNotifCards(); showNotifOffBanner(false); }
+    else if (!pending){ show(cardSwitch, true); }
     return;
   }
 
@@ -372,7 +388,7 @@ function refreshNotifUIFromPermission(){
   showNotifOffBanner(false);
 }
 
-/* Watcher de permiso (mantiene UI y re-suscripción) */
+/* Watcher de permiso */
 let __permWatcher = { timer:null, last:null, wired:false };
 function startNotifPermissionWatcher(){
   if (__permWatcher.wired) return; __permWatcher.wired = true;
@@ -381,13 +397,13 @@ function startNotifPermissionWatcher(){
     if ('permissions' in navigator && navigator.permissions?.query){
       navigator.permissions.query({ name:'notifications' }).then((permStatus)=>{
         __permWatcher.last = permStatus.state;
-        refreshNotifUIFromPermission(); syncProfileConsentUI();
+        hardSyncUI();
         if (AUTO_RESUBSCRIBE && permStatus.state==='granted' && hasPriorAppConsent() && !isNotifEnabledLocally() && (localStorage.getItem(LS_NOTIF_STATE)!=='blocked')) {
           obtenerYGuardarTokenOneShot().catch(()=>{});
         }
         permStatus.onchange = ()=>{
           __permWatcher.last = permStatus.state;
-          refreshNotifUIFromPermission(); syncProfileConsentUI();
+          hardSyncUI();
           if (AUTO_RESUBSCRIBE && permStatus.state==='granted' && hasPriorAppConsent() && !isNotifEnabledLocally() && (localStorage.getItem(LS_NOTIF_STATE)!=='blocked')) {
             obtenerYGuardarTokenOneShot().catch(()=>{});
           }
@@ -404,7 +420,7 @@ function startPollingWatcher(){
     const cur = (window.Notification?.permission) || 'default';
     if (cur === __permWatcher.last) return;
     __permWatcher.last = cur;
-    refreshNotifUIFromPermission(); syncProfileConsentUI();
+    hardSyncUI();
     if (AUTO_RESUBSCRIBE && cur==='granted' && hasPriorAppConsent() && !isNotifEnabledLocally() && (localStorage.getItem(LS_NOTIF_STATE)!=='blocked')) {
       obtenerYGuardarTokenOneShot().catch(()=>{});
     }
@@ -418,15 +434,17 @@ export async function handlePermissionRequest(){
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
   if (__notifReqInFlight) return;
   __notifReqInFlight = true;
+  const sw = $('notif-switch'); disable(sw, true);
   try{
     const ls = (()=>{ try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
     const current = Notification.permission;
 
     if (current === 'granted'){
-      if (ls === 'blocked'){ showNotifOffBanner(true); refreshNotifUIFromPermission(); return; }
+      if (ls === 'blocked'){ showNotifOffBanner(true); hardSyncUI(); return; }
       await obtenerYGuardarToken();
+      hideNotifCards();
       showNotifOffBanner(false);
-      refreshNotifUIFromPermission();
+      hardSyncUI();
       return;
     }
 
@@ -434,16 +452,17 @@ export async function handlePermissionRequest(){
       try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out',{ source:'browser-denied' });
       showNotifOffBanner(true);
-      refreshNotifUIFromPermission();
+      hardSyncUI();
       return;
     }
 
-    // default → prompt por acción del usuario
+    // default → prompt
     const status = await Notification.requestPermission();
     if (status === 'granted'){
       const st = (()=>{ try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
-      if (st === 'blocked'){ showNotifOffBanner(true); }
-      else { await obtenerYGuardarToken(); showNotifOffBanner(false); }
+      if (st !== 'blocked'){ await obtenerYGuardarToken(); }
+      hideNotifCards();
+      showNotifOffBanner(false);
     } else if (status === 'denied'){
       try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out',{ source:'prompt' });
@@ -451,21 +470,22 @@ export async function handlePermissionRequest(){
     } else {
       try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
       emit('rampet:consent:notif-dismissed',{});
+      show($('notif-card'), true); // switch OFF
     }
-    refreshNotifUIFromPermission();
+    hardSyncUI();
   } catch(e){
     console.warn('[notifications] handlePermissionRequest error:', e?.message || e);
-    refreshNotifUIFromPermission();
-  } finally { __notifReqInFlight = false; }
+    hardSyncUI();
+  } finally { __notifReqInFlight = false; disable(sw, false); }
 }
 export function handlePermissionBlockClick(){
   try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
-  show($('notif-prompt-card'), false);
+  hideNotifCards();
   const sw = $('notif-switch'); if (sw) sw.checked = false;
   setClienteConfigPatch({ notifEnabled:false, notifUpdatedAt:new Date().toISOString() }).catch(()=>{});
   emit('rampet:consent:notif-opt-out', { source:'ui-block' });
   toast('Podés volver a activarlas desde tu Perfil cuando quieras.','info');
-  refreshNotifUIFromPermission();
+  hardSyncUI();
   showNotifOffBanner(true);
 }
 export function dismissPermissionRequest(){
@@ -474,31 +494,51 @@ export function dismissPermissionRequest(){
   emit('rampet:consent:notif-dismissed', {});
   const sw = $('notif-switch'); if (sw) sw.checked = false;
   show($('notif-card'), true); // switch OFF visible
+  hardSyncUI();
 }
 export async function handlePermissionSwitch(e){
   const checked = !!e?.target?.checked;
-  if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
+  if (!('Notification' in window)) { hardSyncUI(); return; }
   const before = Notification.permission;
+  const sw = $('notif-switch'); disable(sw, true);
 
-  if (checked){
-    if (before === 'granted'){
-      try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {}
-    } else if (before === 'default'){
-      const status = await Notification.requestPermission();
-      if (status === 'granted'){ try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {} }
-      else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); const sw=$('notif-switch'); if (sw) sw.checked=false; showNotifOffBanner(true); }
-      else { try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}; const sw=$('notif-switch'); if (sw) sw.checked=false; }
+  try{
+    if (checked){
+      if (before === 'granted'){
+        await obtenerYGuardarToken();
+        hideNotifCards();
+        showNotifOffBanner(false);
+      } else if (before === 'default'){
+        const status = await Notification.requestPermission();
+        if (status === 'granted'){
+          await obtenerYGuardarToken();
+          hideNotifCards();
+          showNotifOffBanner(false);
+        } else if (status === 'denied'){
+          try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
+          toast('Notificaciones bloqueadas en el navegador.','warning');
+          if (sw) sw.checked=false;
+          showNotifOffBanner(true);
+        } else {
+          try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
+          if (sw) sw.checked=false;
+          show($('notif-card'), true);
+        }
+      } else {
+        toast('Tenés bloqueadas las notificaciones en el navegador.','warning');
+        if (sw) sw.checked=false;
+        showNotifOffBanner(true);
+      }
     } else {
-      toast('Tenés bloqueadas las notificaciones en el navegador.','warning');
-      const sw=$('notif-switch'); if (sw) sw.checked=false;
+      await borrarTokenYOptOut();
       showNotifOffBanner(true);
+      toast('Notificaciones desactivadas.','info');
+      show($('notif-card'), true); // switch OFF
     }
-  } else {
-    await borrarTokenYOptOut();
-    showNotifOffBanner(true);
-    toast('Notificaciones desactivadas.','info');
+  } finally {
+    hardSyncUI();
+    disable(sw, false);
   }
-  refreshNotifUIFromPermission();
 }
 
 /* Foreground push → mostrar notificación del sistema */
@@ -540,15 +580,13 @@ export async function syncProfileConsentUI(){
   const perm = hasNotif ? Notification.permission : 'unsupported';
   const ls = (()=>{ try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
 
-  // Pactado: “deferred” o “blocked” → SIEMPRE OFF
+  // Pactado: deferred / blocked / denied → SIEMPRE OFF
   if (ls === 'deferred' || ls === 'blocked' || perm === 'denied'){
     cb.checked = false; cb.dataset.perm = perm; return;
   }
 
-  // Si no está “granted”, OFF
   if (perm !== 'granted'){ cb.checked = false; cb.dataset.perm = perm; return; }
 
-  // granted → necesita token local o confirmación del server
   const localOn = isNotifEnabledLocally();
   const serverOn = await fetchServerNotifEnabledSafe();
 
@@ -557,20 +595,20 @@ export async function syncProfileConsentUI(){
 }
 export async function handleProfileConsentToggle(checked){
   if (checked){
-    if (('Notification' in window) && Notification.permission==='granted'){ try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {} }
-    else {
+    if (('Notification' in window) && Notification.permission==='granted'){
+      await obtenerYGuardarToken(); hideNotifCards(); showNotifOffBanner(false);
+    } else {
       try {
         const status = await Notification.requestPermission();
-        if (status === 'granted'){ try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {} }
+        if (status === 'granted'){ await obtenerYGuardarToken(); hideNotifCards(); showNotifOffBanner(false); }
         else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); showNotifOffBanner(true); }
-        else { try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}; $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); }
+        else { try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}; $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); show($('notif-card'), true); }
       } catch(e){ console.warn('[Perfil] requestPermission error:', e?.message||e); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); }
     }
   } else {
-    await borrarTokenYOptOut();
-    showNotifOffBanner(true);
+    await borrarTokenYOptOut(); showNotifOffBanner(true);
   }
-  refreshNotifUIFromPermission();
+  hardSyncUI();
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -600,10 +638,10 @@ async function hasDomicilioOnServer(){
 }
 async function shouldHideGeoBanner(){
   if (isGeoSuppressedNow()) return true;            // cool-down activo
-  if (isGeoBlockedLocally()) return false;          // mostrar recordatorio (no ocultar)
+  if (isGeoBlockedLocally()) return false;          // dejamos recordatorio
   const perm = await detectGeoPermission();
-  if (perm !== 'granted') return false;             // sin permiso → dejarlo visible (marketing)
-  try { if (localStorage.getItem('addressBannerDismissed') === '1') return true; } catch {}
+  if (perm !== 'granted') return false;             // sin permiso → mostrar marketing
+  try { if (localStorage.getItem(LS_ADDR_DISMISSED) === '1') return true; } catch {}
   return await hasDomicilioOnServer();
 }
 function hideGeoBanner(){ const { banner } = geoEls(); if (banner) banner.style.display = 'none'; }
@@ -653,10 +691,10 @@ function setGeoMarketingUI(on){
 
   if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.';
   showInline(btnOn, true);
-  showInline(btnOff, false);  // no usamos “Luego”
+  showInline(btnOff, false);  // sin “Luego” en GEO
   showInline(btnHelp, false);
 
-  // asegurar “No gracias” existente y cableado
+  // asegurar “No gracias” (persistente)
   let nogo = $('geo-nothanks-btn');
   if (!nogo){
     const actions = banner.querySelector('.prompt-actions') || banner;
@@ -717,7 +755,6 @@ export async function syncProfileGeoUI(){
   const perm = await detectGeoPermission();
   const ls = (()=>{ try { return localStorage.getItem(LS_GEO_STATE) || null; } catch { return null; } })();
 
-  // Pactado: “deferred” o “blocked” → SIEMPRE OFF
   if (ls === 'deferred' || ls === 'blocked' || perm === 'denied'){ cb.checked = false; return; }
 
   const serverOn = await fetchServerGeoEnabled();
@@ -780,7 +817,7 @@ function setGeoOffByUserUI(){
   if (!banner) return;
   show(banner, true);
   if (txt) txt.textContent = 'No vas a recibir beneficios en tu zona. Podés activarlo cuando quieras.';
-  showInline(btnOn,true); showInline(btnOff(false)); showInline(btnHelp,false);
+  showInline(btnOn,true); showInline(btnOff,false); showInline(btnHelp,false);
 }
 
 /* GEO UI global */
@@ -827,7 +864,14 @@ const LS_GEO_DAY='geoDay', LS_GEO_COUNT='geoCount';
 let geoWatchId=null, lastSample={ t:0, lat:null, lng:null };
 
 function round3(n){ return Math.round((+n)*1e3)/1e3; }
-function haversineMeters(a,b){ if(!a||!b) return Infinity; const R=6371000,toRad=d=>d*Math.PI/180; const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0)); const la1=toRad(a.lat||0), la2=toRad(b.lat||0); const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(Math.pow(Math.sin(dLng/2),2)); return 2*R*Math.asin(Math.sqrt(h)); }
+function haversineMeters(a,b){
+  if(!a||!b) return Infinity;
+  const R=6371000, toRad=d=>d*Math.PI/180;
+  const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0));
+  const la1=toRad(a.lat||0), la2=toRad(b.lat||0);
+  const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
 function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function incDailyCount(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); if (curDay!==day){ localStorage.setItem(LS_GEO_DAY,day); localStorage.setItem(LS_GEO_COUNT,'0'); } const c=+localStorage.getItem(LS_GEO_COUNT)||0; localStorage.setItem(LS_GEO_COUNT,String(c+1)); return c+1; }
 function canWriteMoreToday(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); const c=+localStorage.getItem(LS_GEO_COUNT)||0; return (curDay!==day)||(c<GEO_CONF.DAILY_CAP); }
@@ -845,7 +889,12 @@ async function writeGeoSamples(lat,lng){
     incDailyCount();
   } catch(e){ console.warn('[geo] writeGeoSamples error', e?.message || e); }
 }
-function shouldRecord(lat,lng){ const nowT=Date.now(); const dt=(nowT-(lastSample.t||0))/1000; if (dt>=GEO_CONF.THROTTLE_S) return true; const dist=haversineMeters((lastSample.lat!=null&&lastSample.lng!=null)?{lat:lastSample.lat,lng:lastSample.lng}:null,{lat,lng}); return dist>=GEO_CONF.DIST_M; }
+function shouldRecord(lat,lng){
+  const nowT=Date.now(); const dt=(nowT-(lastSample.t||0))/1000;
+  if (dt>=GEO_CONF.THROTTLE_S) return true;
+  const dist=haversineMeters((lastSample.lat!=null&&lastSample.lng!=null)?{lat:lastSample.lat,lng:lastSample.lng}:null,{lat,lng});
+  return dist>=GEO_CONF.DIST_M;
+}
 function onGeoPosSuccess(pos){
   try {
     const lat = pos?.coords?.latitude, lng = pos?.coords?.longitude;
@@ -878,22 +927,22 @@ async function ensureGeoWatchIfPermitted(){
 try { document.addEventListener('visibilitychange', ()=>{ ensureGeoWatchIfPermitted(); }); } catch {}
 
 /* ────────────────────────────────────────────────────────────
-   DOMICILIO (banner “📍 Sumá tu domicilio…”) — wiring seguro
+   DOMICILIO (banner “📍 Sumá tu domicilio…”) — CON “LUEGO”
    ──────────────────────────────────────────────────────────── */
 function ensureAddressBannerButtons(){
   const banner = $('address-banner'); if (!banner) return;
   if (banner._wired) return; banner._wired = true;
 
-  // Si ya se difirió por sesión o se descartó persistente → ocultar
+  // Reglas de visibilidad inicial
   try {
-    if (sessionStorage.getItem('addressBannerDeferred') === '1'){ banner.style.display='none'; return; }
-    if (localStorage.getItem('addressBannerDismissed') === '1'){ banner.style.display='none'; return; }
+    if (localStorage.getItem(LS_ADDR_DISMISSED) === '1'){ banner.style.display='none'; return; } // No quiero (persistente)
+    if (sessionStorage.getItem(LS_ADDR_DEFERRED) === '1'){ banner.style.display='none'; return; } // Luego (solo esta sesión)
   } catch {}
 
   const actions = banner.querySelector('.prompt-actions') || banner;
 
-  // “Luego” (si no existe en el HTML, lo creo)
-  let later = $('address-skip') || $('address-later-btn');
+  // Botón LUEGO (sesión)
+  let later = $('address-later-btn');
   if (!later){
     later = document.createElement('button');
     later.id = 'address-later-btn';
@@ -905,36 +954,30 @@ function ensureAddressBannerButtons(){
   if (!later._wired){
     later._wired = true;
     later.addEventListener('click', ()=>{
-      try { sessionStorage.setItem('addressBannerDeferred','1'); } catch {}
-      toast('Podés cargarlo cuando quieras desde tu perfil.','info');
-      banner.style.display = 'none'; // ✅ AHORA SÍ se oculta
+      try { sessionStorage.setItem(LS_ADDR_DEFERRED,'1'); } catch {}
+      // Sin banner superior: solo lo ocultamos y mostramos un toast
+      toast('Podés cargarlo cuando quieras desde tu Perfil.','info');
+      banner.style.display='none';
     });
   }
 
-  // “No quiero” persistente (si falta, lo creo)
+  // Botón NO QUIERO (persistente)
   let nogo = $('address-nothanks-btn');
   if (!nogo){
     nogo = document.createElement('button');
-    nogo.id = 'address-nothanks-btn';
-    nogo.className = 'link-btn';
-    nogo.textContent = 'No quiero';
-    nogo.style.marginLeft = '8px';
+    nogo.id='address-nothanks-btn';
+    nogo.className='link-btn';
+    nogo.textContent='No quiero';
+    nogo.style.marginLeft='8px';
     actions.appendChild(nogo);
   }
   if (!nogo._wired){
     nogo._wired = true;
     nogo.addEventListener('click', ()=>{
-      try { localStorage.setItem('addressBannerDismissed','1'); } catch {}
+      try { localStorage.setItem(LS_ADDR_DISMISSED,'1'); } catch {}
       banner.style.display = 'none';
       toast('Listo, no vamos a pedirte domicilio.','info');
     });
-  }
-
-  // PATCH: wiring para botón superior que abre Perfil si existe en tu HTML
-  const goProfileTop = $('address-tip-open-profile') || $('address-open-profile');
-  if (goProfileTop && !goProfileTop._wired){
-    goProfileTop._wired = true;
-    goProfileTop.addEventListener('click', ()=>{ try { window.UI?.openProfileModal?.(); } catch {} });
   }
 }
 
@@ -999,30 +1042,15 @@ export async function initDomicilioForm(){
         domicilio:{ addressLine, components, geocoded:{ lat:null,lng:null,geohash7:null,provider:null,confidence:null,geocodedAt:null,verified:false } }
       }, { merge:true });
 
-      try { localStorage.setItem('addressBannerDismissed','1'); } catch {}
+      try { localStorage.setItem(LS_ADDR_DISMISSED,'1'); } catch {}
       toast('Domicilio guardado. ¡Gracias!','success');
       hideGeoBanner(); updateGeoUI().catch(()=>{});
       emit('rampet:geo:changed', { enabled:true });
     }catch(e){ console.error('save domicilio error', e); toast('No pudimos guardar el domicilio','error'); }
   });
 
-  // Cancel / Luego del form (respeta id #address-cancel o #address-skip)
-  const skipBtn = g('address-cancel') || g('address-skip');
-  if (skipBtn && !skipBtn._wired){
-    skipBtn._wired = true;
-    skipBtn.addEventListener('click', ()=>{
-      try { sessionStorage.setItem('addressBannerDeferred','1'); } catch {}
-      toast('Podés cargarlo cuando quieras desde tu perfil.','info');
-      try { $('address-card').style.display='none'; } catch {}
-      try { $('address-banner').style.display='block'; } catch {}
-    });
-  }
+  // (No agregamos “Luego” dentro del FORM. El “Luego” es del BANNER)
 }
-
-/* ────────────────────────────────────────────────────────────
-   MINI-PROMPT GEO contextual (desactivado por acuerdo)
-   ──────────────────────────────────────────────────────────── */
-export async function maybeShowGeoContextPrompt(){ const slot = $('geo-context-slot'); if (slot) slot.innerHTML=''; return; }
 
 /* ────────────────────────────────────────────────────────────
    EXPOSICIONES / EVENTOS
@@ -1035,10 +1063,6 @@ try {
   window.handleProfileConsentToggle= handleProfileConsentToggle;
   window.syncProfileGeoUI          = syncProfileGeoUI;
   window.handleProfileGeoToggle    = handleProfileGeoToggle;
-  // PATCH: expongo helpers usados por tu app en otras pantallas
-  window.ensureGeoOnStartup = async ()=>{ wireGeoButtonsOnce(); ensureAddressBannerButtons(); await updateGeoUI(); try{ await ensureGeoWatchIfPermitted(); }catch{} };
-  window.maybeRefreshIfStale = async ()=>{ await updateGeoUI(); refreshNotifUIFromPermission(); };
-  if (!window.maybeShowGeoContextPrompt) window.maybeShowGeoContextPrompt = maybeShowGeoContextPrompt;
 } catch {}
 
 document.addEventListener('rampet:consent:notif-opt-in',  ()=>{ syncProfileConsentUI(); });
@@ -1049,9 +1073,7 @@ document.addEventListener('rampet:geo:changed', ()=>{ try { syncProfileGeoUI(); 
 
 document.addEventListener('visibilitychange', ()=>{
   if (document.visibilityState==='visible'){
-    syncProfileConsentUI();
-    syncProfileGeoUI();
-    maybeShowGeoOffReminder();
+    hardSyncUI();
   }
 });
 
