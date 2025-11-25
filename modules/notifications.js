@@ -28,7 +28,7 @@ const GEO_COOLDOWN_DAYS = (window.__RAMPET__?.GEO_COOLDOWN_DAYS ?? 60);
 const GEO_SS_DEFER_KEY = 'geoBannerDeferred';
 
 // Domicilio: flags de sesión/persistencia
-const SS_ADDR_DEFER = 'addressBannerDeferred';
+const SS_ADDR_DEFER  = 'addressBannerDeferred';
 const LS_ADDR_DISMISS = 'addressBannerDismissed';
 
 function _nowMs(){ return Date.now(); }
@@ -60,9 +60,11 @@ const AUTO_RESUBSCRIBE = true;
       if (cb) { cb.removeAttribute('checked'); cb.checked = false; }
     };
     off();
-    document.addEventListener('readystatechange', () => {
-      if (document.readyState === 'interactive' || document.readyState === 'complete') off();
-    });
+    if (document.readyState === 'loading') {
+      document.addEventListener('readystatechange', () => {
+        if (document.readyState === 'interactive' || document.readyState === 'complete') off();
+      });
+    }
   } catch {}
 })();
 
@@ -224,8 +226,9 @@ async function guardarTokenEnMiDoc(token){
     localStorage.setItem('fcmToken', token);
     localStorage.setItem(LS_NOTIF_STATE,'accepted');
   } catch {}
-  // oculto inmediatamente el card con deslizador si estuviera a la vista
+  // Ocultar inmediatamente UI de notifs (marketing + switch)
   try { show($('notif-card'), false); } catch {}
+  try { show($('notif-prompt-card'), false); } catch {}
   emit('rampet:consent:notif-opt-in', { source:'ui' });
   showNotifOffBanner(false);
   console.log('✅ Token FCM guardado en clientes/' + clienteId);
@@ -556,21 +559,21 @@ function wirePushButtonsOnce(){
   const allow = $('btn-activar-notif-prompt');   if (allow && !allow._wired){ allow._wired = true; allow.addEventListener('click', ()=>{ handlePermissionRequest(); }); }
   const later = $('btn-rechazar-notif-prompt');   if (later && !later._wired){ later._wired = true; later.addEventListener('click', ()=>{ dismissPermissionRequest(); }); }
   const block = $('btn-bloquear-notif-prompt');   if (block && !block._wired){ block._wired = true; block.addEventListener('click', ()=>{ handlePermissionBlockClick(); }); }
-  const sw    = $('notif-switch');                 if (sw && !sw._wired){ sw._wired = true; sw.addEventListener('change', handlePermissionSwitch); }
+  const sw    = $('notif-switch');                if (sw && !sw._wired){ sw._wired = true; sw.addEventListener('change', handlePermissionSwitch); }
 }
 
 /* Sincronía con Perfil — NOTIFS */
 export async function syncProfileConsentUI(){
   const cb = $('prof-consent-notif'); if (!cb) return;
 
-  // Base: nunca arrancar tildado por HTML
+  // Nunca arrancar tildado por HTML
   cb.removeAttribute('checked'); cb.checked = false;
 
   const hasNotif = ('Notification' in window);
   const perm = hasNotif ? Notification.permission : 'unsupported';
   const ls = (()=>{ try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
 
-  // Regla fuerte: si NO hay permiso concedido → OFF y normalizo posibles residuos
+  // Si NO hay permiso concedido → OFF; normalizo residuos locales
   if (!hasNotif || perm === 'denied' || perm === 'default' || perm === 'prompt'){
     try {
       localStorage.removeItem('fcmToken');
@@ -683,7 +686,7 @@ function setGeoMarketingUI(on){
   show(banner, on);
   if (!on) return;
 
-  if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.'; // ← GEO copy correcto
+  if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.'; // GEO copy correcto
   showInline(btnOn, true);
   showInline(btnOff, false);  // no usamos “Luego” en GEO
   showInline(btnHelp, false);
@@ -709,7 +712,7 @@ function setGeoMarketingUI(on){
       hideGeoBanner();
       toast('Podés activarlo cuando quieras desde tu Perfil.','info');
       emit('rampet:geo:changed', { enabled:false });
-      showGeoOffReminder(true); // recordatorio chico SOLO para GEO (no domicilio)
+      showGeoOffReminder(true); // recordatorio chico SOLO para GEO
     });
   }
 }
@@ -727,7 +730,7 @@ function setGeoRegularUI(state){
   if (state === 'denied'){
     try { localStorage.setItem(LS_GEO_STATE,'blocked'); } catch {}
     if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
-    showInline(btnOn,false); showInline(btnOff,false); showInline(btnHelp,true);
+    showInline(btnOn,false); showInline(btnOff,true); showInline(btnHelp,true);
     return;
   }
   if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.';
@@ -918,8 +921,19 @@ function ensureAddressBannerButtons(){
 
   const actions = banner.querySelector('.prompt-actions') || banner;
 
-  // ÚNICO “Luego”
-  let later = $('address-skip');
+  // Abrir formulario
+  const openBtn = banner.querySelector('#address-open-btn') || $('address-open-btn');
+  if (openBtn && !openBtn._wired){
+    openBtn._wired = true;
+    openBtn.addEventListener('click', ()=>{
+      try { $('address-card').style.display='block'; } catch {}
+      banner.style.display='none';
+      try { initDomicilioForm(); } catch {}
+    });
+  }
+
+  // ÚNICO “Luego” — SCOPED al banner
+  let later = banner.querySelector('#address-skip');
   if (!later){
     later = document.createElement('button');
     later.id = 'address-skip';
@@ -937,8 +951,8 @@ function ensureAddressBannerButtons(){
     });
   }
 
-  // “No gracias” (persistente)
-  let nogo = $('address-nothanks-btn');
+  // “No gracias” (persistente) — SCOPED al banner
+  let nogo = banner.querySelector('#address-nothanks-btn');
   if (!nogo){
     nogo = document.createElement('button');
     nogo.id = 'address-nothanks-btn';
@@ -970,6 +984,7 @@ function buildAddressLine(c){
 
 export async function initDomicilioForm(){
   const card = $('address-card'); if (!card || card._wired) return; card._wired = true;
+  const q = (sel) => card.querySelector(sel);
   const g = id => $(id);
   const getValues = ()=>({
     calle:g('dom-calle')?.value?.trim()||'',
@@ -1009,7 +1024,7 @@ export async function initDomicilioForm(){
   } catch {}
 
   // Guardar
-  g('address-save')?.addEventListener('click', async ()=>{
+  q('#address-save')?.addEventListener('click', async ()=>{
     try{
       const uid = firebase.auth().currentUser?.uid; if (!uid) return toast('Iniciá sesión para guardar tu domicilio','warning');
       const clienteId = await getClienteDocIdPorUID(uid); if (!clienteId) return toast('No encontramos tu ficha de cliente','error');
@@ -1022,19 +1037,32 @@ export async function initDomicilioForm(){
 
       try { localStorage.setItem(LS_ADDR_DISMISS,'1'); } catch {}
       toast('Domicilio guardado. ¡Gracias!','success');
-      hideGeoBanner(); updateGeoUI().catch(()=>{});
+
+      // Cierro form y banner definitivamente
+      try { card.style.display='none'; } catch {}
+      try { $('address-banner').style.display='none'; } catch {}
+
+      // Actualizo UI relacionada
+      hideGeoBanner();
+      updateGeoUI().catch(()=>{});
       emit('rampet:geo:changed', { enabled:true });
+
+      // Si existe resumen en perfil, intento actualizarlo rápido
+      try {
+        const summary = $('prof-address-summary');
+        if (summary) summary.textContent = addressLine || '—';
+      } catch {}
     }catch(e){ console.error('save domicilio error', e); toast('No pudimos guardar el domicilio','error'); }
   });
 
-  // Cancel / Luego del form (respeta id #address-cancel o #address-skip del form si existiera)
-  const skipBtn = g('address-cancel') || g('address-skip');
+  // Cancel / Luego del FORM (SCOPED al form)
+  const skipBtn = q('#address-cancel') || q('#address-skip');
   if (skipBtn && !skipBtn._wired){
     skipBtn._wired = true;
     skipBtn.addEventListener('click', ()=>{
       try { sessionStorage.setItem(SS_ADDR_DEFER,'1'); } catch {}
       toast('Podés cargarlo cuando quieras desde tu perfil.','info');
-      try { $('address-card').style.display='none'; } catch {}
+      try { card.style.display='none'; } catch {}
       try { $('address-banner').style.display='block'; } catch {}
     });
   }
@@ -1129,5 +1157,3 @@ export async function handleSignOutCleanup(){
 
 /* helpers menores */
 function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
-
-
