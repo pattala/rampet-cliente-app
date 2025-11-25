@@ -961,11 +961,13 @@ function ensureAddressBannerButtons(){
 function buildAddressLine(c){
   const parts = [];
   if (c.calle) parts.push(c.calle + (c.numero ? ' ' + c.numero : ''));
-  const pisoDto = [c.piso, c.depto].filter(Boolean).join(' '); if (pisoDto) parts.push(pisoDto);
+  const pisoDto = [c.piso, c.depto].filter(Boolean).join(' ');
+  if (pisoDto) parts.push(pisoDto);
   if (c.codigoPostal || c.localidad) parts.push([c.codigoPostal, c.localidad].filter(Boolean).join(' '));
   if (c.provincia) parts.push(c.provincia === 'CABA' ? 'CABA' : `Provincia de ${c.provincia}`);
   return parts.filter(Boolean).join(', ');
 }
+
 export async function initDomicilioForm(){
   const card = $('address-card'); if (!card || card._wired) return; card._wired = true;
   const g = id => $(id);
@@ -1127,4 +1129,5 @@ export async function handleSignOutCleanup(){
 
 /* helpers menores */
 function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
