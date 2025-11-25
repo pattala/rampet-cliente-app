@@ -816,6 +816,7 @@ let geoWatchId=null, lastSample={ t:0, lat:null, lng:null };
 
 function round3(n){ return Math.round((+n)*1e3)/1e3; }
 // Reemplazá COMPLETO esta función
+// Reemplazá COMPLETO esta función
 function haversineMeters(a, b) {
   if (!a || !b) return Infinity;
   const R = 6371000;
@@ -827,6 +828,7 @@ function haversineMeters(a, b) {
           + Math.cos(la1) * Math.cos(la2) * (Math.sin(dLng / 2) ** 2);
   return 2 * R * Math.asin(Math.sqrt(h));
 }
+
 
 function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
 function incDailyCount(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); if (curDay!==day){ localStorage.setItem(LS_GEO_DAY,day); localStorage.setItem(LS_GEO_COUNT,'0'); } const c=+localStorage.getItem(LS_GEO_COUNT)||0; localStorage.setItem(LS_GEO_COUNT,String(c+1)); return c+1; }
@@ -935,6 +937,7 @@ function ensureAddressBannerButtons(){
 }
 
 /* Form DOMICILIO (precarga + guardar) */
+// Reemplazá COMPLETO este helper
 // Reemplazá COMPLETO este helper
 function buildAddressLine(c) {
   const parts = [];
@@ -1089,4 +1092,5 @@ export async function handleSignOutCleanup(){ try { localStorage.removeItem('fcm
 
 /* helpers menores */
 function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
