@@ -1251,5 +1251,4 @@ export async function handleSignOutCleanup(){
   try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch (e2) {}
 }
 
-/* helpers menores */
-function hasPriorAppConsent
+/* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
