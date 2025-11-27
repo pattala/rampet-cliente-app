@@ -1,4 +1,4 @@
-// /modules/notifications.js — FCM + VAPID + Opt-In (banner) + Switch + Geo + Domicilio (lógica depurada + FIX switch)
+// /modules/notifications.js — FCM + VAPID + Opt-In (banner) + Switch + Geo + Domicilio (lógica depurada)
 'use strict';
 
 /* ────────────────────────────────────────────────────────────
@@ -10,8 +10,8 @@ if (!VAPID_PUBLIC) console.warn('[FCM] Falta window.__RAMPET__.VAPID_PUBLIC en i
 function $(id){ return document.getElementById(id); }
 function show(el, on){ if (el) el.style.display = on ? 'block' : 'none'; }
 function showInline(el, on){ if (el) el.style.display = on ? 'inline-block' : 'none'; }
-function emit(name, detail){ try { document.dispatchEvent(new CustomEvent(name, { detail })); } catch {} }
-function toast(msg, type='info'){ try { window.UI?.showToast?.(msg, type); } catch {} }
+function emit(name, detail){ try { document.dispatchEvent(new CustomEvent(name, { detail })); } catch (e) {} }
+function toast(msg, type='info'){ try { window.UI && window.UI.showToast && window.UI.showToast(msg, type); } catch (e) {} }
 function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 
 /* ────────────────────────────────────────────────────────────
@@ -22,7 +22,8 @@ const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | nu
 
 // GEO: supresión del banner grande por “cool-down”
 const LS_GEO_SUPPRESS_UNTIL = 'geoSuppressUntil'; // epoch ms
-const GEO_COOLDOWN_DAYS = (window.__RAMPET__?.GEO_COOLDOWN_DAYS ?? 60);
+const GEO_COOLDOWN_DAYS = (window.__RAMPET__ && window.__RAMPET__.GEO_COOLDOWN_DAYS != null)
+  ? window.__RAMPET__.GEO_COOLDOWN_DAYS : 60;
 
 // GEO: “defer por sesión” (oculta banner grande solo hasta recargar)
 const GEO_SS_DEFER_KEY = 'geoBannerDeferred';
@@ -33,20 +34,26 @@ const LS_ADDR_DISMISS = 'addressBannerDismissed';
 
 function _nowMs(){ return Date.now(); }
 function setGeoSuppress(days = GEO_COOLDOWN_DAYS){
-  try { localStorage.setItem(LS_GEO_SUPPRESS_UNTIL, String(_nowMs() + days*24*60*60*1000)); } catch {}
+  try { localStorage.setItem(LS_GEO_SUPPRESS_UNTIL, String(_nowMs() + days*24*60*60*1000)); } catch (e) {}
 }
-function clearGeoSuppress(){ try { localStorage.removeItem(LS_GEO_SUPPRESS_UNTIL); } catch {} }
-function isGeoSuppressedNow(){ try { const until = +localStorage.getItem(LS_GEO_SUPPRESS_UNTIL) || 0; return until > _nowMs(); } catch { return false; } }
+function clearGeoSuppress(){ try { localStorage.removeItem(LS_GEO_SUPPRESS_UNTIL); } catch (e) {} }
+function isGeoSuppressedNow(){
+  try { const until = +localStorage.getItem(LS_GEO_SUPPRESS_UNTIL) || 0; return until > _nowMs(); }
+  catch (e) { return false; }
+}
 
-function isGeoDeferredThisSession(){ try { return sessionStorage.getItem(GEO_SS_DEFER_KEY) === '1'; } catch { return false; } }
-function deferGeoBannerThisSession(){ try { sessionStorage.setItem(GEO_SS_DEFER_KEY,'1'); } catch {} }
+function isGeoDeferredThisSession(){
+  try { return sessionStorage.getItem(GEO_SS_DEFER_KEY) === '1'; } catch (e) { return false; }
+}
+function deferGeoBannerThisSession(){
+  try { sessionStorage.setItem(GEO_SS_DEFER_KEY,'1'); } catch (e) {}
+}
 
 let __notifReqInFlight = false;
 let __tokenReqLock = null;
 let __hardResetAttempted = false;
 let __tailRetryScheduled = false;
 let __tokenProvisionPending = false;
-let __switchPrompting = false; // ← evita dobles prompts
 
 const SW_PATH = '/firebase-messaging-sw.js';
 const AUTO_RESUBSCRIBE = true;
@@ -66,7 +73,7 @@ const AUTO_RESUBSCRIBE = true;
         if (document.readyState === 'interactive' || document.readyState === 'complete') off();
       });
     }
-  } catch {}
+  } catch (e) {}
 })();
 
 /* ────────────────────────────────────────────────────────────
@@ -77,7 +84,8 @@ function bootstrapFirstSessionUX(){
     if (sessionStorage.getItem('rampet:firstSessionDone') === '1') return;
 
     // NOTIFS → primera vez sin estado local: muestro card de marketing
-    const st = (() => { try { return localStorage.getItem(LS_NOTIF_STATE); } catch { return null; } })();
+    let st = null;
+    try { st = localStorage.getItem(LS_NOTIF_STATE); } catch (e) {}
     if (st == null) { show($('notif-prompt-card'), true); show($('notif-card'), false); }
 
     // GEO / DOMICILIO
@@ -89,7 +97,7 @@ function bootstrapFirstSessionUX(){
     setTimeout(() => { refreshNotifUIFromPermission(); }, 0);
 
     sessionStorage.setItem('rampet:firstSessionDone', '1');
-  } catch {}
+  } catch (e) {}
 }
 
 /* ────────────────────────────────────────────────────────────
@@ -109,7 +117,7 @@ function ensureNotifOffBanner(){
         <span aria-hidden="true" style="font-size:18px;">🔕</span>
         <div>
           <strong>No estás recibiendo notificaciones.</strong><br/>
-          Te estás perdiendo <em>promos, novedades y ofertas</em> pensadas para vos. Activalas desde <em>Mi Perfil</em>.
+          Te estás perdiendo <em>promos, novedades y ofertas</em> pensadas para vos. Activálas desde <em>Mi Perfil</em>.
         </div>
       </div>
       <div>
@@ -123,8 +131,8 @@ function ensureNotifOffBanner(){
   if (btn && !btn._wired){
     btn._wired = true;
     btn.addEventListener('click', ()=>{
-      try { window.UI?.openProfileModal?.(); } catch {}
-      try { syncProfileConsentUI(); syncProfileGeoUI(); } catch {}
+      try { window.UI && window.UI.openProfileModal && window.UI.openProfileModal(); } catch (e) {}
+      try { syncProfileConsentUI(); syncProfileGeoUI(); } catch (e) {}
     });
   }
   return el;
@@ -146,13 +154,16 @@ async function ensureMessagingCompatLoaded(){
 async function registerSW(){
   if (!('serviceWorker' in navigator)) { console.warn('[FCM] SW no soportado'); return false; }
   try {
-    try { const head = await fetch(SW_PATH, { method: 'HEAD' }); if (!head.ok) console.warn('[FCM] %s no accesible (HTTP %s )', SW_PATH, head.status); } catch {}
+    try {
+      const head = await fetch(SW_PATH, { method: 'HEAD' });
+      if (!head.ok) console.warn('[FCM] %s no accesible (HTTP %s )', SW_PATH, head.status);
+    } catch (e) {}
     const existing = await navigator.serviceWorker.getRegistration(SW_PATH);
     if (existing) { console.log('✅ SW FCM ya registrado:', existing.scope); return true; }
     const reg = await navigator.serviceWorker.register(SW_PATH);
     console.log('✅ SW FCM registrado:', reg.scope || (location.origin + '/'));
     return true;
-  } catch (e) { console.warn('[FCM] No se pudo registrar SW:', e?.message || e); return false; }
+  } catch (e) { console.warn('[FCM] No se pudo registrar SW:', e && e.message || e); return false; }
 }
 async function waitForActiveSW(){
   if (!('serviceWorker' in navigator)) return null;
@@ -162,7 +173,7 @@ async function waitForActiveSW(){
        || await navigator.serviceWorker.ready
        || await navigator.serviceWorker.getRegistration('/')
        || await navigator.serviceWorker.getRegistration();
-  } catch {}
+  } catch (e) {}
   if (!reg) return null;
   if (reg.active && reg.active.state === 'activated') return reg;
 
@@ -175,7 +186,7 @@ async function waitForActiveSW(){
       setTimeout(done, 2500);
     });
   }
-  try { reg = await navigator.serviceWorker.getRegistration(SW_PATH) || reg; } catch {}
+  try { reg = await navigator.serviceWorker.getRegistration(SW_PATH) || reg; } catch (e) {}
   return reg;
 }
 
@@ -188,31 +199,32 @@ async function getClienteDocIdPorUID(uid){
 }
 async function setClienteConfigPatch(partial){
   try {
-    const uid = firebase.auth().currentUser?.uid; if (!uid) return;
+    const uid = firebase.auth().currentUser && firebase.auth().currentUser.uid; if (!uid) return;
     const clienteId = await getClienteDocIdPorUID(uid) || uid;
     await firebase.firestore().collection('clientes').doc(clienteId).set({ config: partial }, { merge: true });
-  } catch (e) { console.warn('[config] setClienteConfigPatch error:', e?.message || e); }
+  } catch (e) { console.warn('[config] setClienteConfigPatch error:', e && e.message || e); }
 }
 const MAX_TOKENS = 5;
-function dedupeTokens(arr=[]){
+function dedupeTokens(arr){
   const out=[], seen = new Set();
-  for (const t of arr){ const s=(t||'').trim(); if (!s) continue; if (!seen.has(s)){ seen.add(s); out.push(s); } }
+  const list = Array.isArray(arr) ? arr : [];
+  for (const t of list){ const s=(t||'').trim(); if (!s) continue; if (!seen.has(s)){ seen.add(s); out.push(s); } }
   return out;
 }
 async function setFcmTokensOnCliente(newTokens){
-  const uid = firebase.auth().currentUser?.uid; if (!uid) throw new Error('No hay usuario logueado.');
+  const uid = firebase.auth().currentUser && firebase.auth().currentUser.uid; if (!uid) throw new Error('No hay usuario logueado.');
   let clienteId = await getClienteDocIdPorUID(uid);
   let ref;
   if (clienteId){ ref = firebase.firestore().collection('clientes').doc(clienteId); }
   else { clienteId = uid; ref = firebase.firestore().collection('clientes').doc(clienteId); await ref.set({ authUID: uid, creadoDesde: 'pwa' }, { merge:true }); }
   let current = [];
-  try { const snap = await ref.get(); current = Array.isArray(snap.data()?.fcmTokens) ? snap.data().fcmTokens : []; } catch {}
-  const merged = dedupeTokens([...(newTokens||[]), ...current]).slice(0, MAX_TOKENS);
+  try { const snap = await ref.get(); current = Array.isArray(snap.data() && snap.data().fcmTokens) ? snap.data().fcmTokens : []; } catch (e) {}
+  const merged = dedupeTokens([].concat(newTokens || [], current)).slice(0, MAX_TOKENS);
   await ref.set({ fcmTokens: merged }, { merge: true });
   return clienteId;
 }
 async function clearFcmTokensOnCliente(){
-  const uid = firebase.auth().currentUser?.uid; if (!uid) throw new Error('No hay usuario logueado.');
+  const uid = firebase.auth().currentUser && firebase.auth().currentUser.uid; if (!uid) throw new Error('No hay usuario logueado.');
   const clienteId = await getClienteDocIdPorUID(uid); if (!clienteId) throw new Error('No encontré tu doc en clientes (authUID).');
   await firebase.firestore().collection('clientes').doc(clienteId).set({ fcmTokens: [] }, { merge: true });
 }
@@ -226,10 +238,10 @@ async function guardarTokenEnMiDoc(token){
   try {
     localStorage.setItem('fcmToken', token);
     localStorage.setItem(LS_NOTIF_STATE,'accepted');
-  } catch {}
+  } catch (e) {}
   // Ocultar inmediatamente UI de notifs (marketing + switch)
-  try { show($('notif-card'), false); } catch {}
-  try { show($('notif-prompt-card'), false); } catch {}
+  try { show($('notif-card'), false); } catch (e) {}
+  try { show($('notif-prompt-card'), false); } catch (e) {}
   emit('rampet:consent:notif-opt-in', { source:'ui' });
   showNotifOffBanner(false);
   console.log('✅ Token FCM guardado en clientes/' + clienteId);
@@ -237,46 +249,59 @@ async function guardarTokenEnMiDoc(token){
 async function borrarTokenYOptOut(){
   try {
     await ensureMessagingCompatLoaded();
-    try { await firebase.messaging().deleteToken(); } catch {}
+    try { await firebase.messaging().deleteToken(); } catch (e) {}
     await clearFcmTokensOnCliente();
-    try { localStorage.removeItem('fcmToken'); localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
+    try { localStorage.removeItem('fcmToken'); localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch (e) {}
     await setClienteConfigPatch({ notifEnabled:false, notifUpdatedAt:new Date().toISOString() });
     emit('rampet:consent:notif-opt-out', { source:'ui' });
     showNotifOffBanner(true);
-  } catch(e){ console.warn('[FCM] borrarTokenYOptOut error:', e?.message || e); }
+  } catch(e){ console.warn('[FCM] borrarTokenYOptOut error:', e && e.message || e); }
 }
 
 /* Retries IndexedDB/SW */
-function isBadRequestOnDelete(e){ const m=(e?.message||'').toLowerCase(); return m.includes('fcmregistrations')||m.includes('unsubscribe')|| (m.includes('400')&&m.includes('delete')); }
-function isTransientIdbError(e){ const msg=(e?.message||String(e||'')).toLowerCase(); const name=(e?.name||'').toLowerCase(); return name.includes('invalidstateerror')||msg.includes('database connection is closing')||msg.includes('mutation')||msg.includes('database is closing')||msg.includes("failed to execute 'transaction'"); }
-function deleteDb(name){ return new Promise((resolve)=>{ try{ const req=indexedDB.deleteDatabase(name); req.onsuccess=req.onerror=req.onblocked=()=>resolve(); }catch{ resolve(); } }); }
+function isBadRequestOnDelete(e){
+  const m=(e && e.message ? e.message : '').toLowerCase();
+  return m.includes('fcmregistrations') || m.includes('unsubscribe') || (m.includes('400') && m.includes('delete'));
+}
+function isTransientIdbError(e){
+  const msg=(e && (e.message || String(e))) ? String(e.message || e).toLowerCase() : '';
+  const name=(e && e.name) ? e.name.toLowerCase() : '';
+  return name.includes('invalidstateerror') ||
+         msg.includes('database connection is closing') ||
+         msg.includes('mutation') ||
+         msg.includes('database is closing') ||
+         msg.includes("failed to execute 'transaction'");
+}
+function deleteDb(name){
+  return new Promise((resolve)=>{ try{ const req=indexedDB.deleteDatabase(name); req.onsuccess=req.onerror=req.onblocked=()=>resolve(); }catch(e){ resolve(); } });
+}
 async function hardResetFcmStores(){
-  try { localStorage.removeItem('fcmToken'); } catch {}
+  try { localStorage.removeItem('fcmToken'); } catch (e) {}
   await deleteDb('firebase-messaging-database');
   await deleteDb('firebase-installations-database');
   try {
     const reg = await navigator.serviceWorker.getRegistration('/firebase-messaging-sw.js');
-    if (reg) { try { await reg.unregister(); } catch {} }
+    if (reg) { try { await reg.unregister(); } catch (e2) {} }
     await navigator.serviceWorker.register('/firebase-messaging-sw.js');
     await navigator.serviceWorker.ready;
-  } catch {}
+  } catch (e) {}
   await sleep(300);
 }
 async function getTokenWithRetry(reg, vapidKey, maxTries=6){
-  while(__tokenReqLock){ await __tokenReqLock.catch(()=>{}); }
+  while(__tokenReqLock){ try { await __tokenReqLock; } catch (e) {} }
   let attempt = 0;
   const run = (async()=>{
     for(;;){
       attempt++;
       try{
         reg = await waitForActiveSW() || reg;
-        await navigator.serviceWorker.ready.catch(()=>{});
+        try { await navigator.serviceWorker.ready; } catch (e2) {}
         const tok = await firebase.messaging().getToken({ vapidKey, serviceWorkerRegistration: reg });
         return tok;
       }catch(e){
         if (isTransientIdbError(e) && attempt < maxTries){
           const delay = Math.min(200*(2**(attempt-1)), 2400);
-          console.warn(`[FCM] retry #${attempt} en ${delay}ms… (${e?.message||e})`);
+          console.warn('[FCM] retry #%s en %sms… (%s)', attempt, delay, (e && e.message) || e);
           await sleep(delay);
           continue;
         }
@@ -301,10 +326,11 @@ async function obtenerYGuardarTokenOneShot(){
   __tokenProvisionPending = true;
   try{
     let tok = null;
-    try { tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 3); } catch(e){ console.warn('[FCM] one-shot getToken falló:', e?.message || e); return null; }
+    try { tok = await getTokenWithRetry(reg, VAPID_PUBLIC, 3); }
+    catch(e){ console.warn('[FCM] one-shot getToken falló:', (e && e.message) || e); return null; }
     if (!tok) return null;
     await guardarTokenEnMiDoc(tok);
-    try { refreshNotifUIFromPermission?.(); } catch {}
+    try { refreshNotifUIFromPermission(); } catch (e) {}
     return tok;
   } finally { __tokenProvisionPending = false; }
 }
@@ -316,9 +342,9 @@ async function obtenerYGuardarToken(){
     if (!reg || !reg.active){
       toast('No se pudo activar notificaciones (SW no activo).','error');
       try{
-        const once = ()=>{ navigator.serviceWorker.removeEventListener('controllerchange', once); setTimeout(()=>{ obtenerYGuardarToken().catch(()=>{}); }, 300); };
+        const once = ()=>{ try { navigator.serviceWorker.removeEventListener('controllerchange', once); } catch (e) {} setTimeout(()=>{ obtenerYGuardarToken().catch(()=>{}); }, 300); };
         navigator.serviceWorker.addEventListener('controllerchange', once, { once:true });
-      }catch{}
+      }catch(e){}
       throw new Error('SW no activo');
     }
     let tok = null;
@@ -335,7 +361,7 @@ async function obtenerYGuardarToken(){
     if (!tok){ toast('No se pudo activar notificaciones (token vacío).','warning'); throw new Error('token vacío'); }
     await guardarTokenEnMiDoc(tok);
     toast('Notificaciones activadas ✅','success');
-    try { refreshNotifUIFromPermission?.(); } catch {}
+    try { refreshNotifUIFromPermission(); } catch (e) {}
     return tok;
   } finally { __tokenProvisionPending = false; }
 }
@@ -343,17 +369,17 @@ async function obtenerYGuardarToken(){
 /* ────────────────────────────────────────────────────────────
    UI NOTIFICACIONES (banners + switch)
    ──────────────────────────────────────────────────────────── */
-function isNotifEnabledLocally(){ try { return !!localStorage.getItem('fcmToken'); } catch { return false; } }
+function isNotifEnabledLocally(){ try { return !!localStorage.getItem('fcmToken'); } catch (e) { return false; } }
 async function fetchServerNotifEnabled(){
   try {
-    const uid = firebase.auth().currentUser?.uid; if (!uid) return null;
+    const uid = firebase.auth().currentUser && firebase.auth().currentUser.uid; if (!uid) return null;
     const clienteId = await getClienteDocIdPorUID(uid) || uid;
     const snap = await firebase.firestore().collection('clientes').doc(clienteId).get();
     const data = snap.exists ? snap.data() : null;
-    const hasTokens = Array.isArray(data?.fcmTokens) && data.fcmTokens.length > 0;
-    const cfgEnabled = !!data?.config?.notifEnabled;
+    const hasTokens = Array.isArray(data && data.fcmTokens) && data.fcmTokens.length > 0;
+    const cfgEnabled = !!(data && data.config && data.config.notifEnabled);
     return hasTokens && cfgEnabled;
-  } catch { return null; }
+  } catch (e) { return null; }
 }
 
 function refreshNotifUIFromPermission(){
@@ -370,8 +396,9 @@ function refreshNotifUIFromPermission(){
 
   if (!hasNotif) return;
 
-  const lsState = (()=>{ try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
-  const hasToken = (()=>{ try { return !!localStorage.getItem('fcmToken'); } catch { return false; } })();
+  let lsState = null;
+  try { lsState = localStorage.getItem(LS_NOTIF_STATE) || null; } catch (e) {}
+  const hasToken = isNotifEnabledLocally();
   const pending = __tokenProvisionPending || !!__tokenReqLock || __notifReqInFlight;
 
   // “blocked” → no marketing, no switch ON, banner chico ON
@@ -410,7 +437,7 @@ function startNotifPermissionWatcher(){
   if (__permWatcher.wired) return; __permWatcher.wired = true;
 
   try {
-    if ('permissions' in navigator && navigator.permissions?.query){
+    if ('permissions' in navigator && navigator.permissions && navigator.permissions.query){
       navigator.permissions.query({ name:'notifications' }).then((permStatus)=>{
         __permWatcher.last = permStatus.state;
         refreshNotifUIFromPermission(); syncProfileConsentUI();
@@ -427,13 +454,13 @@ function startNotifPermissionWatcher(){
       }).catch(()=>{ startPollingWatcher(); });
       return;
     }
-  } catch {}
+  } catch (e) {}
   startPollingWatcher();
 }
 function startPollingWatcher(){
   if (__permWatcher.timer) return;
   __permWatcher.timer = setInterval(()=>{
-    const cur = (window.Notification?.permission) || 'default';
+    const cur = (window.Notification && window.Notification.permission) || 'default';
     if (cur === __permWatcher.last) return;
     __permWatcher.last = cur;
     refreshNotifUIFromPermission(); syncProfileConsentUI();
@@ -451,7 +478,8 @@ export async function handlePermissionRequest(){
   if (__notifReqInFlight) return;
   __notifReqInFlight = true;
   try{
-    const ls = (()=>{ try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
+    let ls = null;
+    try { ls = localStorage.getItem(LS_NOTIF_STATE) || null; } catch (e) {}
     const current = Notification.permission;
 
     if (current === 'granted'){
@@ -463,7 +491,7 @@ export async function handlePermissionRequest(){
     }
 
     if (current === 'denied'){
-      try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
+      try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch (e) {}
       emit('rampet:consent:notif-opt-out',{ source:'browser-denied' });
       showNotifOffBanner(true);
       refreshNotifUIFromPermission();
@@ -473,76 +501,25 @@ export async function handlePermissionRequest(){
     // default → prompt por acción del usuario
     const status = await Notification.requestPermission();
     if (status === 'granted'){
-      const st = (()=>{ try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
+      let st = null; try { st = localStorage.getItem(LS_NOTIF_STATE) || null; } catch (e) {}
       if (st === 'blocked'){ showNotifOffBanner(true); }
       else { await obtenerYGuardarToken(); showNotifOffBanner(false); }
     } else if (status === 'denied'){
-      try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
+      try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch (e) {}
       emit('rampet:consent:notif-opt-out',{ source:'prompt' });
       showNotifOffBanner(true);
     } else {
-      try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
+      try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch (e) {}
       emit('rampet:consent:notif-dismissed',{});
     }
     refreshNotifUIFromPermission();
   } catch(e){
-    console.warn('[notifications] handlePermissionRequest error:', e?.message || e);
+    console.warn('[notifications] handlePermissionRequest error:', (e && e.message) || e);
     refreshNotifUIFromPermission();
   } finally { __notifReqInFlight = false; }
 }
-
-/* 🔧 FIX: Prompt desde el switch usando CLICK (user gesture) */
-function wireSwitchWithGesture(sw){
-  if (!sw || sw._gestureWired) return;
-  sw._gestureWired = true;
-
-  // CLICK: manejar permiso 'default' con gesto del usuario
-  sw.addEventListener('click', (e) => {
-    try {
-      if (!('Notification' in window)) return;
-      const perm = Notification.permission;
-
-      // si ya está granted/denied dejamos que el change haga su trabajo
-      if (perm === 'granted' || perm === 'denied') return;
-
-      // perm === 'default' → pedimos permiso en el mismo gesto
-      e.preventDefault();
-      e.stopPropagation();
-      if (__switchPrompting) return;
-      __switchPrompting = true;
-
-      // Oculto marketing por si estaba
-      try { show($('notif-prompt-card'), false); } catch {}
-
-      Notification.requestPermission().then(async (status) => {
-        if (status === 'granted'){
-          try { sw.checked = true; } catch {}
-          try { await obtenerYGuardarToken(); } catch {}
-          try { localStorage.setItem(LS_NOTIF_STATE,'accepted'); } catch {}
-          showNotifOffBanner(false);
-        } else if (status === 'denied'){
-          try { sw.checked = false; } catch {}
-          try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
-          toast('Notificaciones bloqueadas en el navegador.','warning');
-          showNotifOffBanner(true);
-        } else {
-          // sigue default → lo tratamos como "Luego"
-          try { sw.checked = false; } catch {}
-          try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
-        }
-        refreshNotifUIFromPermission();
-      }).catch(()=>{
-        try { sw.checked = false; } catch {}
-      }).finally(()=>{
-        __switchPrompting = false;
-      });
-    } catch {}
-  }, { passive:false });
-}
-
-/* handler del banner de marketing */
 export function handlePermissionBlockClick(){
-  try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
+  try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch (e) {}
   show($('notif-prompt-card'), false);
   const sw = $('notif-switch'); if (sw) sw.checked = false;
   setClienteConfigPatch({ notifEnabled:false, notifUpdatedAt:new Date().toISOString() }).catch(()=>{});
@@ -552,28 +529,32 @@ export function handlePermissionBlockClick(){
   showNotifOffBanner(true);
 }
 export function dismissPermissionRequest(){
-  try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
+  try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch (e) {}
   show($('notif-prompt-card'), false);
   emit('rampet:consent:notif-dismissed', {});
   const sw = $('notif-switch'); if (sw) sw.checked = false;
   show($('notif-card'), true); // switch OFF visible
 }
-
-/* CHANGE: ON (suscribir) / OFF (desuscribir) cuando ya hay permiso */
 export async function handlePermissionSwitch(e){
-  const checked = !!e?.target?.checked;
+  const checked = !!(e && e.target && e.target.checked);
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
   const before = Notification.permission;
 
   if (checked){
     if (before === 'granted'){
-      try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {}
+      try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch (err) {}
     } else if (before === 'default'){
-      // si llega acá, el click-gesture no corrió (fallback)
       const status = await Notification.requestPermission();
-      if (status === 'granted'){ try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {} }
-      else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); const sw=$('notif-switch'); if (sw) sw.checked=false; showNotifOffBanner(true); }
-      else { try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}; const sw=$('notif-switch'); if (sw) sw.checked=false; }
+      if (status === 'granted'){
+        try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch (err) {}
+      } else if (status === 'denied'){
+        try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch (e2) {}
+        toast('Notificaciones bloqueadas en el navegador.','warning');
+        const sw=$('notif-switch'); if (sw) sw.checked=false; showNotifOffBanner(true);
+      } else {
+        try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch (e3) {}
+        const sw=$('notif-switch'); if (sw) sw.checked=false;
+      }
     } else {
       toast('Tenés bloqueadas las notificaciones en el navegador.','warning');
       const sw=$('notif-switch'); if (sw) sw.checked=false;
@@ -593,10 +574,10 @@ async function hookOnMessage(){
     await ensureMessagingCompatLoaded();
     const messaging = firebase.messaging();
     messaging.onMessage(async (payload)=>{
-      const d = payload?.data || {};
+      const d = (payload && payload.data) || {};
       try {
         const reg = await navigator.serviceWorker.getRegistration(SW_PATH) || await navigator.serviceWorker.getRegistration();
-        if (reg?.showNotification){
+        if (reg && reg.showNotification){
           await reg.showNotification(d.title || 'RAMPET', {
             body: d.body || '',
             icon: d.icon || '/images/mi_logo_192.png',
@@ -604,24 +585,17 @@ async function hookOnMessage(){
             data: { url: d.url || d.click_action || '/?inbox=1' }
           });
         }
-      } catch(e){ console.warn('[onMessage] error', e?.message || e); }
+      } catch(e){ console.warn('[onMessage] error', (e && e.message) || e); }
     });
-  } catch(e){ console.warn('[notifications] hookOnMessage error:', e?.message || e); }
+  } catch(e){ console.warn('[notifications] hookOnMessage error:', (e && e.message) || e); }
 }
 
 /* Cableado de botones del HTML (notifs) */
 function wirePushButtonsOnce(){
-  const allow = $('btn-activar-notif-prompt');   if (allow && !allow._wired){ allow._wired = true; allow.addEventListener('click', ()=>{ handlePermissionRequest(); }); }
-  const later = $('btn-rechazar-notif-prompt');   if (later && !later._wired){ later._wired = true; later.addEventListener('click', ()=>{ dismissPermissionRequest(); }); }
-  const block = $('btn-bloquear-notif-prompt');   if (block && !block._wired){ block._wired = true; block.addEventListener('click', ()=>{ handlePermissionBlockClick(); }); }
-  const sw    = $('notif-switch');
-  if (sw && !sw._wired){
-    sw._wired = true;
-    // FIX: gesto de usuario para permiso 'default'
-    wireSwitchWithGesture(sw);
-    // CHANGE: manejar granted/denied normalmente
-    sw.addEventListener('change', handlePermissionSwitch);
-  }
+  const allow = $('btn-activar-notif-prompt'); if (allow && !allow._wired){ allow._wired = true; allow.addEventListener('click', ()=>{ handlePermissionRequest(); }); }
+  const later = $('btn-rechazar-notif-prompt'); if (later && !later._wired){ later._wired = true; later.addEventListener('click', ()=>{ dismissPermissionRequest(); }); }
+  const block = $('btn-bloquear-notif-prompt'); if (block && !block._wired){ block._wired = true; block.addEventListener('click', ()=>{ handlePermissionBlockClick(); }); }
+  const sw    = $('notif-switch');                if (sw && !sw._wired){ sw._wired = true; sw.addEventListener('change', handlePermissionSwitch); }
 }
 
 /* Sincronía con Perfil — NOTIFS */
@@ -633,35 +607,50 @@ export async function syncProfileConsentUI(){
 
   const hasNotif = ('Notification' in window);
   const perm = hasNotif ? Notification.permission : 'unsupported';
-  const ls = (()=>{ try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
+  let ls = null;
+  try { ls = localStorage.getItem(LS_NOTIF_STATE) || null; } catch (e) {}
 
   // Si NO hay permiso concedido → OFF; normalizo residuos locales
   if (!hasNotif || perm === 'denied' || perm === 'default' || perm === 'prompt'){
     try {
       localStorage.removeItem('fcmToken');
       if (ls === 'accepted') localStorage.setItem(LS_NOTIF_STATE,'deferred');
-    } catch {}
+    } catch (e2) {}
     cb.dataset.perm = perm;
     return;
   }
 
   // perm === 'granted' → ON sólo si hay token local o server confirma
-  const localOn  = (()=>{ try { return !!localStorage.getItem('fcmToken'); } catch { return false; } })();
-  const serverOn = await (async()=>{ try { return await fetchServerNotifEnabled(); } catch { return null; } })();
+  const localOn  = isNotifEnabledLocally();
+  const serverOn = await (async()=>{ try { return await fetchServerNotifEnabled(); } catch (e3) { return null; } })();
 
   cb.checked = !!(localOn || serverOn);
   cb.dataset.perm = perm;
 }
 export async function handleProfileConsentToggle(checked){
   if (checked){
-    if (('Notification' in window) && Notification.permission==='granted'){ try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {} }
-    else {
+    if (('Notification' in window) && Notification.permission==='granted'){
+      try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch (e) {}
+    } else {
       try {
         const status = await Notification.requestPermission();
-        if (status === 'granted'){ try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {} }
-        else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); showNotifOffBanner(true); }
-        else { try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}; $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); }
-      } catch(e){ console.warn('[Perfil] requestPermission error:', e?.message || e); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); }
+        if (status === 'granted'){
+          try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch (e2) {}
+        }
+        else if (status === 'denied'){
+          try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch (e3) {}
+          toast('Notificaciones bloqueadas en el navegador.','warning');
+          if ($('prof-consent-notif')) $('prof-consent-notif').checked=false;
+          showNotifOffBanner(true);
+        }
+        else {
+          try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch (e4) {}
+          if ($('prof-consent-notif')) $('prof-consent-notif').checked=false;
+        }
+      } catch(e5){
+        console.warn('[Perfil] requestPermission error:', (e5 && e5.message) || e5);
+        if ($('prof-consent-notif')) $('prof-consent-notif').checked=false;
+      }
     }
   } else {
     await borrarTokenYOptOut();
@@ -674,33 +663,33 @@ export async function handleProfileConsentToggle(checked){
    GEO — Banners + Perfil  (Beneficios cerca tuyo = GEO)
    ──────────────────────────────────────────────────────────── */
 function geoEls(){ return { banner:$('geo-banner'), txt:$('geo-banner-text'), btnOn:$('geo-enable-btn'), btnOff:$('geo-disable-btn'), btnHelp:$('geo-help-btn') }; }
-function isGeoBlockedLocally(){ try { return localStorage.getItem(LS_GEO_STATE) === 'blocked'; } catch { return false; } }
+function isGeoBlockedLocally(){ try { return localStorage.getItem(LS_GEO_STATE) === 'blocked'; } catch (e) { return false; } }
 
 async function detectGeoPermission(){
   try {
-    if (navigator.permissions?.query){
+    if (navigator.permissions && navigator.permissions.query){
       const st = await navigator.permissions.query({ name:'geolocation' });
       return st.state; // 'granted' | 'denied' | 'prompt'
     }
-  } catch {}
+  } catch (e) {}
   return 'unknown';
 }
 async function hasDomicilioOnServer(){
   try {
-    const uid = firebase.auth().currentUser?.uid; if (!uid) return false;
+    const uid = firebase.auth().currentUser && firebase.auth().currentUser.uid; if (!uid) return false;
     const clienteId = await getClienteDocIdPorUID(uid) || uid;
     const snap = await firebase.firestore().collection('clientes').doc(clienteId).get();
-    const dom  = snap.exists ? snap.data()?.domicilio : null;
-    const line = (dom?.addressLine || '').trim();
+    const dom  = snap.exists ? (snap.data() && snap.data().domicilio) : null;
+    const line = (dom && dom.addressLine ? dom.addressLine : '').trim();
     return !!line;
-  } catch { return false; }
+  } catch (e) { return false; }
 }
 async function shouldHideGeoBanner(){
   if (isGeoSuppressedNow()) return true;            // cool-down activo
   if (isGeoBlockedLocally()) return false;          // mostrar recordatorio (no ocultar)
   const perm = await detectGeoPermission();
   if (perm !== 'granted') return false;             // sin permiso → dejamos visible marketing
-  try { if (localStorage.getItem(LS_ADDR_DISMISS) === '1') return true; } catch {}
+  try { if (localStorage.getItem(LS_ADDR_DISMISS) === '1') return true; } catch (e) {}
   return await hasDomicilioOnServer();
 }
 function hideGeoBanner(){ const { banner } = geoEls(); if (banner) banner.style.display = 'none'; }
@@ -729,8 +718,16 @@ function ensureGeoOffReminder(){
   const mountAt = document.querySelector('.container') || $('main-app-screen') || document.body;
   mountAt.insertBefore(el, mountAt.firstChild);
 
-  $('geo-off-open-profile')?.addEventListener('click', ()=>{ try { window.UI?.openProfileModal?.(); } catch{} });
-  $('geo-off-hide')?.addEventListener('click', ()=>{ showGeoOffReminder(false); });
+  const open = $('geo-off-open-profile');
+  if (open && !open._wired){
+    open._wired = true;
+    open.addEventListener('click', ()=>{ try { window.UI && window.UI.openProfileModal && window.UI.openProfileModal(); } catch (e) {} });
+  }
+  const hide = $('geo-off-hide');
+  if (hide && !hide._wired){
+    hide._wired = true;
+    hide.addEventListener('click', ()=>{ showGeoOffReminder(false); });
+  }
   return el;
 }
 function showGeoOffReminder(on){ const el = ensureGeoOffReminder(); if (el) el.style.display = on ? 'block' : 'none'; }
@@ -748,7 +745,7 @@ function setGeoMarketingUI(on){
   show(banner, on);
   if (!on) return;
 
-  if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.'; // GEO copy
+  if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.';
   showInline(btnOn, true);
   showInline(btnOff, false);  // no usamos “Luego” en GEO
   showInline(btnHelp, false);
@@ -767,10 +764,10 @@ function setGeoMarketingUI(on){
   if (!nogo._wired){
     nogo._wired = true;
     nogo.addEventListener('click', async ()=>{
-      try { localStorage.setItem(LS_GEO_STATE,'blocked'); } catch {}
+      try { localStorage.setItem(LS_GEO_STATE,'blocked'); } catch (e) {}
       setGeoSuppress(GEO_COOLDOWN_DAYS);
       stopGeoWatch();
-      await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() }).catch(()=>{});
+      try { await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() }); } catch (e2) {}
       hideGeoBanner();
       toast('Podés activarlo cuando quieras desde tu Perfil.','info');
       emit('rampet:geo:changed', { enabled:false });
@@ -784,13 +781,13 @@ function setGeoRegularUI(state){
   show(banner, true);
 
   if (state === 'granted'){
-    try { localStorage.setItem(LS_GEO_STATE,'accepted'); } catch {}
+    try { localStorage.setItem(LS_GEO_STATE,'accepted'); } catch (e) {}
     if (txt) txt.textContent = 'Listo: ya podés recibir beneficios cerca tuyo.';
     showInline(btnOn,false); showInline(btnOff,false); showInline(btnHelp,false);
     return;
   }
   if (state === 'denied'){
-    try { localStorage.setItem(LS_GEO_STATE,'blocked'); } catch {}
+    try { localStorage.setItem(LS_GEO_STATE,'blocked'); } catch (e) {}
     if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
     showInline(btnOn,false); showInline(btnOff,true); showInline(btnHelp,true);
     return;
@@ -802,17 +799,17 @@ function setGeoRegularUI(state){
 /* GEO Perfil (switch) + server */
 async function fetchServerGeoEnabled(){
   try {
-    const uid = firebase.auth().currentUser?.uid; if (!uid) return null;
+    const uid = firebase.auth().currentUser && firebase.auth().currentUser.uid; if (!uid) return null;
     const clienteId = await getClienteDocIdPorUID(uid) || uid;
     const snap = await firebase.firestore().collection('clientes').doc(clienteId).get();
     const data = snap.exists ? snap.data() : null;
-    return !!data?.config?.geoEnabled;
-  } catch { return null; }
+    return !!(data && data.config && data.config.geoEnabled);
+  } catch (e) { return null; }
 }
 export async function syncProfileGeoUI(){
   const cb = $('prof-consent-geo'); if (!cb) return;
   const perm = await detectGeoPermission();
-  const ls = (()=>{ try { return localStorage.getItem(LS_GEO_STATE) || null; } catch { return null; } })();
+  let ls = null; try { ls = localStorage.getItem(LS_GEO_STATE) || null; } catch (e) {}
 
   // Pactado: “deferred” o “blocked” → SIEMPRE OFF
   if (ls === 'deferred' || ls === 'blocked' || perm === 'denied'){ cb.checked = false; return; }
@@ -827,42 +824,44 @@ export async function handleProfileGeoToggle(checked){
   if (checked){
     await handleGeoEnable().catch(()=>{});
   } else {
-    try { localStorage.setItem(LS_GEO_STATE,'blocked'); } catch {}
+    try { localStorage.setItem(LS_GEO_STATE,'blocked'); } catch (e) {}
     setGeoSuppress(GEO_COOLDOWN_DAYS);
     stopGeoWatch();
-    await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() }).catch(()=>{});
+    try { await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() }); } catch (e2) {}
     setGeoOffByUserUI();
     emit('rampet:geo:changed', { enabled:false });
   }
-  await updateGeoUI().catch(()=>{});
-  await syncProfileGeoUI().catch(()=>{});
+  try { await updateGeoUI(); } catch (e3) {}
+  try { await syncProfileGeoUI(); } catch (e4) {}
 }
 
 /* GEO botones */
 function wireGeoButtonsOnce(){
   const { banner, btnOn, btnOff, btnHelp } = geoEls();
   if (!banner || banner._wired) return; banner._wired = true;
-  btnOn?.addEventListener('click', handleGeoEnable);
+  if (btnOn) btnOn.addEventListener('click', handleGeoEnable);
   // btnOff intencionalmente no se usa (no hay “Luego”)
-  btnHelp?.addEventListener('click', ()=>{ alert('Para activarlo:\n\n1) Abrí configuración del navegador.\n2) Permisos → Activar ubicación.\n3) Recargá la página.'); });
+  if (btnHelp) btnHelp.addEventListener('click', ()=>{
+    alert('Para activarlo:\n\n1) Abrí configuración del navegador.\n2) Permisos > Ubicación: Permitir.\n3) Recargá la página.');
+  });
 }
 async function handleGeoEnable(){
-  try { localStorage.setItem(LS_GEO_STATE,'accepted'); } catch {}
+  try { localStorage.setItem(LS_GEO_STATE,'accepted'); } catch (e) {}
   clearGeoSuppress();
   emit('rampet:geo:enabled', { method:'ui' });
   startGeoWatch();
 
-  await setClienteConfigPatch({ geoEnabled:true, geoOptInSource:'ui', geoUpdatedAt:new Date().toISOString() }).catch(()=>{});
+  try { await setClienteConfigPatch({ geoEnabled:true, geoOptInSource:'ui', geoUpdatedAt:new Date().toISOString() }); } catch (e2) {}
 
   // intento rápido de capturar 1 posición (no bloqueante)
   try {
     await new Promise((resolve)=>{
-      if (!navigator.geolocation?.getCurrentPosition) return resolve();
+      if (!(navigator.geolocation && navigator.geolocation.getCurrentPosition)) return resolve();
       let done = false; const finish = ()=>{ if (done) return; done = true; resolve(); };
       navigator.geolocation.getCurrentPosition(()=>{ finish(); }, ()=>{ finish(); }, { timeout: 3000, maximumAge: 120000, enableHighAccuracy:false });
       setTimeout(finish, 3500);
     });
-  } catch {}
+  } catch (e3) {}
 
   setTimeout(()=>{ updateGeoUI(); }, 0);
 }
@@ -883,7 +882,7 @@ async function updateGeoUI(){
 
   if (isGeoBlockedLocally()){
     stopGeoWatch();
-    await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() });
+    try { await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() }); } catch (e) {}
     hideGeoBanner();
     await maybeShowGeoOffReminder();
     return;
@@ -892,7 +891,7 @@ async function updateGeoUI(){
   if (state === 'granted'){
     setGeoMarketingUI(false);
     startGeoWatch();
-    await setClienteConfigPatch({ geoEnabled:true, geoOptInSource:'permission', geoUpdatedAt:new Date().toISOString() });
+    try { await setClienteConfigPatch({ geoEnabled:true, geoOptInSource:'permission', geoUpdatedAt:new Date().toISOString() }); } catch (e2) {}
     if (hide) hideGeoBanner(); else setGeoRegularUI('granted');
     showGeoOffReminder(false);
     return;
@@ -901,7 +900,7 @@ async function updateGeoUI(){
   // state: prompt/unknown/denied
   stopGeoWatch();
   if (state === 'denied'){
-    await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() });
+    try { await setClienteConfigPatch({ geoEnabled:false, geoUpdatedAt:new Date().toISOString() }); } catch (e3) {}
     if (hide) hideGeoBanner(); else { setGeoMarketingUI(false); setGeoRegularUI('denied'); }
     await maybeShowGeoOffReminder();
     return;
@@ -918,14 +917,33 @@ const LS_GEO_DAY='geoDay', LS_GEO_COUNT='geoCount';
 let geoWatchId=null, lastSample={ t:0, lat:null, lng:null };
 
 function round3(n){ return Math.round((+n)*1e3)/1e3; }
-function haversineMeters(a,b){ if(!a||!b) return Infinity; const R=6371000,toRad=d=>d*Math.PI/180; const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0)); const la1=toRad(a.lat||0), la2=toRad(b.lat||0); const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2; return 2*R*Math.asin(Math.sqrt(h)); }
+function haversineMeters(a,b){
+  if(!a||!b) return Infinity;
+  const R=6371000,toRad=d=>d*Math.PI/180;
+  const dLat=toRad((b.lat||0)-(a.lat||0)), dLng=toRad((b.lng||0)-(a.lng||0));
+  const la1=toRad(a.lat||0), la2=toRad(b.lat||0);
+  const h=Math.sin(dLat/2)**2 + Math.cos(la1)*Math.cos(la2)*Math.sin(dLng/2)**2;
+  return 2*R*Math.asin(Math.sqrt(h));
+}
 function todayKey(){ const d=new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
-function incDailyCount(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); if (curDay!==day){ localStorage.setItem(LS_GEO_DAY,day); localStorage.setItem(LS_GEO_COUNT,'0'); } const c=+localStorage.getItem(LS_GEO_COUNT)||0; localStorage.setItem(LS_GEO_COUNT,String(c+1)); return c+1; }
-function canWriteMoreToday(){ const day=todayKey(); const curDay=localStorage.getItem(LS_GEO_DAY); const c=+localStorage.getItem(LS_GEO_COUNT)||0; return (curDay!==day)||(c<GEO_CONF.DAILY_CAP); }
+function incDailyCount(){
+  const day=todayKey();
+  const curDay=localStorage.getItem(LS_GEO_DAY);
+  if (curDay!==day){ localStorage.setItem(LS_GEO_DAY,day); localStorage.setItem(LS_GEO_COUNT,'0'); }
+  const c=+localStorage.getItem(LS_GEO_COUNT)||0;
+  localStorage.setItem(LS_GEO_COUNT,String(c+1));
+  return c+1;
+}
+function canWriteMoreToday(){
+  const day=todayKey();
+  const curDay=localStorage.getItem(LS_GEO_DAY);
+  const c=+localStorage.getItem(LS_GEO_COUNT)||0;
+  return (curDay!==day)||(c<GEO_CONF.DAILY_CAP);
+}
 async function writeGeoSamples(lat,lng){
   try {
     if (!canWriteMoreToday()) return;
-    const uid = firebase.auth().currentUser?.uid; if (!uid) return;
+    const uid = firebase.auth().currentUser && firebase.auth().currentUser.uid; if (!uid) return;
     const clienteId = await getClienteDocIdPorUID(uid); if (!clienteId) return;
 
     const db  = firebase.firestore();
@@ -934,17 +952,24 @@ async function writeGeoSamples(lat,lng){
     await db.collection('clientes').doc(clienteId).collection('geo_raw').doc().set({ lat,lng,capturedAt:now,source:'pwa' }, { merge:false });
     await db.collection('public_geo').doc(uid).collection('samples').doc().set({ lat3:round3(lat), lng3:round3(lng), capturedAt:now, rounded:true, source:'pwa' }, { merge:false });
     incDailyCount();
-  } catch(e){ console.warn('[geo] writeGeoSamples error', e?.message || e); }
+  } catch(e){ console.warn('[geo] writeGeoSamples error', (e && e.message) || e); }
 }
-function shouldRecord(lat,lng){ const nowT=Date.now(); const dt=(nowT-(lastSample.t||0))/1000; if (dt>=GEO_CONF.THROTTLE_S) return true; const dist=haversineMeters((lastSample.lat!=null&&lastSample.lng!=null)?{lat:lastSample.lat,lng:lastSample.lng}:null,{lat,lng}); return dist>=GEO_CONF.DIST_M; }
+function shouldRecord(lat,lng){
+  const nowT=Date.now();
+  const dt=(nowT-(lastSample.t||0))/1000;
+  if (dt>=GEO_CONF.THROTTLE_S) return true;
+  const dist=haversineMeters((lastSample.lat!=null&&lastSample.lng!=null)?{lat:lastSample.lat,lng:lastSample.lng}:null,{lat,lng});
+  return dist>=GEO_CONF.DIST_M;
+}
 function onGeoPosSuccess(pos){
   try {
-    const lat = pos?.coords?.latitude, lng = pos?.coords?.longitude;
+    const lat = pos && pos.coords && pos.coords.latitude;
+    const lng = pos && pos.coords && pos.coords.longitude;
     if (lat==null || lng==null) return;
     if (!shouldRecord(lat,lng)) return;
     lastSample = { t:Date.now(), lat, lng };
     writeGeoSamples(lat, lng);
-  } catch(e){ console.warn('[geo] onGeoPosSuccess error', e?.message || e); }
+  } catch(e){ console.warn('[geo] onGeoPosSuccess error', (e && e.message) || e); }
 }
 function onGeoPosError(_){}
 function startGeoWatch(){
@@ -956,17 +981,17 @@ function startGeoWatch(){
       onGeoPosSuccess, onGeoPosError,
       { enableHighAccuracy:false, maximumAge:60000, timeout:10000 }
     );
-  } catch(e){ console.warn('[geo] start watch error', e?.message || e); }
+  } catch(e){ console.warn('[geo] start watch error', (e && e.message) || e); }
 }
-function stopGeoWatch(){ try { if (geoWatchId!=null) navigator.geolocation.clearWatch(geoWatchId); } catch{} geoWatchId=null; }
+function stopGeoWatch(){ try { if (geoWatchId!=null) navigator.geolocation.clearWatch(geoWatchId); } catch(e) {} geoWatchId=null; }
 async function ensureGeoWatchIfPermitted(){
   try {
     if (document.visibilityState!=='visible' || isGeoBlockedLocally()){ stopGeoWatch(); return; }
     const perm = await detectGeoPermission();
     if (perm === 'granted') startGeoWatch(); else stopGeoWatch();
-  } catch { stopGeoWatch(); }
+  } catch (e) { stopGeoWatch(); }
 }
-try { document.addEventListener('visibilitychange', ()=>{ ensureGeoWatchIfPermitted(); }); } catch {}
+try { document.addEventListener('visibilitychange', ()=>{ ensureGeoWatchIfPermitted(); }); } catch (e) {}
 
 /* ────────────────────────────────────────────────────────────
    DOMICILIO (banner “📍 Sumá tu domicilio…”) — wiring simple
@@ -979,7 +1004,7 @@ function ensureAddressBannerButtons(){
   try {
     if (sessionStorage.getItem(SS_ADDR_DEFER) === '1'){ banner.style.display='none'; return; }
     if (localStorage.getItem(LS_ADDR_DISMISS) === '1'){ banner.style.display='none'; return; }
-  } catch {}
+  } catch (e) {}
 
   const actions = banner.querySelector('.prompt-actions') || banner;
 
@@ -988,13 +1013,13 @@ function ensureAddressBannerButtons(){
   if (openBtn && !openBtn._wired){
     openBtn._wired = true;
     openBtn.addEventListener('click', ()=>{
-      try { $('address-card').style.display='block'; } catch {}
+      try { $('address-card').style.display='block'; } catch (e) {}
       banner.style.display='none';
-      try { initDomicilioForm(); } catch {}
+      try { initDomicilioForm(); } catch (e2) {}
     });
   }
 
-  // ÚNICO “Luego” — SCOPED al banner
+  // ÚNICO “Luego”
   let later = banner.querySelector('#address-skip');
   if (!later){
     later = document.createElement('button');
@@ -1007,13 +1032,13 @@ function ensureAddressBannerButtons(){
   if (!later._wired){
     later._wired = true;
     later.addEventListener('click', ()=>{
-      try { sessionStorage.setItem(SS_ADDR_DEFER,'1'); } catch {}
+      try { sessionStorage.setItem(SS_ADDR_DEFER,'1'); } catch (e) {}
       toast('Podés cargarlo cuando quieras desde tu perfil.','info');
       banner.style.display = 'none'; // se oculta SOLO por sesión
     });
   }
 
-  // “No gracias” (persistente) — SCOPED al banner
+  // “No gracias” (persistente)
   let nogo = banner.querySelector('#address-nothanks-btn');
   if (!nogo){
     nogo = document.createElement('button');
@@ -1026,7 +1051,7 @@ function ensureAddressBannerButtons(){
   if (!nogo._wired){
     nogo._wired = true;
     nogo.addEventListener('click', ()=>{
-      try { localStorage.setItem(LS_ADDR_DISMISS,'1'); } catch {}
+      try { localStorage.setItem(LS_ADDR_DISMISS,'1'); } catch (e) {}
       banner.style.display = 'none';
       toast('Listo, no vamos a pedirte domicilio.','info');
     });
@@ -1063,12 +1088,12 @@ export async function initDomicilioForm(){
 
   // Precarga
   try {
-    const uid = firebase.auth().currentUser?.uid;
+    const uid = firebase.auth().currentUser && firebase.auth().currentUser.uid;
     if (uid){
       const clienteId = await getClienteDocIdPorUID(uid);
       if (clienteId){
         const snap = await firebase.firestore().collection('clientes').doc(clienteId).get();
-        const dom  = snap.data()?.domicilio?.components;
+        const dom  = snap.data() && snap.data().domicilio && snap.data().domicilio.components;
         if (dom){
           g('dom-calle').value = dom.calle || '';
           g('dom-numero').value = dom.numero || '';
@@ -1083,49 +1108,58 @@ export async function initDomicilioForm(){
         }
       }
     }
-  } catch {}
+  } catch (e) {}
 
   // Guardar
-  q('#address-save')?.addEventListener('click', async ()=>{
-    try{
-      const uid = firebase.auth().currentUser?.uid; if (!uid) return toast('Iniciá sesión para guardar tu domicilio','warning');
-      const clienteId = await getClienteDocIdPorUID(uid); if (!clienteId) return toast('No encontramos tu ficha de cliente','error');
+  const saveBtn = q('#address-save');
+  if (saveBtn && !saveBtn._wired){
+    saveBtn._wired = true;
+    saveBtn.addEventListener('click', async ()=>{
+      try{
+        const uid = firebase.auth().currentUser && firebase.auth().currentUser.uid;
+        if (!uid) { toast('Iniciá sesión para guardar tu domicilio','warning'); return; }
+        const clienteId = await getClienteDocIdPorUID(uid);
+        if (!clienteId) { toast('No encontramos tu ficha de cliente','error'); return; }
 
-      const components = getValues();
-      const addressLine = buildAddressLine(components);
-      await firebase.firestore().collection('clientes').doc(clienteId).set({
-        domicilio:{ addressLine, components, geocoded:{ lat:null,lng:null,geohash7:null,provider:null,confidence:null,geocodedAt:null,verified:false } }
-      }, { merge:true });
+        const components = getValues();
+        const addressLine = buildAddressLine(components);
+        await firebase.firestore().collection('clientes').doc(clienteId).set({
+          domicilio:{ addressLine, components, geocoded:{ lat:null,lng:null,geohash7:null,provider:null,confidence:null,geocodedAt:null,verified:false } }
+        }, { merge:true });
 
-      try { localStorage.setItem(LS_ADDR_DISMISS,'1'); } catch {}
-      toast('Domicilio guardado. ¡Gracias!','success');
+        try { localStorage.setItem(LS_ADDR_DISMISS,'1'); } catch (e) {}
+        toast('Domicilio guardado. ¡Gracias!','success');
 
-      // Cierro form y banner definitivamente
-      try { card.style.display='none'; } catch {}
-      try { $('address-banner').style.display='none'; } catch {}
+        // Cierro form y banner definitivamente
+        try { card.style.display='none'; } catch (e2) {}
+        try { $('address-banner').style.display='none'; } catch (e3) {}
 
-      // Actualizo UI relacionada
-      hideGeoBanner();
-      updateGeoUI().catch(()=>{});
-      emit('rampet:geo:changed', { enabled:true });
+        // Actualizo UI relacionada
+        hideGeoBanner();
+        try { await updateGeoUI(); } catch (e4) {}
+        emit('rampet:geo:changed', { enabled:true });
 
-      // Si existe resumen en perfil, intento actualizarlo rápido
-      try {
-        const summary = $('prof-address-summary');
-        if (summary) summary.textContent = addressLine || '—';
-      } catch {}
-    }catch(e){ console.error('save domicilio error', e); toast('No pudimos guardar el domicilio','error'); }
-  });
+        // Actualizar resumen en perfil si existe
+        try {
+          const summary = $('prof-address-summary');
+          if (summary) summary.textContent = addressLine || '—';
+        } catch (e5) {}
+      }catch(e){
+        console.error('save domicilio error', e);
+        toast('No pudimos guardar el domicilio','error');
+      }
+    });
+  }
 
-  // Cancel / Luego del FORM (SCOPED al form)
+  // Cancel / Luego del FORM
   const skipBtn = q('#address-cancel') || q('#address-skip');
   if (skipBtn && !skipBtn._wired){
     skipBtn._wired = true;
     skipBtn.addEventListener('click', ()=>{
-      try { sessionStorage.setItem(SS_ADDR_DEFER,'1'); } catch {}
+      try { sessionStorage.setItem(SS_ADDR_DEFER,'1'); } catch (e) {}
       toast('Podés cargarlo cuando quieras desde tu perfil.','info');
-      try { card.style.display='none'; } catch {}
-      try { $('address-banner').style.display='block'; } catch {}
+      try { card.style.display='none'; } catch (e2) {}
+      try { $('address-banner').style.display='block'; } catch (e3) {}
     });
   }
 }
@@ -1147,7 +1181,7 @@ try {
   window.syncProfileGeoUI          = syncProfileGeoUI;
   window.handleProfileGeoToggle    = handleProfileGeoToggle;
   if (!window.maybeShowGeoContextPrompt) window.maybeShowGeoContextPrompt = maybeShowGeoContextPrompt;
-} catch {}
+} catch (e) {}
 
 // Sincronizar SIEMPRE al abrir el Perfil (wrap sobre UI.openProfileModal si existe)
 try {
@@ -1156,24 +1190,24 @@ try {
     const prev = ui.openProfileModal;
     ui.openProfileModal = (...args) => {
       const r = prev.apply(ui, args);
-      try { syncProfileConsentUI(); syncProfileGeoUI(); } catch {}
+      try { syncProfileConsentUI(); syncProfileGeoUI(); } catch (e) {}
       return r;
     };
     ui.openProfileModal._rampetPatched = true;
   }
-} catch {}
+} catch (e) {}
 
-document.addEventListener('rampet:consent:notif-opt-in',  ()=>{ syncProfileConsentUI(); });
-document.addEventListener('rampet:consent:notif-opt-out', ()=>{ syncProfileConsentUI(); });
-document.addEventListener('rampet:consent:notif-dismissed', ()=>{ syncProfileConsentUI(); });
+document.addEventListener('rampet:consent:notif-opt-in',  ()=>{ try { syncProfileConsentUI(); } catch (e) {} });
+document.addEventListener('rampet:consent:notif-opt-out', ()=>{ try { syncProfileConsentUI(); } catch (e) {} });
+document.addEventListener('rampet:consent:notif-dismissed', ()=>{ try { syncProfileConsentUI(); } catch (e) {} });
 
-document.addEventListener('rampet:geo:changed', ()=>{ try { syncProfileGeoUI(); maybeShowGeoOffReminder(); } catch {} });
+document.addEventListener('rampet:geo:changed', ()=>{ try { syncProfileGeoUI(); maybeShowGeoOffReminder(); } catch (e) {} });
 
 document.addEventListener('visibilitychange', ()=>{
   if (document.visibilityState==='visible'){
-    syncProfileConsentUI();
-    syncProfileGeoUI();
-    maybeShowGeoOffReminder();
+    try { syncProfileConsentUI(); } catch (e) {}
+    try { syncProfileGeoUI(); } catch (e2) {}
+    try { maybeShowGeoOffReminder(); } catch (e3) {}
   }
 });
 
@@ -1182,14 +1216,14 @@ document.addEventListener('visibilitychange', ()=>{
    ──────────────────────────────────────────────────────────── */
 export async function initNotificationsOnce(){
   await registerSW();
-  await waitForActiveSW().catch(()=>{});
+  try { await waitForActiveSW(); } catch (e) {}
 
   bootstrapFirstSessionUX();
   startNotifPermissionWatcher();
 
   if (AUTO_RESUBSCRIBE && ('Notification' in window) && Notification.permission==='granted'
       && hasPriorAppConsent() && !isNotifEnabledLocally() && (localStorage.getItem(LS_NOTIF_STATE)!=='blocked')){
-    await obtenerYGuardarTokenOneShot().catch(()=>{});
+    try { await obtenerYGuardarTokenOneShot(); } catch (e) {}
   }
 
   await hookOnMessage();
@@ -1198,11 +1232,11 @@ export async function initNotificationsOnce(){
 
   // Perfil (una sola vez)
   const profCb = $('prof-consent-notif');
-  if (profCb && !profCb._wired){ profCb._wired=true; profCb.addEventListener('change', (e)=>handleProfileConsentToggle(!!e.target.checked)); }
+  if (profCb && !profCb._wired){ profCb._wired=true; profCb.addEventListener('change', (e)=>handleProfileConsentToggle(!!(e && e.target && e.target.checked))); }
   await syncProfileConsentUI();
 
   const profGeo = $('prof-consent-geo');
-  if (profGeo && !profGeo._wired){ profGeo._wired=true; profGeo.addEventListener('change', (e)=>handleProfileGeoToggle(!!e.target.checked)); }
+  if (profGeo && !profGeo._wired){ profGeo._wired=true; profGeo.addEventListener('change', (e)=>handleProfileGeoToggle(!!(e && e.target && e.target.checked))); }
   await syncProfileGeoUI();
 
   // Recordatorio GEO según estado
@@ -1213,10 +1247,9 @@ export async function initNotificationsOnce(){
 export async function gestionarPermisoNotificaciones(){ refreshNotifUIFromPermission(); }
 export function handleBellClick(){ return Promise.resolve(); }
 export async function handleSignOutCleanup(){
-  try { localStorage.removeItem('fcmToken'); } catch {}
-  try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch {}
+  try { localStorage.removeItem('fcmToken'); } catch (e) {}
+  try { sessionStorage.removeItem('rampet:firstSessionDone'); } catch (e2) {}
 }
 
 /* helpers menores */
-function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
-
+function hasPriorAppConsent
