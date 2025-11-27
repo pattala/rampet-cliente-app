@@ -1,4 +1,4 @@
-// /modules/notifications.js — FCM + VAPID + Opt-In (banner) + Switch + Geo + Domicilio (limpio)
+// /modules/notifications.js — FCM + VAPID + Opt-In (banner) + Switch + Geo + Domicilio (lógica depurada + FIX switch)
 'use strict';
 
 /* ────────────────────────────────────────────────────────────
@@ -39,12 +39,14 @@ function clearGeoSuppress(){ try { localStorage.removeItem(LS_GEO_SUPPRESS_UNTIL
 function isGeoSuppressedNow(){ try { const until = +localStorage.getItem(LS_GEO_SUPPRESS_UNTIL) || 0; return until > _nowMs(); } catch { return false; } }
 
 function isGeoDeferredThisSession(){ try { return sessionStorage.getItem(GEO_SS_DEFER_KEY) === '1'; } catch { return false; } }
+function deferGeoBannerThisSession(){ try { sessionStorage.setItem(GEO_SS_DEFER_KEY,'1'); } catch {} }
 
 let __notifReqInFlight = false;
 let __tokenReqLock = null;
 let __hardResetAttempted = false;
 let __tailRetryScheduled = false;
 let __tokenProvisionPending = false;
+let __switchPrompting = false; // ← evita dobles prompts
 
 const SW_PATH = '/firebase-messaging-sw.js';
 const AUTO_RESUBSCRIBE = true;
@@ -91,7 +93,7 @@ function bootstrapFirstSessionUX(){
 }
 
 /* ────────────────────────────────────────────────────────────
-   NOTIF OFF — banner pequeño marketinero (debajo del carrusel)
+   NOTIF OFF — banner pequeño con botón a Perfil
    ──────────────────────────────────────────────────────────── */
 function ensureNotifOffBanner(){
   let el = $('notif-off-banner');
@@ -100,26 +102,22 @@ function ensureNotifOffBanner(){
   el = document.createElement('div');
   el.id = 'notif-off-banner';
   el.className = 'card';
-  el.style.cssText = 'display:none; margin:12px 0; padding:10px 12px; font-size:14px;';
+  el.style.cssText = 'display:none; margin:12px 0;';
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;">
       <div style="display:flex;gap:10px;align-items:center;">
-        <span aria-hidden="true" style="font-size:18px;">🔔</span>
+        <span aria-hidden="true" style="font-size:18px;">🔕</span>
         <div>
           <strong>No estás recibiendo notificaciones.</strong><br/>
-          Te estás perdiendo <em>promos, novedades y ofertas</em> pensadas para vos. Activá avisos desde <em>Mi Perfil</em>.
+          Te estás perdiendo <em>promos, novedades y ofertas</em> pensadas para vos. Activalas desde <em>Mi Perfil</em>.
         </div>
       </div>
       <div>
         <button id="notif-off-go-profile" class="secondary-btn" type="button" style="white-space:nowrap;">Abrir Perfil</button>
       </div>
     </div>`;
-
-  // 👉 Ubicación: inmediatamente DEBAJO del carrusel
-  const container = document.querySelector('.container') || $('main-app-screen') || document.body;
-  const carrusel = $('carrusel-campanas-container');
-  if (carrusel && carrusel.parentNode) carrusel.insertAdjacentElement('afterend', el);
-  else container.appendChild(el);
+  const mountAt = document.querySelector('.container') || $('main-app-screen') || document.body;
+  mountAt.insertBefore(el, mountAt.firstChild);
 
   const btn = $('notif-off-go-profile');
   if (btn && !btn._wired){
@@ -132,22 +130,6 @@ function ensureNotifOffBanner(){
   return el;
 }
 function showNotifOffBanner(on){ const el = ensureNotifOffBanner(); if (el) el.style.display = on ? 'block' : 'none'; }
-
-/* Banner ROJO (bloqueo del navegador) — chico y debajo del carrusel */
-function ensureBlockedWarningPlacement(){
-  const warn = $('notif-blocked-warning');
-  if (!warn) return;
-  warn.style.margin = '12px 0';
-  warn.style.padding = '10px 12px';
-  warn.style.fontSize = '14px';
-  const carrusel = $('carrusel-campanas-container');
-  const container = document.querySelector('.container') || $('main-app-screen') || document.body;
-  if (carrusel && carrusel.parentNode) {
-    if (warn.previousElementSibling !== carrusel) carrusel.insertAdjacentElement('afterend', warn);
-  } else {
-    container.appendChild(warn);
-  }
-}
 
 /* ────────────────────────────────────────────────────────────
    FIREBASE / SW helpers
@@ -392,12 +374,11 @@ function refreshNotifUIFromPermission(){
   const hasToken = (()=>{ try { return !!localStorage.getItem('fcmToken'); } catch { return false; } })();
   const pending = __tokenProvisionPending || !!__tokenReqLock || __notifReqInFlight;
 
-  // “blocked” → sólo banner rojo chico (reubicado). NO mostrar banner blanco.
+  // “blocked” → no marketing, no switch ON, banner chico ON
   if (lsState === 'blocked' || perm === 'denied'){
     if (switchEl) switchEl.checked = false;
-    ensureBlockedWarningPlacement();
     show(warnBlocked, true);
-    showNotifOffBanner(false);
+    showNotifOffBanner(true);
     return;
   }
 
@@ -484,7 +465,7 @@ export async function handlePermissionRequest(){
     if (current === 'denied'){
       try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out',{ source:'browser-denied' });
-      showNotifOffBanner(false);
+      showNotifOffBanner(true);
       refreshNotifUIFromPermission();
       return;
     }
@@ -493,12 +474,12 @@ export async function handlePermissionRequest(){
     const status = await Notification.requestPermission();
     if (status === 'granted'){
       const st = (()=>{ try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
-      if (st === 'blocked'){ showNotifOffBanner(false); }
+      if (st === 'blocked'){ showNotifOffBanner(true); }
       else { await obtenerYGuardarToken(); showNotifOffBanner(false); }
     } else if (status === 'denied'){
       try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out',{ source:'prompt' });
-      showNotifOffBanner(false);
+      showNotifOffBanner(true);
     } else {
       try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
       emit('rampet:consent:notif-dismissed',{});
@@ -509,6 +490,57 @@ export async function handlePermissionRequest(){
     refreshNotifUIFromPermission();
   } finally { __notifReqInFlight = false; }
 }
+
+/* 🔧 FIX: Prompt desde el switch usando CLICK (user gesture) */
+function wireSwitchWithGesture(sw){
+  if (!sw || sw._gestureWired) return;
+  sw._gestureWired = true;
+
+  // CLICK: manejar permiso 'default' con gesto del usuario
+  sw.addEventListener('click', (e) => {
+    try {
+      if (!('Notification' in window)) return;
+      const perm = Notification.permission;
+
+      // si ya está granted/denied dejamos que el change haga su trabajo
+      if (perm === 'granted' || perm === 'denied') return;
+
+      // perm === 'default' → pedimos permiso en el mismo gesto
+      e.preventDefault();
+      e.stopPropagation();
+      if (__switchPrompting) return;
+      __switchPrompting = true;
+
+      // Oculto marketing por si estaba
+      try { show($('notif-prompt-card'), false); } catch {}
+
+      Notification.requestPermission().then(async (status) => {
+        if (status === 'granted'){
+          try { sw.checked = true; } catch {}
+          try { await obtenerYGuardarToken(); } catch {}
+          try { localStorage.setItem(LS_NOTIF_STATE,'accepted'); } catch {}
+          showNotifOffBanner(false);
+        } else if (status === 'denied'){
+          try { sw.checked = false; } catch {}
+          try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
+          toast('Notificaciones bloqueadas en el navegador.','warning');
+          showNotifOffBanner(true);
+        } else {
+          // sigue default → lo tratamos como "Luego"
+          try { sw.checked = false; } catch {}
+          try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
+        }
+        refreshNotifUIFromPermission();
+      }).catch(()=>{
+        try { sw.checked = false; } catch {}
+      }).finally(()=>{
+        __switchPrompting = false;
+      });
+    } catch {}
+  }, { passive:false });
+}
+
+/* handler del banner de marketing */
 export function handlePermissionBlockClick(){
   try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
   show($('notif-prompt-card'), false);
@@ -517,7 +549,7 @@ export function handlePermissionBlockClick(){
   emit('rampet:consent:notif-opt-out', { source:'ui-block' });
   toast('Podés volver a activarlas desde tu Perfil cuando quieras.','info');
   refreshNotifUIFromPermission();
-  showNotifOffBanner(false);
+  showNotifOffBanner(true);
 }
 export function dismissPermissionRequest(){
   try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
@@ -526,6 +558,8 @@ export function dismissPermissionRequest(){
   const sw = $('notif-switch'); if (sw) sw.checked = false;
   show($('notif-card'), true); // switch OFF visible
 }
+
+/* CHANGE: ON (suscribir) / OFF (desuscribir) cuando ya hay permiso */
 export async function handlePermissionSwitch(e){
   const checked = !!e?.target?.checked;
   if (!('Notification' in window)) { refreshNotifUIFromPermission(); return; }
@@ -535,14 +569,15 @@ export async function handlePermissionSwitch(e){
     if (before === 'granted'){
       try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {}
     } else if (before === 'default'){
+      // si llega acá, el click-gesture no corrió (fallback)
       const status = await Notification.requestPermission();
       if (status === 'granted'){ try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {} }
-      else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); const sw=$('notif-switch'); if (sw) sw.checked=false; showNotifOffBanner(false); }
+      else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); const sw=$('notif-switch'); if (sw) sw.checked=false; showNotifOffBanner(true); }
       else { try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}; const sw=$('notif-switch'); if (sw) sw.checked=false; }
     } else {
       toast('Tenés bloqueadas las notificaciones en el navegador.','warning');
       const sw=$('notif-switch'); if (sw) sw.checked=false;
-      showNotifOffBanner(false);
+      showNotifOffBanner(true);
     }
   } else {
     await borrarTokenYOptOut();
@@ -579,7 +614,14 @@ function wirePushButtonsOnce(){
   const allow = $('btn-activar-notif-prompt');   if (allow && !allow._wired){ allow._wired = true; allow.addEventListener('click', ()=>{ handlePermissionRequest(); }); }
   const later = $('btn-rechazar-notif-prompt');   if (later && !later._wired){ later._wired = true; later.addEventListener('click', ()=>{ dismissPermissionRequest(); }); }
   const block = $('btn-bloquear-notif-prompt');   if (block && !block._wired){ block._wired = true; block.addEventListener('click', ()=>{ handlePermissionBlockClick(); }); }
-  const sw    = $('notif-switch');                if (sw && !sw._wired){ sw._wired = true; sw.addEventListener('change', handlePermissionSwitch); }
+  const sw    = $('notif-switch');
+  if (sw && !sw._wired){
+    sw._wired = true;
+    // FIX: gesto de usuario para permiso 'default'
+    wireSwitchWithGesture(sw);
+    // CHANGE: manejar granted/denied normalmente
+    sw.addEventListener('change', handlePermissionSwitch);
+  }
 }
 
 /* Sincronía con Perfil — NOTIFS */
@@ -617,7 +659,7 @@ export async function handleProfileConsentToggle(checked){
       try {
         const status = await Notification.requestPermission();
         if (status === 'granted'){ try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {} }
-        else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); showNotifOffBanner(false); }
+        else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); showNotifOffBanner(true); }
         else { try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}; $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); }
       } catch(e){ console.warn('[Perfil] requestPermission error:', e?.message || e); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); }
     }
@@ -663,20 +705,20 @@ async function shouldHideGeoBanner(){
 }
 function hideGeoBanner(){ const { banner } = geoEls(); if (banner) banner.style.display = 'none'; }
 
-/* Recordatorio chico GEO (tras “No gracias”), debajo del carrusel */
+/* Recordatorio chico GEO (tras “No gracias”) */
 function ensureGeoOffReminder(){
   let el = $('geo-off-reminder'); if (el) return el;
   el = document.createElement('div');
   el.id = 'geo-off-reminder';
   el.className = 'card';
-  el.style.cssText = 'display:none; margin:12px 0; padding:10px 12px; font-size:14px;';
+  el.style.cssText = 'display:none; margin:12px 0;';
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;">
       <div style="display:flex;gap:10px;align-items:center;">
         <span aria-hidden="true" style="font-size:18px;">📍</span>
         <div>
-          <strong>No estás recibiendo promociones cercanas.</strong><br/>
-          Te estás perdiendo <em>promos de cercanía</em> en tu zona. Activá ubicación desde <em>Mi Perfil</em>.
+          <strong>Estás perdiéndote beneficios cerca tuyo.</strong><br/>
+          Activá ubicación desde <em>Mi Perfil</em>.
         </div>
       </div>
       <div style="display:flex;gap:8px;">
@@ -684,10 +726,8 @@ function ensureGeoOffReminder(){
         <button id="geo-off-hide" class="link-btn" type="button">Ocultar</button>
       </div>
     </div>`;
-  const container = document.querySelector('.container') || $('main-app-screen') || document.body;
-  const carrusel = $('carrusel-campanas-container');
-  if (carrusel && carrusel.parentNode) carrusel.insertAdjacentElement('afterend', el);
-  else container.appendChild(el);
+  const mountAt = document.querySelector('.container') || $('main-app-screen') || document.body;
+  mountAt.insertBefore(el, mountAt.firstChild);
 
   $('geo-off-open-profile')?.addEventListener('click', ()=>{ try { window.UI?.openProfileModal?.(); } catch{} });
   $('geo-off-hide')?.addEventListener('click', ()=>{ showGeoOffReminder(false); });
@@ -708,7 +748,7 @@ function setGeoMarketingUI(on){
   show(banner, on);
   if (!on) return;
 
-  if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.'; // GEO copy correcto
+  if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.'; // GEO copy
   showInline(btnOn, true);
   showInline(btnOff, false);  // no usamos “Luego” en GEO
   showInline(btnHelp, false);
@@ -752,7 +792,7 @@ function setGeoRegularUI(state){
   if (state === 'denied'){
     try { localStorage.setItem(LS_GEO_STATE,'blocked'); } catch {}
     if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
-    showInline(btnOn,false); showInline(btnOff,false); showInline(btnHelp,true);
+    showInline(btnOn,false); showInline(btnOff,true); showInline(btnHelp,true);
     return;
   }
   if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.';
@@ -969,7 +1009,7 @@ function ensureAddressBannerButtons(){
     later.addEventListener('click', ()=>{
       try { sessionStorage.setItem(SS_ADDR_DEFER,'1'); } catch {}
       toast('Podés cargarlo cuando quieras desde tu perfil.','info');
-      banner.style.display = 'none'; // se oculta SOLO por sesión (no hay banner superior)
+      banner.style.display = 'none'; // se oculta SOLO por sesión
     });
   }
 
@@ -1000,7 +1040,7 @@ function buildAddressLine(c){
   const pisoDto = [c.piso, c.depto].filter(Boolean).join(' ');
   if (pisoDto) parts.push(pisoDto);
   if (c.codigoPostal || c.localidad) parts.push([c.codigoPostal, c.localidad].filter(Boolean).join(' '));
-  if (c.provincia) parts.push(c.provincia === 'CABA' ? 'CABA' : `Provincia de ${c.provincia}`);
+  if (c.provincia) parts.push(c.provincia === 'CABA' ? 'CABA' : `Provincia de ${c.provincia}`;
   return parts.filter(Boolean).join(', ');
 }
 
@@ -1154,7 +1194,6 @@ export async function initNotificationsOnce(){
 
   await hookOnMessage();
   refreshNotifUIFromPermission();
-  ensureBlockedWarningPlacement(); // asegurar posición inicial del banner rojo
   wirePushButtonsOnce();
 
   // Perfil (una sola vez)
