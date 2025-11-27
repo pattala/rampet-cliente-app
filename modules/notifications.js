@@ -1040,7 +1040,7 @@ function buildAddressLine(c){
   const pisoDto = [c.piso, c.depto].filter(Boolean).join(' ');
   if (pisoDto) parts.push(pisoDto);
   if (c.codigoPostal || c.localidad) parts.push([c.codigoPostal, c.localidad].filter(Boolean).join(' '));
-  if (c.provincia) parts.push(c.provincia === 'CABA' ? 'CABA' : `Provincia de ${c.provincia}`;
+  if (c.provincia) parts.push(c.provincia === 'CABA' ? 'CABA' : `Provincia de ${c.provincia}`);
   return parts.filter(Boolean).join(', ');
 }
 
@@ -1219,3 +1219,4 @@ export async function handleSignOutCleanup(){
 
 /* helpers menores */
 function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
