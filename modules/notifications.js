@@ -1,4 +1,4 @@
-// /modules/notifications.js — FCM + VAPID + Opt-In (banner) + Switch + Geo + Domicilio (lógica depurada)
+// /modules/notifications.js — FCM + VAPID + Opt-In (banner) + Switch + Geo + Domicilio (limpio)
 'use strict';
 
 /* ────────────────────────────────────────────────────────────
@@ -39,7 +39,6 @@ function clearGeoSuppress(){ try { localStorage.removeItem(LS_GEO_SUPPRESS_UNTIL
 function isGeoSuppressedNow(){ try { const until = +localStorage.getItem(LS_GEO_SUPPRESS_UNTIL) || 0; return until > _nowMs(); } catch { return false; } }
 
 function isGeoDeferredThisSession(){ try { return sessionStorage.getItem(GEO_SS_DEFER_KEY) === '1'; } catch { return false; } }
-function deferGeoBannerThisSession(){ try { sessionStorage.setItem(GEO_SS_DEFER_KEY,'1'); } catch {} }
 
 let __notifReqInFlight = false;
 let __tokenReqLock = null;
@@ -92,7 +91,7 @@ function bootstrapFirstSessionUX(){
 }
 
 /* ────────────────────────────────────────────────────────────
-   NOTIF OFF — banner pequeño con botón a Perfil
+   NOTIF OFF — banner pequeño marketinero (debajo del carrusel)
    ──────────────────────────────────────────────────────────── */
 function ensureNotifOffBanner(){
   let el = $('notif-off-banner');
@@ -101,22 +100,26 @@ function ensureNotifOffBanner(){
   el = document.createElement('div');
   el.id = 'notif-off-banner';
   el.className = 'card';
-  el.style.cssText = 'display:none; margin:12px 0;';
+  el.style.cssText = 'display:none; margin:12px 0; padding:10px 12px; font-size:14px;';
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;">
       <div style="display:flex;gap:10px;align-items:center;">
-        <span aria-hidden="true" style="font-size:18px;">🔕</span>
+        <span aria-hidden="true" style="font-size:18px;">🔔</span>
         <div>
           <strong>No estás recibiendo notificaciones.</strong><br/>
-          Podés activarlas desde <em>Mi Perfil</em>.
+          Te estás perdiendo <em>promos, novedades y ofertas</em> pensadas para vos. Activá avisos desde <em>Mi Perfil</em>.
         </div>
       </div>
       <div>
         <button id="notif-off-go-profile" class="secondary-btn" type="button" style="white-space:nowrap;">Abrir Perfil</button>
       </div>
     </div>`;
-  const mountAt = document.querySelector('.container') || $('main-app-screen') || document.body;
-  mountAt.insertBefore(el, mountAt.firstChild);
+
+  // 👉 Ubicación: inmediatamente DEBAJO del carrusel
+  const container = document.querySelector('.container') || $('main-app-screen') || document.body;
+  const carrusel = $('carrusel-campanas-container');
+  if (carrusel && carrusel.parentNode) carrusel.insertAdjacentElement('afterend', el);
+  else container.appendChild(el);
 
   const btn = $('notif-off-go-profile');
   if (btn && !btn._wired){
@@ -129,6 +132,22 @@ function ensureNotifOffBanner(){
   return el;
 }
 function showNotifOffBanner(on){ const el = ensureNotifOffBanner(); if (el) el.style.display = on ? 'block' : 'none'; }
+
+/* Banner ROJO (bloqueo del navegador) — chico y debajo del carrusel */
+function ensureBlockedWarningPlacement(){
+  const warn = $('notif-blocked-warning');
+  if (!warn) return;
+  warn.style.margin = '12px 0';
+  warn.style.padding = '10px 12px';
+  warn.style.fontSize = '14px';
+  const carrusel = $('carrusel-campanas-container');
+  const container = document.querySelector('.container') || $('main-app-screen') || document.body;
+  if (carrusel && carrusel.parentNode) {
+    if (warn.previousElementSibling !== carrusel) carrusel.insertAdjacentElement('afterend', warn);
+  } else {
+    container.appendChild(warn);
+  }
+}
 
 /* ────────────────────────────────────────────────────────────
    FIREBASE / SW helpers
@@ -373,11 +392,12 @@ function refreshNotifUIFromPermission(){
   const hasToken = (()=>{ try { return !!localStorage.getItem('fcmToken'); } catch { return false; } })();
   const pending = __tokenProvisionPending || !!__tokenReqLock || __notifReqInFlight;
 
-  // “blocked” → no marketing, no switch ON, banner chico ON
+  // “blocked” → sólo banner rojo chico (reubicado). NO mostrar banner blanco.
   if (lsState === 'blocked' || perm === 'denied'){
     if (switchEl) switchEl.checked = false;
+    ensureBlockedWarningPlacement();
     show(warnBlocked, true);
-    showNotifOffBanner(true);
+    showNotifOffBanner(false);
     return;
   }
 
@@ -464,7 +484,7 @@ export async function handlePermissionRequest(){
     if (current === 'denied'){
       try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out',{ source:'browser-denied' });
-      showNotifOffBanner(true);
+      showNotifOffBanner(false);
       refreshNotifUIFromPermission();
       return;
     }
@@ -473,12 +493,12 @@ export async function handlePermissionRequest(){
     const status = await Notification.requestPermission();
     if (status === 'granted'){
       const st = (()=>{ try { return localStorage.getItem(LS_NOTIF_STATE) || null; } catch { return null; } })();
-      if (st === 'blocked'){ showNotifOffBanner(true); }
+      if (st === 'blocked'){ showNotifOffBanner(false); }
       else { await obtenerYGuardarToken(); showNotifOffBanner(false); }
     } else if (status === 'denied'){
       try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}
       emit('rampet:consent:notif-opt-out',{ source:'prompt' });
-      showNotifOffBanner(true);
+      showNotifOffBanner(false);
     } else {
       try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
       emit('rampet:consent:notif-dismissed',{});
@@ -497,7 +517,7 @@ export function handlePermissionBlockClick(){
   emit('rampet:consent:notif-opt-out', { source:'ui-block' });
   toast('Podés volver a activarlas desde tu Perfil cuando quieras.','info');
   refreshNotifUIFromPermission();
-  showNotifOffBanner(true);
+  showNotifOffBanner(false);
 }
 export function dismissPermissionRequest(){
   try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}
@@ -517,12 +537,12 @@ export async function handlePermissionSwitch(e){
     } else if (before === 'default'){
       const status = await Notification.requestPermission();
       if (status === 'granted'){ try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {} }
-      else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); const sw=$('notif-switch'); if (sw) sw.checked=false; showNotifOffBanner(true); }
+      else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); const sw=$('notif-switch'); if (sw) sw.checked=false; showNotifOffBanner(false); }
       else { try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}; const sw=$('notif-switch'); if (sw) sw.checked=false; }
     } else {
       toast('Tenés bloqueadas las notificaciones en el navegador.','warning');
       const sw=$('notif-switch'); if (sw) sw.checked=false;
-      showNotifOffBanner(true);
+      showNotifOffBanner(false);
     }
   } else {
     await borrarTokenYOptOut();
@@ -597,7 +617,7 @@ export async function handleProfileConsentToggle(checked){
       try {
         const status = await Notification.requestPermission();
         if (status === 'granted'){ try { await obtenerYGuardarToken(); showNotifOffBanner(false); } catch {} }
-        else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); showNotifOffBanner(true); }
+        else if (status === 'denied'){ try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch {}; toast('Notificaciones bloqueadas en el navegador.','warning'); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); showNotifOffBanner(false); }
         else { try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch {}; $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); }
       } catch(e){ console.warn('[Perfil] requestPermission error:', e?.message || e); $('prof-consent-notif') && ( $('prof-consent-notif').checked=false ); }
     }
@@ -643,20 +663,20 @@ async function shouldHideGeoBanner(){
 }
 function hideGeoBanner(){ const { banner } = geoEls(); if (banner) banner.style.display = 'none'; }
 
-/* Recordatorio chico GEO (tras “No gracias”) */
+/* Recordatorio chico GEO (tras “No gracias”), debajo del carrusel */
 function ensureGeoOffReminder(){
   let el = $('geo-off-reminder'); if (el) return el;
   el = document.createElement('div');
   el.id = 'geo-off-reminder';
   el.className = 'card';
-  el.style.cssText = 'display:none; margin:12px 0;';
+  el.style.cssText = 'display:none; margin:12px 0; padding:10px 12px; font-size:14px;';
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;">
       <div style="display:flex;gap:10px;align-items:center;">
         <span aria-hidden="true" style="font-size:18px;">📍</span>
         <div>
-          <strong>Estás perdiéndote beneficios cerca tuyo.</strong><br/>
-          Activá ubicación desde <em>Mi Perfil</em>.
+          <strong>No estás recibiendo promociones cercanas.</strong><br/>
+          Te estás perdiendo <em>promos de cercanía</em> en tu zona. Activá ubicación desde <em>Mi Perfil</em>.
         </div>
       </div>
       <div style="display:flex;gap:8px;">
@@ -664,8 +684,10 @@ function ensureGeoOffReminder(){
         <button id="geo-off-hide" class="link-btn" type="button">Ocultar</button>
       </div>
     </div>`;
-  const mountAt = document.querySelector('.container') || $('main-app-screen') || document.body;
-  mountAt.insertBefore(el, mountAt.firstChild);
+  const container = document.querySelector('.container') || $('main-app-screen') || document.body;
+  const carrusel = $('carrusel-campanas-container');
+  if (carrusel && carrusel.parentNode) carrusel.insertAdjacentElement('afterend', el);
+  else container.appendChild(el);
 
   $('geo-off-open-profile')?.addEventListener('click', ()=>{ try { window.UI?.openProfileModal?.(); } catch{} });
   $('geo-off-hide')?.addEventListener('click', ()=>{ showGeoOffReminder(false); });
@@ -730,7 +752,7 @@ function setGeoRegularUI(state){
   if (state === 'denied'){
     try { localStorage.setItem(LS_GEO_STATE,'blocked'); } catch {}
     if (txt) txt.textContent = 'Para activar beneficios cerca tuyo, habilitalo desde la configuración del navegador.';
-    showInline(btnOn,false); showInline(btnOff,true); showInline(btnHelp,true);
+    showInline(btnOn,false); showInline(btnOff,false); showInline(btnHelp,true);
     return;
   }
   if (txt) txt.textContent = 'Activá para ver beneficios cerca tuyo.';
@@ -1132,6 +1154,7 @@ export async function initNotificationsOnce(){
 
   await hookOnMessage();
   refreshNotifUIFromPermission();
+  ensureBlockedWarningPlacement(); // asegurar posición inicial del banner rojo
   wirePushButtonsOnce();
 
   // Perfil (una sola vez)
