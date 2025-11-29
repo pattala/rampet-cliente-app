@@ -1054,6 +1054,8 @@ function ensureAddressBannerButtons(){
       try { localStorage.setItem(LS_ADDR_DISMISS,'1'); } catch (e) {}
       banner.style.display = 'none';
       toast('Listo, no vamos a pedirte domicilio.','info');
+       // 🔹 Nuevo: avisamos al módulo de datos para que marque esto en Firestore
+      emit('rampet:address:dismissed', { source: 'banner' });
     });
   }
 }
@@ -1252,3 +1254,4 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
