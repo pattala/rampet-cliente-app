@@ -669,6 +669,7 @@ function wireAddressDatalists(prefix = 'dom-') {
 
 // —— Address/banner wiring
 // —— Address/banner wiring
+// —— Address/banner wiring
 async function setupAddressSection() {
   const banner = document.getElementById('address-banner');
   const card   = document.getElementById('address-card');
@@ -706,22 +707,7 @@ async function setupAddressSection() {
   }
   try { localStorage.removeItem('addressProvidedAtSignup'); } catch {}
 
-   // Chequeo rápido si ya hay domicilio Y si en servidor se marcó "no mostrar más el banner"
-  let hasAddress = false;
-  let dismissedOnServer = false;
-  try {
-    const u = auth.currentUser;
-    if (u) {
-      const qs = await db.collection('clientes')
-        .where('authUID','==', u.uid)
-        .limit(1)
-        .get();
-
-      if (!qs.empty) {
-        const snap = await qs.docs[0].ref.get();
-        const data = snap.data() || {};
-//------        
-        // Chequeo rápido si ya hay domicilio Y si en servidor se marcó "no mostrar más el banner"
+  // Chequeo rápido si ya hay domicilio Y si en servidor se marcó "no mostrar más el banner"
   let hasAddress = false;
   let dismissedOnServer = false;
   try {
@@ -750,6 +736,7 @@ async function setupAddressSection() {
           )
         );
 
+        // 🔹 mirar si en config ya se marcó "no mostrar más el banner"
         dismissedOnServer = !!data.config?.addressPromptDismissed;
 
         // 👇 LOG 2: ver qué valores está usando para decidir
@@ -760,8 +747,10 @@ async function setupAddressSection() {
     console.warn('[ADDR] error chequeando domicilio/config:', e);
   }
 
+  // Estado local: "No gracias" guardado en localStorage
   const dismissedLocal = localStorage.getItem('addressBannerDismissed') === '1';
 
+  // Seguimos respetando el "Luego" por sesión
   let deferredSession = false;
   try {
     deferredSession = sessionStorage.getItem('addressBannerDeferred') === '1';
@@ -769,8 +758,10 @@ async function setupAddressSection() {
     deferredSession = false;
   }
 
+  // Combinamos: si lo marcó local O servidor, se considera dismiss
   const dismissed = dismissedLocal || dismissedOnServer;
 
+  // Si NO tiene domicilio, NO dijo "No gracias" (ni local ni server) y NO difirió por sesión → mostramos banner
   if (!hasAddress && !dismissed && !deferredSession) {
     if (banner) banner.style.display = 'block';
     if (card)   card.style.display = 'none';
@@ -779,6 +770,7 @@ async function setupAddressSection() {
     if (card)   card.style.display = 'none';
   }
 }
+
 
 
 //-------
@@ -970,6 +962,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
 
 
