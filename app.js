@@ -669,7 +669,6 @@ function wireAddressDatalists(prefix = 'dom-') {
 
 // —— Address/banner wiring
 // —— Address/banner wiring
-// —— Address/banner wiring
 async function setupAddressSection() {
   const banner = document.getElementById('address-banner');
   const card   = document.getElementById('address-card');
@@ -770,54 +769,6 @@ async function setupAddressSection() {
     if (card)   card.style.display = 'none';
   }
 }
-
-
-
-//-------
-        
-        const comp = data.domicilio?.components;
-        hasAddress = !!(
-          comp && (
-            comp.calle ||
-            comp.localidad ||
-            comp.partido ||
-            comp.provincia ||
-            comp.codigoPostal
-          )
-        );
-
-        // 🔹 Nuevo: mirar si en config ya se marcó "no mostrar más el banner"
-        dismissedOnServer = !!data.config?.addressPromptDismissed;
-      }
-    }
-  } catch (e) {
-    console.warn('[ADDR] error chequeando domicilio/config:', e);
-  }
-
-  // Estado local: "No gracias" guardado en localStorage
-  const dismissedLocal = localStorage.getItem('addressBannerDismissed') === '1';
-
-  // 👇 Seguimos respetando el "Luego" por sesión
-  let deferredSession = false;
-  try {
-    deferredSession = sessionStorage.getItem('addressBannerDeferred') === '1';
-  } catch (e) {
-    deferredSession = false;
-  }
-
-  // Combinamos: si lo marcó local O servidor, se considera dismiss
-  const dismissed = dismissedLocal || dismissedOnServer;
-
-  // Si NO tiene domicilio, NO dijo "No gracias" (ni local ni server) y NO difirió por sesión → mostramos banner
-  if (!hasAddress && !dismissed && !deferredSession) {
-    if (banner) banner.style.display = 'block';
-    if (card)   card.style.display = 'none';
-  } else {
-    if (banner) banner.style.display = 'none';
-    if (card)   card.style.display = 'none';
-  }
-}
-
 
 
 // ──────────────────────────────────────────────────────────────
@@ -962,6 +913,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
 
 
