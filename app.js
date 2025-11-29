@@ -720,7 +720,69 @@ async function setupAddressSection() {
       if (!qs.empty) {
         const snap = await qs.docs[0].ref.get();
         const data = snap.data() || {};
+//------        
+        // Chequeo rápido si ya hay domicilio Y si en servidor se marcó "no mostrar más el banner"
+  let hasAddress = false;
+  let dismissedOnServer = false;
+  try {
+    const u = auth.currentUser;
+    if (u) {
+      const qs = await db.collection('clientes')
+        .where('authUID','==', u.uid)
+        .limit(1)
+        .get();
 
+      if (!qs.empty) {
+        const snap = await qs.docs[0].ref.get();
+        const data = snap.data() || {};
+
+        // 👇 LOG 1: ver exactamente qué trae Firestore
+        console.log('[ADDR DEBUG] data Firestore cliente:', data);
+
+        const comp = data.domicilio?.components;
+        hasAddress = !!(
+          comp && (
+            comp.calle ||
+            comp.localidad ||
+            comp.partido ||
+            comp.provincia ||
+            comp.codigoPostal
+          )
+        );
+
+        dismissedOnServer = !!data.config?.addressPromptDismissed;
+
+        // 👇 LOG 2: ver qué valores está usando para decidir
+        console.log('[ADDR DEBUG] hasAddress, dismissedOnServer:', { hasAddress, dismissedOnServer });
+      }
+    }
+  } catch (e) {
+    console.warn('[ADDR] error chequeando domicilio/config:', e);
+  }
+
+  const dismissedLocal = localStorage.getItem('addressBannerDismissed') === '1';
+
+  let deferredSession = false;
+  try {
+    deferredSession = sessionStorage.getItem('addressBannerDeferred') === '1';
+  } catch (e) {
+    deferredSession = false;
+  }
+
+  const dismissed = dismissedLocal || dismissedOnServer;
+
+  if (!hasAddress && !dismissed && !deferredSession) {
+    if (banner) banner.style.display = 'block';
+    if (card)   card.style.display = 'none';
+  } else {
+    if (banner) banner.style.display = 'none';
+    if (card)   card.style.display = 'none';
+  }
+}
+
+
+//-------
+        
         const comp = data.domicilio?.components;
         hasAddress = !!(
           comp && (
@@ -908,6 +970,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
 
 
