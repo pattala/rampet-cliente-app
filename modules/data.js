@@ -368,6 +368,15 @@ function wireConsentEventBridges() {
   document.addEventListener('rampet:geo:disabled', async (e) => {
     await saveGeoConsent(false, { geoMethod: e?.detail?.method || 'toggle' });
   });
+    // 🔹 Nuevo: el usuario dijo "No gracias" al banner de domicilio
+  document.addEventListener('rampet:address:dismissed', async () => {
+    const now = new Date().toISOString();
+    await updateConfig({
+      addressPromptDismissed: true,
+      addressPromptDismissedAt: now,
+    });
+  });
+
 }
 
 // === Listeners / flujo principal ===
@@ -450,6 +459,7 @@ if (typeof window !== 'undefined') {
 
 // Stubs
 export async function acceptTerms() { /* futuro: guardar aceptación */ }
+
 
 
 
