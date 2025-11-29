@@ -746,68 +746,79 @@ async function main() {
   setupFirebase();
   const messagingSupported = await checkMessagingSupport();
 
-  auth.onAuthStateChanged(async (user) => {
-    const bell = document.getElementById('btn-notifs');
-    const badge = document.getElementById('notif-counter');
+ auth.onAuthStateChanged(async (user) => {
+  const bell = document.getElementById('btn-notifs');
+  const badge = document.getElementById('notif-counter');
 
-    // Terms + Inbox wiring
-    wireTermsModalBehavior();
-    wireInboxModal();
+  // Terms + Inbox wiring
+  wireTermsModalBehavior();
+  wireInboxModal();
 
-    if (user) {
-      if (bell) bell.style.display = 'inline-block';
-      setupMainAppScreenListeners();
+  if (user) {
+    if (bell) bell.style.display = 'inline-block';
+    setupMainAppScreenListeners();
 
-      // 🔹 Registrar SW + token si ya hay permiso (solo una vez, desde notifications.js)
-      try { await initNotificationsOnce(); } catch (e) { console.warn('[PWA] initNotificationsOnce error:', e); }
+    // 🔹 Registrar SW + token si ya hay permiso (solo una vez, desde notifications.js)
+    try { await initNotificationsOnce(); } catch (e) { console.warn('[PWA] initNotificationsOnce error:', e); }
 
-      // ⚡ escuchar mensajes del SW para badge (sin duplicar onMessage)
-      wireSwMessageChannel();
+    // ⚡ escuchar mensajes del SW para badge (sin duplicar onMessage)
+    wireSwMessageChannel();
 
-      Data.listenToClientData(user);
-      document.addEventListener('rampet:cliente-updated', (e) => {
-        try { window.clienteData = e.detail?.cliente || window.clienteData || {}; } catch {}
-      });
+    Data.listenToClientData(user);
+    document.addEventListener('rampet:cliente-updated', (e) => {
+      try { window.clienteData = e.detail?.cliente || window.clienteData || {}; } catch {}
+    });
 
-      try { await window.ensureGeoOnStartup?.(); } catch {}
-      document.addEventListener('visibilitychange', async () => {
-        if (document.visibilityState === 'visible') { try { await window.maybeRefreshIfStale?.(); } catch {} }
-      });
+    try { await window.ensureGeoOnStartup?.(); } catch {}
+    document.addEventListener('visibilitychange', async () => {
+      if (document.visibilityState === 'visible') { try { await window.maybeRefreshIfStale?.(); } catch {} }
+    });
 
-      try { window.setupMainLimitsObservers?.(); } catch {}
+    try { window.setupMainLimitsObservers?.(); } catch {}
 
-      if (messagingSupported) {
-        console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
-        window.__reportState?.('post-init-notifs');
-      }
-
-      setBadgeCount(getBadgeCount());
-      const installBtn = document.getElementById('install-entrypoint');
-      if (installBtn) installBtn.style.display = (window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone) ? 'none' : 'inline-block';
-
-      await setupAddressSection();
-      openInboxIfQuery();
-
-      try {
-        if (inboxUnsub) { try { inboxUnsub(); } catch {} }
-        inboxUnsub = await listenInboxRealtime();
-      } catch (e) { console.warn('[INBOX] realtime no iniciado:', e?.message || e); }
-
-    } else {
-      if (bell) bell.style.display = 'none';
-      if (badge) badge.style.display = 'none';
-      setupAuthScreenListeners();
-      UI.showScreen('login-screen');
-
-      if (inboxUnsub) { try { inboxUnsub(); } catch {} inboxUnsub = null; }
-      inboxPagination.clienteRefPath = null;
-      inboxLastSnapshot = [];
-      resetBadge();
-
-      wireAddressDatalists('reg-');
-      reorderAddressFields('reg-');
+    if (messagingSupported) {
+      console.log('[FCM] token actual:', localStorage.getItem('fcmToken') || '(sin token)');
+      window.__reportState?.('post-init-notifs');
     }
-  });
+
+    setBadgeCount(getBadgeCount());
+    const installBtn = document.getElementById('install-entrypoint');
+    if (installBtn) {
+      const isStandalone = (window.matchMedia?.('(display-mode: standalone)').matches || window.navigator.standalone);
+      installBtn.style.display = isStandalone ? 'none' : 'inline-block';
+    }
+
+    await setupAddressSection();
+    openInboxIfQuery();
+
+    try {
+      if (inboxUnsub) { try { inboxUnsub(); } catch {} }
+      inboxUnsub = await listenInboxRealtime();
+    } catch (e) { console.warn('[INBOX] realtime no iniciado:', e?.message || e); }
+
+  } else {
+    // 🔹 Nuevo: al desloguearse, reseteamos el "Luego" del banner de domicilio
+    try {
+      sessionStorage.removeItem('addressBannerDeferred');
+    } catch (e) {
+      console.warn('[PWA] no se pudo limpiar addressBannerDeferred:', e);
+    }
+
+    if (bell) bell.style.display = 'none';
+    if (badge) badge.style.display = 'none';
+    setupAuthScreenListeners();
+    UI.showScreen('login-screen');
+
+    if (inboxUnsub) { try { inboxUnsub(); } catch {} inboxUnsub = null; }
+    inboxPagination.clienteRefPath = null;
+    inboxLastSnapshot = [];
+    resetBadge();
+
+    wireAddressDatalists('reg-');
+    reorderAddressFields('reg-');
+  }
+});
+
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -872,6 +883,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
 
 
