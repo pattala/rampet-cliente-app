@@ -724,22 +724,29 @@ async function setupAddressSection() {
         // 👇 LOG 1: ver exactamente qué trae Firestore
         console.log('[ADDR DEBUG] data Firestore cliente:', data);
 
-        const comp = data.domicilio?.components;
-        hasAddress = !!(
-          comp && (
-            comp.calle ||
-            comp.localidad ||
-            comp.partido ||
-            comp.provincia ||
-            comp.codigoPostal
-          )
-        );
+       const comp = data.domicilio?.components;
+hasAddress = !!(
+  comp && (
+    comp.calle ||
+    comp.localidad ||
+    comp.partido ||
+    comp.provincia ||
+    comp.codigoPostal
+  )
+);
 
-        // 🔹 mirar si en config ya se marcó "no mostrar más el banner"
-        dismissedOnServer = !!data.config?.addressPromptDismissed;
+// 🔹 mirar si en config ya se marcó "no mostrar más el banner"
+// soportar tanto forma anidada (data.config.addressPromptDismissed)
+// como forma aplanada (data["config.addressPromptDismissed"])
+const cfg = data.config || {};
+dismissedOnServer = !!(
+  cfg.addressPromptDismissed === true ||
+  data['config.addressPromptDismissed'] === true
+);
 
-        // 👇 LOG 2: ver qué valores está usando para decidir
-        console.log('[ADDR DEBUG] hasAddress, dismissedOnServer:', { hasAddress, dismissedOnServer });
+// 👇 LOG 2: ver qué valores está usando para decidir
+console.log('[ADDR DEBUG] hasAddress, dismissedOnServer:', { hasAddress, dismissedOnServer });
+
       }
     }
   } catch (e) {
@@ -913,6 +920,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
 
 
