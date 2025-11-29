@@ -720,9 +720,18 @@ async function setupAddressSection() {
     }
   } catch {}
 
-  const dismissed = localStorage.getItem('addressBannerDismissed') === '1';
+   const dismissed = localStorage.getItem('addressBannerDismissed') === '1';
 
-  if (!hasAddress && !dismissed) {
+  // 👇 Nuevo: respetar el "Luego" por sesión
+  let deferredSession = false;
+  try {
+    deferredSession = sessionStorage.getItem('addressBannerDeferred') === '1';
+  } catch (e) {
+    deferredSession = false;
+  }
+
+  // Si NO tiene domicilio, NO dijo "No gracias" y NO difirió por sesión → mostramos banner
+  if (!hasAddress && !dismissed && !deferredSession) {
     if (banner) banner.style.display = 'block';
     if (card)   card.style.display = 'none';
   } else {
@@ -730,6 +739,7 @@ async function setupAddressSection() {
     if (card)   card.style.display = 'none';
   }
 }
+
 
 // ──────────────────────────────────────────────────────────────
 async function main() {
@@ -862,6 +872,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
 
 
