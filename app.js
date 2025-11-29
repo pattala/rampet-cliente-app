@@ -706,23 +706,44 @@ async function setupAddressSection() {
   }
   try { localStorage.removeItem('addressProvidedAtSignup'); } catch {}
 
-  // Chequeo rápido si ya hay domicilio
+   // Chequeo rápido si ya hay domicilio Y si en servidor se marcó "no mostrar más el banner"
   let hasAddress = false;
+  let dismissedOnServer = false;
   try {
     const u = auth.currentUser;
     if (u) {
-      const qs = await db.collection('clientes').where('authUID','==', u.uid).limit(1).get();
+      const qs = await db.collection('clientes')
+        .where('authUID','==', u.uid)
+        .limit(1)
+        .get();
+
       if (!qs.empty) {
         const snap = await qs.docs[0].ref.get();
-        const comp = snap.data()?.domicilio?.components;
-        hasAddress = !!(comp && (comp.calle || comp.localidad || comp.partido || comp.provincia || comp.codigoPostal));
+        const data = snap.data() || {};
+
+        const comp = data.domicilio?.components;
+        hasAddress = !!(
+          comp && (
+            comp.calle ||
+            comp.localidad ||
+            comp.partido ||
+            comp.provincia ||
+            comp.codigoPostal
+          )
+        );
+
+        // 🔹 Nuevo: mirar si en config ya se marcó "no mostrar más el banner"
+        dismissedOnServer = !!data.config?.addressPromptDismissed;
       }
     }
-  } catch {}
+  } catch (e) {
+    console.warn('[ADDR] error chequeando domicilio/config:', e);
+  }
 
-   const dismissed = localStorage.getItem('addressBannerDismissed') === '1';
+  // Estado local: "No gracias" guardado en localStorage
+  const dismissedLocal = localStorage.getItem('addressBannerDismissed') === '1';
 
-  // 👇 Nuevo: respetar el "Luego" por sesión
+  // 👇 Seguimos respetando el "Luego" por sesión
   let deferredSession = false;
   try {
     deferredSession = sessionStorage.getItem('addressBannerDeferred') === '1';
@@ -730,7 +751,10 @@ async function setupAddressSection() {
     deferredSession = false;
   }
 
-  // Si NO tiene domicilio, NO dijo "No gracias" y NO difirió por sesión → mostramos banner
+  // Combinamos: si lo marcó local O servidor, se considera dismiss
+  const dismissed = dismissedLocal || dismissedOnServer;
+
+  // Si NO tiene domicilio, NO dijo "No gracias" (ni local ni server) y NO difirió por sesión → mostramos banner
   if (!hasAddress && !dismissed && !deferredSession) {
     if (banner) banner.style.display = 'block';
     if (card)   card.style.display = 'none';
@@ -739,6 +763,7 @@ async function setupAddressSection() {
     if (card)   card.style.display = 'none';
   }
 }
+
 
 
 // ──────────────────────────────────────────────────────────────
@@ -883,6 +908,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
 
 
