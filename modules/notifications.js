@@ -1071,136 +1071,174 @@ function buildAddressLine(c){
   return parts.filter(Boolean).join(', ');
 }
 
-export async function initDomicilioForm(){
-  const card = $('address-card'); if (!card || card._wired) return; card._wired = true;
-  const q = (sel) => card.querySelector(sel);
-  const g = id => $(id);
+export async function initDomicilioForm() {
+  const card = $('address-card');
+  if (!card || card._wired) return;
+  card._wired = true;
 
-    // 👇 NUEVO: flag para saber si el cliente ya tiene domicilio guardado en servidor
+  const q = (sel) => card.querySelector(sel);
+  const g = (id) => $(id);
+
+  // Flag: el cliente ya tenía domicilio guardado en servidor
   let hadServerAddress = false;
-   
-  const getValues = ()=>({
-    calle:g('dom-calle')?.value?.trim()||'',
-    numero:g('dom-numero')?.value?.trim()||'',
-    piso:g('dom-piso')?.value?.trim()||'',
-    depto:g('dom-depto')?.value?.trim()||'',
-    localidad:g('dom-localidad')?.value?.trim()||'',
-    partido:g('dom-partido')?.value?.trim()||'',
-    provincia:g('dom-provincia')?.value?.trim()||'',
-    codigoPostal:g('dom-cp')?.value?.trim()||'',
-    pais:g('dom-pais')?.value?.trim()||'',
-    referencia:g('dom-referencia')?.value?.trim()||''
+
+  const getValues = () => ({
+    calle:        g('dom-calle')?.value?.trim()        || '',
+    numero:       g('dom-numero')?.value?.trim()       || '',
+    piso:         g('dom-piso')?.value?.trim()         || '',
+    depto:        g('dom-depto')?.value?.trim()        || '',
+    localidad:    g('dom-localidad')?.value?.trim()    || '',
+    partido:      g('dom-partido')?.value?.trim()      || '',
+    provincia:    g('dom-provincia')?.value?.trim()    || '',
+    codigoPostal: g('dom-cp')?.value?.trim()           || '',
+    pais:         g('dom-pais')?.value?.trim()         || '',
+    referencia:   g('dom-referencia')?.value?.trim()   || ''
   });
 
-  // Precarga
+  // ─────────────────────────────────────────────
+  // Precarga desde Firestore
+  // ─────────────────────────────────────────────
   try {
-    const uid = firebase.auth().currentUser && firebase.auth().currentUser.uid;
-    if (uid){
+    const current = firebase.auth().currentUser;
+    const uid = current && current.uid;
+    if (uid) {
       const clienteId = await getClienteDocIdPorUID(uid);
-      if (clienteId){
-        const snap = await firebase.firestore().collection('clientes').doc(clienteId).get();
-        const dom  = snap.data() && snap.data().domicilio && snap.data().domicilio.components;
-        if (dom){
+      if (clienteId) {
+        const snap = await firebase.firestore()
+          .collection('clientes')
+          .doc(clienteId)
+          .get();
 
-             hadServerAddress = true;
-          g('dom-calle').value = dom.calle || '';
-          g('dom-numero').value = dom.numero || '';
-          g('dom-piso').value = dom.piso || '';
-          g('dom-depto').value = dom.depto || '';
-          g('dom-localidad').value = dom.localidad || '';
-          g('dom-partido').value = dom.partido || '';
-          g('dom-provincia').value = dom.provincia || '';
-          g('dom-cp').value = dom.codigoPostal || '';
-          g('dom-pais').value = dom.pais || 'Argentina';
-          g('dom-referencia').value = dom.referencia || '';
-      // 👇 NUEVO: refrescar datalists según provincia/partido precargados
+        const dom = snap.data()?.domicilio?.components;
+        if (dom) {
+          hadServerAddress = true;
+
+          g('dom-calle').value      = dom.calle        || '';
+          g('dom-numero').value     = dom.numero       || '';
+          g('dom-piso').value       = dom.piso         || '';
+          g('dom-depto').value      = dom.depto        || '';
+          g('dom-localidad').value  = dom.localidad    || '';
+          g('dom-partido').value    = dom.partido      || '';
+          g('dom-provincia').value  = dom.provincia    || '';
+          g('dom-cp').value         = dom.codigoPostal || '';
+          g('dom-pais').value       = dom.pais         || 'Argentina';
+          g('dom-referencia').value = dom.referencia   || '';
+
+          // Refrescar datalists según provincia/partido precargados
           try {
             const provEl = g('dom-provincia');
             if (provEl) {
               provEl.dispatchEvent(new Event('change', { bubbles: true }));
             }
+            const provVal = dom.provincia || '';
             const partEl = g('dom-partido');
-            if (partEl && partEl.value) {
+            if (/^Buenos Aires$/i.test(provVal) && partEl && partEl.value) {
               partEl.dispatchEvent(new Event('input', { bubbles: true }));
             }
           } catch (e2) {
             console.warn('[ADDR] no se pudo refrescar datalists dom-:', e2);
           }
         }
+      }
+    }
+  } catch (e) {
+    console.warn('[ADDR] error precarga domicilio:', e);
+  }
 
-     // 👇 Botón "Luego" del formulario (modo edición = cambiar label)
+  // ─────────────────────────────────────────────
+  // Botón "Luego"/"Cancelar" (según modo)
+  // ─────────────────────────────────────────────
   const skipBtn = q('#address-cancel') || q('#address-skip');
   if (hadServerAddress && skipBtn) {
     // Modo edición: que no diga "Luego", que diga "Cancelar"
     skipBtn.textContent = 'Cancelar';
   }
 
-  // Guardar
+  // ─────────────────────────────────────────────
+  // Guardar domicilio
+  // ─────────────────────────────────────────────
   const saveBtn = q('#address-save');
-  if (saveBtn && !saveBtn._wired){
+  if (saveBtn && !saveBtn._wired) {
     saveBtn._wired = true;
-    saveBtn.addEventListener('click', async ()=>{
-      try{
-        const uid = firebase.auth().currentUser && firebase.auth().currentUser.uid;
-        if (!uid) { toast('Iniciá sesión para guardar tu domicilio','warning'); return; }
-        const clienteId = await getClienteDocIdPorUID(uid);
-        if (!clienteId) { toast('No encontramos tu ficha de cliente','error'); return; }
-
-                const vals = getValues();
-
-        // 👇 Nuevo: poblar "barrio" cuando la provincia es CABA/Capital
-        let barrio = '';
-        if (/^CABA|Capital/i.test(vals.provincia) && vals.localidad) {
-          barrio = vals.localidad;
+    saveBtn.addEventListener('click', async () => {
+      try {
+        const current = firebase.auth().currentUser;
+        const uid = current && current.uid;
+        if (!uid) {
+          toast('Iniciá sesión para guardar tu domicilio', 'warning');
+          return;
         }
 
-        const components = {
-          ...vals,
-          barrio      // 👈 nuevo campo barrio
-        };
+        const clienteId = await getClienteDocIdPorUID(uid);
+        if (!clienteId) {
+          toast('No encontramos tu ficha de cliente', 'error');
+          return;
+        }
+
+        // Leemos valores del form
+        let components = getValues();
+
+        // Para CABA/Capital, copiamos localidad → barrio
+        if (/^CABA|Capital/i.test(components.provincia) && components.localidad) {
+          components = {
+            ...components,
+            barrio: components.localidad
+          };
+        }
 
         const addressLine = buildAddressLine(components);
 
-        await firebase.firestore().collection('clientes').doc(clienteId).set({
-          domicilio:{ addressLine, components, geocoded:{ lat:null,lng:null,geohash7:null,provider:null,confidence:null,geocodedAt:null,verified:false } }
-        }, { merge:true });
+        await firebase.firestore()
+          .collection('clientes')
+          .doc(clienteId)
+          .set({
+            domicilio: {
+              addressLine,
+              components,
+              geocoded: {
+                lat: null,
+                lng: null,
+                geohash7: null,
+                provider: null,
+                confidence: null,
+                geocodedAt: null,
+                verified: false
+              }
+            }
+          }, { merge: true });
 
-        try { localStorage.setItem(LS_ADDR_DISMISS,'1'); } catch (e) {}
-        toast('Domicilio guardado. ¡Gracias!','success');
+        try { localStorage.setItem(LS_ADDR_DISMISS, '1'); } catch (e) {}
+
+        toast('Domicilio guardado. ¡Gracias!', 'success');
 
         // Cierro form y banner definitivamente
-        try { card.style.display='none'; } catch (e2) {}
-        try { $('address-banner').style.display='none'; } catch (e3) {}
+        try { card.style.display = 'none'; } catch (e2) {}
+        try { $('address-banner').style.display = 'none'; } catch (e3) {}
 
-        // Actualizo UI relacionada
+        // Actualizo UI relacionada (GEO, perfil)
         hideGeoBanner();
         try { await updateGeoUI(); } catch (e4) {}
-        emit('rampet:geo:changed', { enabled:true });
+        emit('rampet:geo:changed', { enabled: true });
 
-        // Actualizar resumen en perfil si existe
         try {
           const summary = $('prof-address-summary');
           if (summary) summary.textContent = addressLine || '—';
         } catch (e5) {}
-      }catch(e){
+      } catch (e) {
         console.error('save domicilio error', e);
-        toast('No pudimos guardar el domicilio','error');
+        toast('No pudimos guardar el domicilio', 'error');
       }
     });
   }
 
-    // Cancel / Luego del FORM
- // const skipBtn = q('#address-cancel') || q('#address-skip');
-  if (skipBtn && !skipBtn._wired){
+  // ─────────────────────────────────────────────
+  // Cancel / Luego del FORM
+  // ─────────────────────────────────────────────
+  if (skipBtn && !skipBtn._wired) {
     skipBtn._wired = true;
-
     skipBtn.addEventListener('click', () => {
-      // 🔍 Decidimos el comportamiento en el momento del click:
-      // - Si el cliente YA tiene domicilio guardado (hadServerAddress true)
-      //   o ya lo guardó en esta sesión (LS_ADDR_DISMISS = '1'),
-      //   tratamos el botón como "Cancelar edición".
-      // - Si NO tiene domicilio todavía, mantenemos el comportamiento original de "Luego".
-
+      // Si ya tiene domicilio guardado (o lo guardó en esta sesión),
+      // este botón funciona como "Cancelar edición".
       let hasSavedAddress = hadServerAddress;
       try {
         if (localStorage.getItem(LS_ADDR_DISMISS) === '1') {
@@ -1209,16 +1247,15 @@ export async function initDomicilioForm(){
       } catch (e) {}
 
       if (hasSavedAddress) {
-        // 👇 Modo edición: solo cerrar el formulario, sin tocar banners ni flags
         try { card.style.display = 'none'; } catch (e2) {}
         return;
       }
 
-      // 👇 Modo "primer domicilio": comportamiento original de "Luego"
-      try { sessionStorage.setItem(SS_ADDR_DEFER,'1'); } catch (e) {}
-      toast('Podés cargarlo cuando quieras desde tu perfil.','info');
-      try { card.style.display='none'; } catch (e2) {}
-      try { $('address-banner').style.display='block'; } catch (e3) {}
+      // Primer domicilio: comportamiento original de "Luego"
+      try { sessionStorage.setItem(SS_ADDR_DEFER, '1'); } catch (e) {}
+      toast('Podés cargarlo cuando quieras desde tu perfil.', 'info');
+      try { card.style.display = 'none'; } catch (e2) {}
+      try { $('address-banner').style.display = 'block'; } catch (e3) {}
     });
   }
 }
@@ -1312,6 +1349,7 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
 
