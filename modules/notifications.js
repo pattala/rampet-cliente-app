@@ -1136,8 +1136,21 @@ export async function initDomicilioForm(){
         const clienteId = await getClienteDocIdPorUID(uid);
         if (!clienteId) { toast('No encontramos tu ficha de cliente','error'); return; }
 
-        const components = getValues();
+                const vals = getValues();
+
+        // 👇 Nuevo: poblar "barrio" cuando la provincia es CABA/Capital
+        let barrio = '';
+        if (/^CABA|Capital/i.test(vals.provincia) && vals.localidad) {
+          barrio = vals.localidad;
+        }
+
+        const components = {
+          ...vals,
+          barrio      // 👈 nuevo campo barrio
+        };
+
         const addressLine = buildAddressLine(components);
+
         await firebase.firestore().collection('clientes').doc(clienteId).set({
           domicilio:{ addressLine, components, geocoded:{ lat:null,lng:null,geohash7:null,provider:null,confidence:null,geocodedAt:null,verified:false } }
         }, { merge:true });
@@ -1289,6 +1302,7 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
 
