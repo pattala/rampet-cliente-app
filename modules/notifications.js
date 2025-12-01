@@ -1075,6 +1075,10 @@ export async function initDomicilioForm(){
   const card = $('address-card'); if (!card || card._wired) return; card._wired = true;
   const q = (sel) => card.querySelector(sel);
   const g = id => $(id);
+
+    // 👇 NUEVO: flag para saber si el cliente ya tiene domicilio guardado en servidor
+  let hadServerAddress = false;
+   
   const getValues = ()=>({
     calle:g('dom-calle')?.value?.trim()||'',
     numero:g('dom-numero')?.value?.trim()||'',
@@ -1097,6 +1101,8 @@ export async function initDomicilioForm(){
         const snap = await firebase.firestore().collection('clientes').doc(clienteId).get();
         const dom  = snap.data() && snap.data().domicilio && snap.data().domicilio.components;
         if (dom){
+
+             hadServerAddress = true;
           g('dom-calle').value = dom.calle || '';
           g('dom-numero').value = dom.numero || '';
           g('dom-piso').value = dom.piso || '';
@@ -1153,11 +1159,32 @@ export async function initDomicilioForm(){
     });
   }
 
-  // Cancel / Luego del FORM
+    // Cancel / Luego del FORM
   const skipBtn = q('#address-cancel') || q('#address-skip');
   if (skipBtn && !skipBtn._wired){
     skipBtn._wired = true;
-    skipBtn.addEventListener('click', ()=>{
+
+    skipBtn.addEventListener('click', () => {
+      // 🔍 Decidimos el comportamiento en el momento del click:
+      // - Si el cliente YA tiene domicilio guardado (hadServerAddress true)
+      //   o ya lo guardó en esta sesión (LS_ADDR_DISMISS = '1'),
+      //   tratamos el botón como "Cancelar edición".
+      // - Si NO tiene domicilio todavía, mantenemos el comportamiento original de "Luego".
+
+      let hasSavedAddress = hadServerAddress;
+      try {
+        if (localStorage.getItem(LS_ADDR_DISMISS) === '1') {
+          hasSavedAddress = true;
+        }
+      } catch (e) {}
+
+      if (hasSavedAddress) {
+        // 👇 Modo edición: solo cerrar el formulario, sin tocar banners ni flags
+        try { card.style.display = 'none'; } catch (e2) {}
+        return;
+      }
+
+      // 👇 Modo "primer domicilio": comportamiento original de "Luego"
       try { sessionStorage.setItem(SS_ADDR_DEFER,'1'); } catch (e) {}
       toast('Podés cargarlo cuando quieras desde tu perfil.','info');
       try { card.style.display='none'; } catch (e2) {}
@@ -1165,6 +1192,7 @@ export async function initDomicilioForm(){
     });
   }
 }
+
 
 /* ────────────────────────────────────────────────────────────
    MINI-PROMPT GEO contextual (desactivado por acuerdo)
@@ -1254,4 +1282,5 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
