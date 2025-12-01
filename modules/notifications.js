@@ -1118,6 +1118,13 @@ export async function initDomicilioForm(){
     }
   } catch (e) {}
 
+     // 👇 Botón "Luego" del formulario (modo edición = cambiar label)
+  const skipBtn = q('#address-cancel') || q('#address-skip');
+  if (hadServerAddress && skipBtn) {
+    // Modo edición: que no diga "Luego", que diga "Cancelar"
+    skipBtn.textContent = 'Cancelar';
+  }
+
   // Guardar
   const saveBtn = q('#address-save');
   if (saveBtn && !saveBtn._wired){
@@ -1160,7 +1167,7 @@ export async function initDomicilioForm(){
   }
 
     // Cancel / Luego del FORM
-  const skipBtn = q('#address-cancel') || q('#address-skip');
+ // const skipBtn = q('#address-cancel') || q('#address-skip');
   if (skipBtn && !skipBtn._wired){
     skipBtn._wired = true;
 
@@ -1282,5 +1289,6 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
