@@ -1113,10 +1113,20 @@ export async function initDomicilioForm(){
           g('dom-cp').value = dom.codigoPostal || '';
           g('dom-pais').value = dom.pais || 'Argentina';
           g('dom-referencia').value = dom.referencia || '';
+      // 👇 NUEVO: refrescar datalists según provincia/partido precargados
+          try {
+            const provEl = g('dom-provincia');
+            if (provEl) {
+              provEl.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+            const partEl = g('dom-partido');
+            if (partEl && partEl.value) {
+              partEl.dispatchEvent(new Event('input', { bubbles: true }));
+            }
+          } catch (e2) {
+            console.warn('[ADDR] no se pudo refrescar datalists dom-:', e2);
+          }
         }
-      }
-    }
-  } catch (e) {}
 
      // 👇 Botón "Luego" del formulario (modo edición = cambiar label)
   const skipBtn = q('#address-cancel') || q('#address-skip');
@@ -1302,6 +1312,7 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
 
