@@ -116,22 +116,41 @@ function ensureNotifOffBanner(){
   el = document.createElement('div');
   el.id = 'notif-off-banner';
   el.className = 'card';
-  el.style.cssText = 'display:none; margin:12px 0;';
+  // Estilo más chico / sutil, pero con algo de color
+  el.style.cssText = [
+    'display:none',
+    'margin:8px 0 4px',
+    'padding:10px 12px',
+    'font-size:0.9rem',
+    'border-left:4px solid #ff9800',
+    'box-shadow:0 2px 6px rgba(0,0,0,0.06)'
+  ].join(';');
+
   el.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;justify-content:space-between;flex-wrap:wrap;">
-      <div style="display:flex;gap:10px;align-items:center;">
-        <span aria-hidden="true" style="font-size:18px;">🔕</span>
-        <div>
-          <strong>No estás recibiendo notificaciones.</strong><br/>
-          Te estás perdiendo <em>promos, novedades y ofertas</em> pensadas para vos. Activálas desde <em>Mi Perfil</em>.
+    <div style="display:flex; align-items:flex-start; gap:8px; flex-wrap:wrap;">
+      <span aria-hidden="true" style="font-size:18px; margin-top:2px;">🔕</span>
+      <div style="flex:1 1 auto;">
+        <div style="font-weight:600; margin-bottom:2px;">No estás recibiendo notificaciones.</div>
+        <div style="margin-bottom:6px;">
+          Te estás perdiendo <em>promos y novedades</em>. Podés activarlas cuando quieras desde <em>Mi Perfil</em>.
         </div>
+        <button id="notif-off-go-profile" class="secondary-btn btn-small" type="button" style="padding:4px 10px;">
+          Abrir Perfil
+        </button>
       </div>
-      <div>
-        <button id="notif-off-go-profile" class="secondary-btn" type="button" style="white-space:nowrap;">Abrir Perfil</button>
-      </div>
-    </div>`;
-  const mountAt = document.querySelector('.container') || $('main-app-screen') || document.body;
-  mountAt.insertBefore(el, mountAt.firstChild);
+    </div>
+  `;
+
+  // 👉 Nuevo: intentamos montar debajo de los puntos si existe el slot
+  const slot   = $('notif-off-slot');
+  const mountAt = slot || document.querySelector('.container') || $('main-app-screen') || document.body;
+
+  if (slot) {
+    slot.appendChild(el);
+  } else {
+    // fallback antiguo: arriba de todo en el contenedor
+    mountAt.insertBefore(el, mountAt.firstChild);
+  }
 
   const btn = $('notif-off-go-profile');
   if (btn && !btn._wired){
@@ -143,6 +162,7 @@ function ensureNotifOffBanner(){
   }
   return el;
 }
+
 function showNotifOffBanner(on){ const el = ensureNotifOffBanner(); if (el) el.style.display = on ? 'block' : 'none'; }
 
 /* ────────────────────────────────────────────────────────────
@@ -1429,6 +1449,7 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
 
