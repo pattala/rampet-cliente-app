@@ -17,8 +17,14 @@ function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 /* ────────────────────────────────────────────────────────────
    ESTADO LOCAL / CONSTANTES
    ──────────────────────────────────────────────────────────── */
-const LS_NOTIF_STATE = 'notifState'; // 'deferred' | 'accepted' | 'blocked' | null
+// NOTIFS
+// LS_NOTIF_STATE: 'deferred' | 'accepted' | 'blocked' | 'soft_blocked' | null
+const LS_NOTIF_STATE = 'notifState';
+const LS_NOTIF_SUPPRESS_UNTIL = 'notifSuppressUntil'; // epoch ms (cooldown "No quiero")
+
+// GEO
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
+
 
 // GEO: supresión del banner grande por “cool-down”
 const LS_GEO_SUPPRESS_UNTIL = 'geoSuppressUntil'; // epoch ms
@@ -401,15 +407,47 @@ function refreshNotifUIFromPermission(){
   const hasToken = isNotifEnabledLocally();
   const pending = __tokenProvisionPending || !!__tokenReqLock || __notifReqInFlight;
 
-  // “blocked” → no marketing, no switch ON, banner chico ON
-  if (lsState === 'blocked' || perm === 'denied'){
+  // 1) Bloqueo REAL del navegador → mensaje técnico “candado…”
+  if (perm === 'denied') {
     if (switchEl) switchEl.checked = false;
     show(warnBlocked, true);
     showNotifOffBanner(true);
     return;
   }
 
-  // “deferred” (Luego) → mostrar switch OFF, marketing oculto
+  // 2) Hard-block de la app (opt-out fuerte desde switch/perfil)
+  if (lsState === 'blocked') {
+    if (switchEl) switchEl.checked = false;
+    // No mostramos el texto de "bloqueado en el navegador"
+    show(warnBlocked, false);
+    showNotifOffBanner(true);
+    return;
+  }
+
+  // 3) Soft-block ("No quiero" en banner grande) + cooldown
+  if (lsState === 'soft_blocked') {
+    if (switchEl) switchEl.checked = false;
+
+    let suppressUntil = 0;
+    try {
+      suppressUntil = +localStorage.getItem(LS_NOTIF_SUPPRESS_UNTIL) || 0;
+    } catch (e) { suppressUntil = 0; }
+
+    const now = Date.now();
+    const inCooldown = suppressUntil && suppressUntil > now;
+
+    // Durante el cooldown: no marketing, no banner técnico, ni banner off.
+    // Pasado el cooldown: usamos el banner chico "no estás recibiendo notificaciones".
+    show(warnBlocked, false);
+    if (!pending && !inCooldown) {
+      showNotifOffBanner(true);    // recordatorio suave después de 25 días
+    } else {
+      showNotifOffBanner(false);
+    }
+    return;
+  }
+
+  // 4) “deferred” (Luego) → mostrar switch OFF, marketing oculto
   if (lsState === 'deferred'){
     if (switchEl) switchEl.checked = false;
     if (!pending) show(cardSwitch, true);
@@ -417,7 +455,7 @@ function refreshNotifUIFromPermission(){
     return;
   }
 
-  // granted
+  // 5) granted
   if (perm === 'granted'){
     if (switchEl) switchEl.checked = !!hasToken;
     if (!hasToken && !pending) show(cardSwitch, true);
@@ -425,11 +463,12 @@ function refreshNotifUIFromPermission(){
     return;
   }
 
-  // default → primera vez
+  // 6) default → primera vez (banner grande marketing)
   if (!pending) show(cardMarketing, true);
   if (switchEl) switchEl.checked = false;
   showNotifOffBanner(false);
 }
+
 
 /* Watcher de permiso (mantiene UI y re-suscripción) */
 let __permWatcher = { timer:null, last:null, wired:false };
@@ -441,9 +480,18 @@ function startNotifPermissionWatcher(){
       navigator.permissions.query({ name:'notifications' }).then((permStatus)=>{
         __permWatcher.last = permStatus.state;
         refreshNotifUIFromPermission(); syncProfileConsentUI();
-        if (AUTO_RESUBSCRIBE && permStatus.state==='granted' && hasPriorAppConsent() && !isNotifEnabledLocally() && (localStorage.getItem(LS_NOTIF_STATE)!=='blocked')) {
-          obtenerYGuardarTokenOneShot().catch(()=>{});
-        }
+        const st = localStorage.getItem(LS_NOTIF_STATE);
+if (
+  AUTO_RESUBSCRIBE &&
+  permStatus.state === 'granted' &&
+  hasPriorAppConsent() &&
+  !isNotifEnabledLocally() &&
+  st !== 'blocked' &&
+  st !== 'soft_blocked'
+) {
+  obtenerYGuardarTokenOneShot().catch(()=>{});
+}
+
         permStatus.onchange = ()=>{
           __permWatcher.last = permStatus.state;
           refreshNotifUIFromPermission(); syncProfileConsentUI();
@@ -464,9 +512,18 @@ function startPollingWatcher(){
     if (cur === __permWatcher.last) return;
     __permWatcher.last = cur;
     refreshNotifUIFromPermission(); syncProfileConsentUI();
-    if (AUTO_RESUBSCRIBE && cur==='granted' && hasPriorAppConsent() && !isNotifEnabledLocally() && (localStorage.getItem(LS_NOTIF_STATE)!=='blocked')) {
-      obtenerYGuardarTokenOneShot().catch(()=>{});
-    }
+  const st = localStorage.getItem(LS_NOTIF_STATE);
+if (
+  AUTO_RESUBSCRIBE &&
+  cur === 'granted' &&
+  hasPriorAppConsent() &&
+  !isNotifEnabledLocally() &&
+  st !== 'blocked' &&
+  st !== 'soft_blocked'
+) {
+  obtenerYGuardarTokenOneShot().catch(()=>{});
+}
+
   }, 1200);
 }
 function stopNotifPermissionWatcher(){ if (__permWatcher.timer){ clearInterval(__permWatcher.timer); __permWatcher.timer = null; } }
@@ -519,15 +576,38 @@ export async function handlePermissionRequest(){
   } finally { __notifReqInFlight = false; }
 }
 export function handlePermissionBlockClick(){
-  try { localStorage.setItem(LS_NOTIF_STATE,'blocked'); } catch (e) {}
+  try {
+    // “No quiero” = soft-block de marketing + cooldown
+    localStorage.setItem(LS_NOTIF_STATE, 'soft_blocked');
+
+    const now = Date.now();
+    const DAYS = 25;
+    const suppressUntil = now + DAYS * 24 * 60 * 60 * 1000;
+    localStorage.setItem(LS_NOTIF_SUPPRESS_UNTIL, String(suppressUntil));
+  } catch (e) {}
+
+  // Ocultamos el banner grande de marketing
   show($('notif-prompt-card'), false);
-  const sw = $('notif-switch'); if (sw) sw.checked = false;
-  setClienteConfigPatch({ notifEnabled:false, notifUpdatedAt:new Date().toISOString() }).catch(()=>{});
+
+  const sw = $('notif-switch');
+  if (sw) sw.checked = false;
+
+  // A nivel servidor dejamos notifEnabled en false (opt-out lógico)
+  setClienteConfigPatch({
+    notifEnabled: false,
+    notifUpdatedAt: new Date().toISOString()
+  }).catch(()=>{});
+
   emit('rampet:consent:notif-opt-out', { source:'ui-block' });
   toast('Podés volver a activarlas desde tu Perfil cuando quieras.','info');
+
+  // La UI se recalcula según estado + cooldown
   refreshNotifUIFromPermission();
-  showNotifOffBanner(true);
+
+  // ⚠️ Importante: NO llamamos directamente a showNotifOffBanner(true)
+  // porque durante el cooldown queremos silencio total.
 }
+
 export function dismissPermissionRequest(){
   try { localStorage.setItem(LS_NOTIF_STATE,'deferred'); } catch (e) {}
   show($('notif-prompt-card'), false);
@@ -1349,6 +1429,7 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
 
