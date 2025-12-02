@@ -21,6 +21,13 @@ function sleep(ms){ return new Promise(r=>setTimeout(r, ms)); }
 // LS_NOTIF_STATE: 'deferred' | 'accepted' | 'blocked' | 'soft_blocked' | null
 const LS_NOTIF_STATE = 'notifState';
 const LS_NOTIF_SUPPRESS_UNTIL = 'notifSuppressUntil'; // epoch ms (cooldown "No quiero")
+// MINI-BANNER NOTIFS
+const LS_NOTIF_MINI_LAST_SHOWN_AT  = 'notifMiniLastShownAt';   // timestamp última vez mostrado
+const LS_NOTIF_MINI_SILENCE_UNTIL  = 'notifMiniSilenceUntil';  // silencio (10 días, o más)
+const LS_NOTIF_MINI_NOQUIERO_COUNT = 'notifMiniNoQuieroCount'; // contador de "No quiero"
+
+const NOTIF_MINI_INTERVAL_DAYS = 4;   // cada cuántos días se puede mostrar
+const NOTIF_MINI_SILENCE_DAYS  = 10;  // silencio cuando cierra o dice No quiero
 
 // GEO
 const LS_GEO_STATE   = 'geoState';   // 'deferred' | 'accepted' | 'blocked' | null
@@ -115,8 +122,6 @@ function ensureNotifOffBanner() {
 
   el = document.createElement('div');
   el.id = 'notif-off-banner';
-
-  // Mini banner estilo franja
   el.style.cssText = [
     'display:none',
     'margin:6px 0',
@@ -125,8 +130,7 @@ function ensureNotifOffBanner() {
     'background:#fff7e6',
     'border:1px solid #ffe0b3',
     'border-radius:6px',
-    'color:#705000',
-    'box-shadow:none'
+    'color:#705000'
   ].join(';');
 
   el.innerHTML = `
@@ -141,37 +145,101 @@ function ensureNotifOffBanner() {
           Activálas desde <em>Mi Perfil</em>.
         </div>
       </div>
-      <button id="notif-off-go-profile" class="secondary-btn"
-        style="padding:2px 8px;font-size:0.75rem;white-space:nowrap;">
-        Abrir Perfil
-      </button>
+      <div style="display:flex;gap:6px;">
+        <button id="notif-off-open" class="secondary-btn" style="padding:2px 8px;font-size:0.75rem;">Abrir Perfil</button>
+        <button id="notif-off-nothanks" class="link-btn" style="font-size:0.75rem;">No quiero</button>
+        <button id="notif-off-close" class="link-btn" style="font-size:0.75rem;">✕</button>
+      </div>
     </div>
   `;
 
-  // Montarlo en el slot debajo de los puntos si existe
   const slot = $('notif-off-slot');
-  if (slot) {
-    slot.appendChild(el);
-  } else {
-    const mountAt = document.querySelector('.container') || $('main-app-screen') || document.body;
-    mountAt.insertBefore(el, mountAt.firstChild);
-  }
+  if (slot) slot.appendChild(el);
+  else document.body.appendChild(el);
 
-  const btn = $('notif-off-go-profile');
-  if (btn && !btn._wired) {
-    btn._wired = true;
-    btn.addEventListener('click', () => {
-      try { window.UI?.openProfileModal?.(); } catch (e) {}
-      try { syncProfileConsentUI(); syncProfileGeoUI(); } catch (e) {}
-    });
-  }
+  // Abrir perfil
+  $('notif-off-open').addEventListener('click', () => {
+    try { window.UI.openProfileModal(); } catch {}
+    try { syncProfileConsentUI(); } catch {}
+  });
+
+  // ✕ Cerrar → silencio 10 días
+  $('notif-off-close').addEventListener('click', () => {
+    const until = Date.now() + NOTIF_MINI_SILENCE_DAYS*24*60*60*1000;
+    localStorage.setItem(LS_NOTIF_MINI_SILENCE_UNTIL, until);
+    el.style.display = 'none';
+    toast('Perfecto, no mostramos este aviso por unos días.','info');
+  });
+
+  // Botón NO QUIERO
+  $('notif-off-nothanks').addEventListener('click', () => {
+    let c = +(localStorage.getItem(LS_NOTIF_MINI_NOQUIERO_COUNT) || 0);
+    c++;
+    localStorage.setItem(LS_NOTIF_MINI_NOQUIERO_COUNT, c);
+
+    const now = Date.now();
+
+    if (c >= 2) {
+      // Segunda vez ⇒ soft-block 25 días
+      const sup = now + 25*24*60*60*1000;
+      localStorage.setItem(LS_NOTIF_STATE, 'soft_blocked');
+      localStorage.setItem(LS_NOTIF_SUPPRESS_UNTIL, sup);
+
+      const silent = now + 25*24*60*60*1000;
+      localStorage.setItem(LS_NOTIF_MINI_SILENCE_UNTIL, silent);
+
+      el.style.display = 'none';
+      toast('Listo, no insistimos más por un buen tiempo.','info');
+    } else {
+      // Primera vez ⇒ silencio 10 días
+      const silent = now + NOTIF_MINI_SILENCE_DAYS*24*60*60*1000;
+      localStorage.setItem(LS_NOTIF_MINI_SILENCE_UNTIL, silent);
+      el.style.display = 'none';
+      toast('Perfecto, no te lo recordamos por unos días.', 'info');
+    }
+  });
 
   return el;
 }
 
+function canShowMiniNotifBannerNow() {
+  const now = Date.now();
+
+  try {
+    const silence = +localStorage.getItem(LS_NOTIF_MINI_SILENCE_UNTIL) || 0;
+    if (silence > now) return false;
+
+    const last = +localStorage.getItem(LS_NOTIF_MINI_LAST_SHOWN_AT) || 0;
+    if (!last) return true;
+
+    const interval = NOTIF_MINI_INTERVAL_DAYS * 24*60*60*1000;
+    return (now - last) >= interval;
+  } catch (e) {
+    return true;
+  }
+}
 
 
-function showNotifOffBanner(on){ const el = ensureNotifOffBanner(); if (el) el.style.display = on ? 'block' : 'none'; }
+
+function showNotifOffBanner(on) {
+  const el = ensureNotifOffBanner();
+  if (!el) return;
+
+  if (!on) {
+    el.style.display = 'none';
+    return;
+  }
+
+  // Respetar silencio y frecuencia (cada 4 días)
+  if (!canShowMiniNotifBannerNow()) {
+    el.style.display = 'none';
+    return;
+  }
+
+  // Registrar fecha de última exposición
+  localStorage.setItem(LS_NOTIF_MINI_LAST_SHOWN_AT, Date.now().toString());
+  el.style.display = 'block';
+}
 
 /* ────────────────────────────────────────────────────────────
    FIREBASE / SW helpers
@@ -1457,6 +1525,7 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
 
