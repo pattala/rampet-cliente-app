@@ -109,59 +109,61 @@ function bootstrapFirstSessionUX(){
 /* ────────────────────────────────────────────────────────────
    NOTIF OFF — banner pequeño con botón a Perfil
    ──────────────────────────────────────────────────────────── */
-function ensureNotifOffBanner(){
+function ensureNotifOffBanner() {
   let el = $('notif-off-banner');
   if (el) return el;
 
   el = document.createElement('div');
   el.id = 'notif-off-banner';
-  el.className = 'card';
-  // Estilo más chico / sutil, pero con algo de color
+
+  // Mini banner estilo franja (MUCHO más chico)
   el.style.cssText = [
     'display:none',
-    'margin:8px 0 4px',
-    'padding:10px 12px',
-    'font-size:0.9rem',
-    'border-left:4px solid #ff9800',
-    'box-shadow:0 2px 6px rgba(0,0,0,0.06)'
+    'margin:6px 0',
+    'padding:6px 10px',
+    'font-size:0.78rem',
+    'background:#fff7e6',
+    'border:1px solid #ffe0b3',
+    'border-radius:6px',
+    'color:#705000',
+    'box-shadow:none'
   ].join(';');
 
   el.innerHTML = `
-    <div style="display:flex; align-items:flex-start; gap:8px; flex-wrap:wrap;">
-      <span aria-hidden="true" style="font-size:18px; margin-top:2px;">🔕</span>
-      <div style="flex:1 1 auto;">
-        <div style="font-weight:600; margin-bottom:2px;">No estás recibiendo notificaciones.</div>
-        <div style="margin-bottom:6px;">
-          Te estás perdiendo <em>promos y novedades</em>. Podés activarlas cuando quieras desde <em>Mi Perfil</em>.
-        </div>
-        <button id="notif-off-go-profile" class="secondary-btn btn-small" type="button" style="padding:4px 10px;">
-          Abrir Perfil
-        </button>
+    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+      <span aria-hidden="true" style="font-size:14px;">🔕</span>
+      <div style="flex:1 1 auto; line-height:1.15;">
+        <strong style="font-weight:600;">Notificaciones desactivadas.</strong>
+        <span>Activálas desde <em>Mi Perfil</em>.</span>
       </div>
+      <button id="notif-off-go-profile" class="secondary-btn" 
+        style="padding:2px 8px;font-size:0.75rem;white-space:nowrap;">
+        Abrir Perfil
+      </button>
     </div>
   `;
 
-  // 👉 Nuevo: intentamos montar debajo de los puntos si existe el slot
-  const slot   = $('notif-off-slot');
-  const mountAt = slot || document.querySelector('.container') || $('main-app-screen') || document.body;
-
+  // Montarlo en slot si existe
+  const slot = $('notif-off-slot');
   if (slot) {
     slot.appendChild(el);
   } else {
-    // fallback antiguo: arriba de todo en el contenedor
+    const mountAt = document.querySelector('.container') || $('main-app-screen') || document.body;
     mountAt.insertBefore(el, mountAt.firstChild);
   }
 
   const btn = $('notif-off-go-profile');
-  if (btn && !btn._wired){
+  if (btn && !btn._wired) {
     btn._wired = true;
-    btn.addEventListener('click', ()=>{
-      try { window.UI && window.UI.openProfileModal && window.UI.openProfileModal(); } catch (e) {}
+    btn.addEventListener('click', () => {
+      try { window.UI?.openProfileModal?.(); } catch (e) {}
       try { syncProfileConsentUI(); syncProfileGeoUI(); } catch (e) {}
     });
   }
+
   return el;
 }
+
 
 function showNotifOffBanner(on){ const el = ensureNotifOffBanner(); if (el) el.style.display = on ? 'block' : 'none'; }
 
@@ -1449,6 +1451,7 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
 
