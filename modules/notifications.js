@@ -116,7 +116,7 @@ function ensureNotifOffBanner() {
   el = document.createElement('div');
   el.id = 'notif-off-banner';
 
-  // Mini banner estilo franja (MUCHO más chico)
+  // Mini banner estilo franja
   el.style.cssText = [
     'display:none',
     'margin:6px 0',
@@ -132,18 +132,23 @@ function ensureNotifOffBanner() {
   el.innerHTML = `
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
       <span aria-hidden="true" style="font-size:14px;">🔕</span>
-      <div style="flex:1 1 auto; line-height:1.15;">
-        <strong style="font-weight:600;">Notificaciones desactivadas.</strong>
-        <span>Activálas desde <em>Mi Perfil</em>.</span>
+      <div style="flex:1 1 auto; line-height:1.2;">
+        <div style="font-weight:600; margin-bottom:1px;">
+          No estás recibiendo notificaciones.
+        </div>
+        <div>
+          Te estás perdiendo <em>promos y ofertas</em> pensadas para vos.
+          Activálas desde <em>Mi Perfil</em>.
+        </div>
       </div>
-      <button id="notif-off-go-profile" class="secondary-btn" 
+      <button id="notif-off-go-profile" class="secondary-btn"
         style="padding:2px 8px;font-size:0.75rem;white-space:nowrap;">
         Abrir Perfil
       </button>
     </div>
   `;
 
-  // Montarlo en slot si existe
+  // Montarlo en el slot debajo de los puntos si existe
   const slot = $('notif-off-slot');
   if (slot) {
     slot.appendChild(el);
@@ -163,6 +168,7 @@ function ensureNotifOffBanner() {
 
   return el;
 }
+
 
 
 function showNotifOffBanner(on){ const el = ensureNotifOffBanner(); if (el) el.style.display = on ? 'block' : 'none'; }
@@ -1451,6 +1457,7 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
 
