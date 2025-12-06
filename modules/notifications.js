@@ -295,10 +295,8 @@ async function waitForActiveSW(){
 /* ────────────────────────────────────────────────────────────
    Firestore: clientes/{id}, config y tokens
    ──────────────────────────────────────────────────────────── */
+
 async function getClienteDocIdPorUID(uid){
-  const snap = await firebase.firestore().collection('clientes').where('authUID','==', uid).limit(1).get();
-  return snap.empty ? null : snap.docs[0].id;
-}async function getClienteDocIdPorUID(uid){
   // 1) Intentar usar la referencia centralizada que expone data.js en window.clienteRef
   try {
     const ref = (typeof window !== 'undefined') ? window.clienteRef : null;
@@ -1569,6 +1567,7 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
 
