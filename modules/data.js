@@ -278,7 +278,6 @@ function renderizarPantallaPrincipal() {
 }
 
 // ====== CONSENTIMIENTOS / CONFIG ======
-export function getClienteRef() { return clienteRef; }
 
 // ✅ NUEVO: parchar el cliente localmente y emitir eventos de actualización
 export function patchLocalConfig(partial = {}) {
@@ -527,6 +526,7 @@ export function getClienteData() {
 
 // Stubs
 export async function acceptTerms() { /* futuro: guardar aceptación */ }
+
 
 
 
