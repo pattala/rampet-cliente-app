@@ -1517,6 +1517,16 @@ document.addEventListener('rampet:consent:notif-opt-out', ()=>{ try { syncProfil
 document.addEventListener('rampet:consent:notif-dismissed', ()=>{ try { syncProfileConsentUI(); } catch (e) {} });
 
 document.addEventListener('rampet:geo:changed', ()=>{ try { syncProfileGeoUI(); maybeShowGeoOffReminder(); } catch (e) {} });
+// Aseguramos que el banner de domicilio tenga siempre sus botones
+try {
+  document.addEventListener('rampet:config-updated', () => {
+    try {
+      ensureAddressBannerButtons();
+    } catch (e) {
+      console.warn('[ADDR] Error al asegurar botones del banner de domicilio:', e);
+    }
+  });
+} catch (e) {}
 
 document.addEventListener('visibilitychange', ()=>{
   if (document.visibilityState==='visible'){
@@ -1567,6 +1577,7 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
 
