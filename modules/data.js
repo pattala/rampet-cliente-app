@@ -412,11 +412,10 @@ export async function listenToClientData(user) {
     console.error("[PWA] Error seteando listener de campañas:", e);
   }
 
-  // Cliente (tiempo real) — **normalizamos config** para que nunca sea undefined
+   // Cliente (tiempo real) — normalizamos config y elegimos una ficha canónica
   try {
     const clienteQuery = db.collection('clientes')
-      .where("authUID", "==", user.uid)
-      .limit(1);
+      .where("authUID", "==", user.uid); // ← SIN limit(1), queremos ver TODOS
 
     unsubscribeCliente = clienteQuery.onSnapshot(snapshot => {
       if (snapshot.empty) {
@@ -425,7 +424,65 @@ export async function listenToClientData(user) {
         return;
       }
 
-      const doc = snapshot.docs[0];
+      const docs = snapshot.docs;
+
+      // Si hay más de una ficha con el mismo authUID, lo logueamos para poder limpiar datos
+      if (docs.length > 1) {
+        console.warn(
+          "[PWA] ALERTA: Hay más de una ficha de cliente con el mismo authUID.",
+          {
+            authUID: user.uid,
+            ids: docs.map(d => d.id)
+          }
+        );
+      }
+
+      // ────────────── Heurística para elegir UNA ficha de cliente ──────────────
+      let chosen = docs;
+
+      // 1) Preferir estado !== 'baja'
+      const activos = chosen.filter(d => {
+        const e = (d.data().estado || "activo");
+        return e !== "baja";
+      });
+      if (activos.length > 0) chosen = activos;
+
+      // 2) Preferir el que tenga numeroSocio
+      const conNumero = chosen.filter(d => d.data().numeroSocio != null);
+      if (conNumero.length === 1) {
+        chosen = conNumero;
+      } else if (conNumero.length > 1) {
+        chosen = conNumero;
+      }
+
+      // 3) Preferir el que tenga domicilio.addressLine no vacío
+      const conDomicilio = chosen.filter(d => {
+        const dom = d.data().domicilio;
+        return dom && typeof dom.addressLine === "string" && dom.addressLine.trim().length > 0;
+      });
+      if (conDomicilio.length === 1) {
+        chosen = conDomicilio;
+      } else if (conDomicilio.length > 1) {
+        chosen = conDomicilio;
+      }
+
+      // 4) Si hay createdAt, elegir el más antiguo
+      const conCreatedAt = chosen.filter(d => !!d.data().createdAt);
+      if (conCreatedAt.length > 0) {
+        chosen = [conCreatedAt.reduce((best, d) => {
+          try {
+            const ts = d.data().createdAt;
+            const bestTs = best.data().createdAt;
+            if (!bestTs) return d;
+            if (!ts) return best;
+            return ts.toMillis() < bestTs.toMillis() ? d : best;
+          } catch {
+            return best;
+          }
+        }, conCreatedAt[0])];
+      }
+
+      const doc = chosen[0]; // ← elegimos finalmente uno solo
       clienteRef = doc.ref;
 
       const raw = doc.data() || {};
@@ -449,6 +506,7 @@ export async function listenToClientData(user) {
 
 
 
+
 // ───────── DEBUG CONSOLE HELPERS (opcional QA) ─────────
 if (typeof window !== 'undefined') {
   window.computeUpcomingExpirations = computeUpcomingExpirations;
@@ -457,8 +515,19 @@ if (typeof window !== 'undefined') {
   Object.defineProperty(window, 'clienteRef',  { get: () => clienteRef  });
 }
 
+// ⬇️ Fuera del if, a nivel superior del archivo
+export function getClienteRef() {
+  return clienteRef;
+}
+
+export function getClienteData() {
+  return clienteData;
+}
+
+
 // Stubs
 export async function acceptTerms() { /* futuro: guardar aceptación */ }
+
 
 
 
