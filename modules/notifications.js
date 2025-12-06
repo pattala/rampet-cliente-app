@@ -298,7 +298,51 @@ async function waitForActiveSW(){
 async function getClienteDocIdPorUID(uid){
   const snap = await firebase.firestore().collection('clientes').where('authUID','==', uid).limit(1).get();
   return snap.empty ? null : snap.docs[0].id;
+}async function getClienteDocIdPorUID(uid){
+  // 1) Intentar usar la referencia centralizada que expone data.js en window.clienteRef
+  try {
+    const ref = (typeof window !== 'undefined') ? window.clienteRef : null;
+    if (ref && ref.id) {
+      return ref.id;
+    }
+  } catch (e) {
+    console.warn("[PWA] Error leyendo window.clienteRef en notifications.js:", e);
+  }
+
+  // 2) Fallback: resolver por authUID directamente (más robusto, sin limit(1))
+  if (!uid) {
+    const current = firebase.auth().currentUser;
+    uid = current && current.uid;
+  }
+  if (!uid) {
+    console.error("[PWA] No hay UID para resolver cliente en getClienteDocIdPorUID");
+    return null;
+  }
+
+  const snap = await firebase.firestore()
+    .collection('clientes')
+    .where('authUID','==', uid)
+    .get(); // ← sin limit(1), queremos ver si hay duplicados
+
+  if (snap.empty) {
+    console.error("[PWA] No se encontró cliente para authUID (fallback en notifications.js):", uid);
+    return null;
+  }
+
+  if (snap.size > 1) {
+    console.warn(
+      "[PWA] ALERTA: Más de un cliente con el mismo authUID (fallback en notifications.js).",
+      {
+        authUID: uid,
+        ids: snap.docs.map(d => d.id)
+      }
+    );
+  }
+
+  // En fallback nos quedamos con el primero (el caso normal es que haya 1 solo)
+  return snap.docs[0].id;
 }
+
 async function setClienteConfigPatch(partial){
   try {
     const uid = firebase.auth().currentUser && firebase.auth().currentUser.uid; if (!uid) return;
@@ -1525,6 +1569,7 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
 
