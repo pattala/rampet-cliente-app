@@ -1056,13 +1056,41 @@ export async function handleProfileGeoToggle(checked){
 /* GEO botones */
 function wireGeoButtonsOnce(){
   const { banner, btnOn, btnOff, btnHelp } = geoEls();
-  if (!banner || banner._wired) return; banner._wired = true;
-  if (btnOn) btnOn.addEventListener('click', handleGeoEnable);
-  // btnOff intencionalmente no se usa (no hay “Luego”)
-  if (btnHelp) btnHelp.addEventListener('click', ()=>{
-    alert('Para activarlo:\n\n1) Abrí configuración del navegador.\n2) Permisos > Ubicación: Permitir.\n3) Recargá la página.');
-  });
+  if (!banner || banner._wired) return; 
+  banner._wired = true;
+
+  // Botón "Activar ahora"
+  if (btnOn && !btnOn._wired){
+    btnOn._wired = true;
+    btnOn.addEventListener('click', handleGeoEnable);
+  }
+
+  // Botón "Desactivar" (cuando el navegador tiene GEO en denied)
+  if (btnOff && !btnOff._wired){
+    btnOff._wired = true;
+    btnOff.addEventListener('click', async ()=>{
+      try { localStorage.setItem(LS_GEO_STATE, 'blocked'); } catch (e) {}
+      // opcional: silenciar marketing GEO por algunos días
+      setGeoSuppress(GEO_COOLDOWN_DAYS);
+      hideGeoBanner();
+      await maybeShowGeoOffReminder();
+    });
+  }
+
+  // Botón "Cómo habilitarlo"
+  if (btnHelp && !btnHelp._wired){
+    btnHelp._wired = true;
+    btnHelp.addEventListener('click', ()=>{
+      alert(
+        'Para activarlo:\n\n' +
+        '1) Abrí configuración del navegador.\n' +
+        '2) Permisos > Ubicación: ponelo en "Permitir".\n' +
+        '3) Recargá la página.'
+      );
+    });
+  }
 }
+
 async function handleGeoEnable(){
   try { localStorage.setItem(LS_GEO_STATE,'accepted'); } catch (e) {}
   clearGeoSuppress();
@@ -1577,6 +1605,7 @@ export async function handleSignOutCleanup(){
 }
 
 /* helpers menores */ function hasPriorAppConsent(){ try { return localStorage.getItem(LS_NOTIF_STATE) === 'accepted'; } catch { return false; } }
+
 
 
 
