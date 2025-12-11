@@ -861,6 +861,15 @@ async function main() {
 // ──────────────────────────────────────────────────────────────
 // T&C: interceptar links y abrir modal
 // ──────────────────────────────────────────────────────────────
+
+// URL única de Términos y Condiciones (servida por rampet-notification-server)
+const TERMS_URL = 'https://rampet.vercel.app/docs/terminos.html';
+// Ejemplos posibles (elegí el correcto):
+// const TERMS_URL = 'https://rampet-notification-server.vercel.app/docs/terminos.html';
+// const TERMS_URL = 'https://rampet.vercel.app/docs/terminos.html';
+
+
+
 function ensureTermsModalPresent() {
   let modal = document.getElementById('terms-modal');
   if (modal) return modal;
@@ -893,13 +902,16 @@ function ensureTermsModalPresent() {
   return modal;
 }
 function openTermsModalCatchAll() {
-  const modal = ensureTermsModalPresent();
-  try { openTermsModal?.(); }
-  catch {
-    try { UI.openTermsModal?.(true); } catch { modal.style.display = 'flex'; }
+  try {
+    // Intentar abrir en una pestaña nueva para no perder el contexto (registro, etc.)
+    window.open(TERMS_URL, '_blank', 'noopener');
+  } catch (e) {
+    console.warn('[T&C] No se pudo abrir en nueva pestaña, redirigiendo en esta misma.', e);
+    // Fallback: redirigir en la misma pestaña
+    window.location.href = TERMS_URL;
   }
-  try { wireTermsModalBehavior?.(); } catch {}
 }
+
 
 document.addEventListener('click', (e) => {
   if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
@@ -920,6 +932,7 @@ document.addEventListener('DOMContentLoaded', () => {
   try { reorderAddressFields('reg-'); } catch {}
   main();
 });
+
 
 
 
